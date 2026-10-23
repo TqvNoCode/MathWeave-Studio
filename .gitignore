@@ -1,0 +1,44 @@
+# Python-generated files
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+
+# Build and packaging artifacts
+build/
+dist/
+wheels/
+*.egg-info/
+*.spec.bak
+
+# Test and development caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Type checking
+.pyright/
+
+# Logs and temporary reports
+/log/
+*.log
+
+# Local environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Local profiling and debugging artifacts
+.prof
+*.prof

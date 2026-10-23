@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=MathWeave Studio
+GenericName=Mathematics Learning Application
+Comment=Phần mềm Hỗ trợ Học tập & Nghiên cứu Toán học Chuyên sâu
+Exec=/home/tqv/Desktop/CODE/Python/math_app/launch.sh
+Icon=/home/tqv/Desktop/CODE/Python/math_app/assets/icon.png
+Terminal=false
+Categories=Education;Science;Math;
+StartupNotify=true
+Keywords=Math;Calculus;Algebra;Differentiation;Integration;Matrix;Plotting;

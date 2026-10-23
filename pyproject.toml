@@ -1,0 +1,35 @@
+[project]
+name = "mathweave-studio"
+version = "0.1.0"
+description = "MathWeave Studio — Phần mềm Hỗ trợ Học tập & Nghiên cứu Toán học Chuyên sâu"
+readme = "README.md"
+authors = [
+    { name = "TqvNoCode", email = "chienthuatcovua2@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "latex2mathml>=3.81.1",
+    "nicegui>=3.18.0",
+    "numpy>=2.5.4",
+    "plotly>=7.1.0",
+    "pywebview>=6.2.1",
+    "qtpy>=2.4.3",
+    "sympy>=1.14.0",
+]
+
+[project.scripts]
+mathweave-studio = "math_app.main:main"
+math-app = "math_app.main:main"
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "math_app"
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.22.3",
+    "pytest>=8.0.0",
+]

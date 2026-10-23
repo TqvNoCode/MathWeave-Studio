@@ -14,7 +14,7 @@
 *MathWeave Studio is designed to help students and researchers understand mathematical reasoning and transformation rules, rather than treating computer algebra as a black-box answer engine.*
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
+[![Python 3.14+](https://img.shields.io/badge/Python-3.14+-blue.svg)](https://www.python.org/)
 [![Status: MVP v0.1.0](https://img.shields.io/badge/Status-MVP%20v0.1.0-orange.svg)](pyproject.toml)
 
 </div>
@@ -103,16 +103,16 @@ For complete Arch Linux instructions—including future AUR installation placeho
 MathWeave Studio maintains an automated test suite enforcing Clean Architecture boundary isolation, solver mathematical validity, and UI stability:
 
 ```bash
-# Run all 190 automated tests
+# Run all 206 automated tests
 uv run pytest
 ```
 
-All 190 tests pass with 100% success rate.
+All 206 tests pass with 100% success rate.
 
 ---
 
 ## License & Author
 
 - **License:** GNU General Public License v3.0 ([GPL-3.0](LICENSE)).
-- **Author:** TQV (`TqvNoCode` — `chienthuatcovua2@gmail.com`)
+- **Author:** TQV (`TqvNoCode` — `92263302+TqvNoCode@users.noreply.github.com`)
 - **Copyright:** `© 2026 by TQV`

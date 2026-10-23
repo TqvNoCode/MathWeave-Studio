@@ -10,7 +10,7 @@ from math_app.application.ports.solver import Solver
 from math_app.domain.exceptions import InvalidInputError
 from math_app.domain.models import ProblemType, SolutionStatus
 from math_app.domain.step_content import ExpressionStepContent
-from math_app.input.parser import parse_mathematical_input
+from math_app.input.parser import parse_mathematical_input, parse_safe_expression
 from math_app.rendering.latex.formatter import expr_to_latex
 from math_app.verification.calculus.surface_area_verifier import SurfaceAreaVerifier
 
@@ -47,17 +47,18 @@ class SurfaceAreaSolver(Solver):
             raw_v_max = str(params.get("v_max", "1")).strip()
 
             try:
-                u_min = sp.sympify(raw_u_min)
-                u_max = sp.sympify(raw_u_max)
-                v_min = sp.sympify(raw_v_min)
-                v_max = sp.sympify(raw_v_max)
+                u_min = parse_safe_expression(raw_u_min, evaluate=True)
+                u_max = parse_safe_expression(raw_u_max, evaluate=True)
+                v_min = parse_safe_expression(raw_v_min, evaluate=True)
+                v_max = parse_safe_expression(raw_v_max, evaluate=True)
             except Exception as exc:
                 raise InvalidInputError(f"Cận của miền tham số u, v không hợp lệ: {exc}") from exc
 
             try:
-                xu = sp.sympify(params.get("param_x", u_name))
-                yv = sp.sympify(params.get("param_y", v_name))
-                zw = sp.sympify(params.get("param_z", "0"))
+                allowed_uv = {u_name, v_name}
+                xu = parse_safe_expression(params.get("param_x", u_name), allowed_variables=allowed_uv, evaluate=True)
+                yv = parse_safe_expression(params.get("param_y", v_name), allowed_variables=allowed_uv, evaluate=True)
+                zw = parse_safe_expression(params.get("param_z", "0"), allowed_variables=allowed_uv, evaluate=True)
             except Exception as exc:
                 raise InvalidInputError(f"Biểu thức tham số của mặt cong không hợp lệ: {exc}") from exc
 
@@ -173,16 +174,17 @@ class SurfaceAreaSolver(Solver):
             raw_y_max = str(params.get("v_max", params.get("y_max", "1"))).strip()
 
             try:
-                x_min = sp.sympify(raw_x_min)
-                x_max = sp.sympify(raw_x_max)
-                y_min = sp.sympify(raw_y_min)
-                y_max = sp.sympify(raw_y_max)
+                x_min = parse_safe_expression(raw_x_min, evaluate=True)
+                x_max = parse_safe_expression(raw_x_max, evaluate=True)
+                y_min = parse_safe_expression(raw_y_min, evaluate=True)
+                y_max = parse_safe_expression(raw_y_max, evaluate=True)
             except Exception as exc:
                 raise InvalidInputError(f"Cận của miền x, y không hợp lệ: {exc}") from exc
 
             raw_surf = str(params.get("surface_expr", request.raw_input)).strip()
             try:
-                z_f = sp.sympify(raw_surf)
+                allowed_xy = {x_name, y_name}
+                z_f = parse_safe_expression(raw_surf, allowed_variables=allowed_xy, evaluate=True)
             except Exception as exc:
                 raise InvalidInputError(f"Biểu thức hàm mặt cong z = f({x_name}, {y_name}) không hợp lệ: {exc}") from exc
 

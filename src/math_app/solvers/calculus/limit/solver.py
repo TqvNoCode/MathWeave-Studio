@@ -10,7 +10,7 @@ from math_app.application.ports.solver import Solver
 from math_app.domain.exceptions import InvalidInputError
 from math_app.domain.models import ProblemType, SolutionStatus, VerificationStatus
 from math_app.domain.step_content import ExpressionStepContent
-from math_app.input.parser import parse_mathematical_input
+from math_app.input.parser import parse_mathematical_input, parse_safe_expression
 from math_app.rendering.latex.formatter import expr_to_latex
 from math_app.verification.calculus.limit_verifier import LimitVerifier
 
@@ -38,7 +38,7 @@ class LimitSolver(Solver):
             target_pt = -sp.oo
         else:
             try:
-                target_pt = sp.sympify(raw_point)
+                target_pt = parse_safe_expression(raw_point, evaluate=True)
             except Exception as exc:
                 raise InvalidInputError(f"Điểm giới hạn không hợp lệ '{raw_point}': {exc}") from exc
 

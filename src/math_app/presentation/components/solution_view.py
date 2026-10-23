@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from typing import Any
+import sympy as sp
 from nicegui import ui
 
 from math_app.application.dtos import SolutionResponse
 from math_app.domain.models import ProblemType, SolutionStatus
-from math_app.input.parser import parse_mathematical_input
+from math_app.input.parser import parse_mathematical_input, parse_safe_expression
 from math_app.presentation.components.domain_view import render_domain_restrictions
 from math_app.presentation.components.math_view import ui_math
 from math_app.presentation.components.operation_catalog import (
@@ -21,6 +22,7 @@ from math_app.presentation.components.problem_statement import (
 from math_app.presentation.components.step_viewer import render_steps_container
 from math_app.presentation.components.variation_table import render_variation_table_component
 from math_app.presentation.components.verification_badge import render_verification_badge
+from math_app.rendering.latex.formatter import expr_to_latex
 from math_app.presentation.services.analysis_service import (
     can_compute_variation_table,
     can_plot_2d,
@@ -315,14 +317,14 @@ def render_solution_view(
                                         v_var_name = str(p.get("v_var", "y")).strip()
                                         if "u_min" in p and "u_max" in p:
                                             try:
-                                                bounds[u_var_name] = (float(sp.sympify(p["u_min"]).evalf()), float(sp.sympify(p["u_max"]).evalf()))
-                                                bounds[v_var_name] = (float(sp.sympify(p["v_min"]).evalf()), float(sp.sympify(p["v_max"]).evalf()))
+                                                bounds[u_var_name] = (float(parse_safe_expression(p["u_min"], evaluate=True).evalf()), float(parse_safe_expression(p["u_max"], evaluate=True).evalf()))
+                                                bounds[v_var_name] = (float(parse_safe_expression(p["v_min"], evaluate=True).evalf()), float(parse_safe_expression(p["v_max"], evaluate=True).evalf()))
                                             except Exception:
                                                 pass
                                         elif "x_min" in p and "x_max" in p:
                                             try:
-                                                bounds["x"] = (float(sp.sympify(p["x_min"]).evalf()), float(sp.sympify(p["x_max"]).evalf()))
-                                                bounds["y"] = (float(sp.sympify(p["y_min"]).evalf()), float(sp.sympify(p["y_max"]).evalf()))
+                                                bounds["x"] = (float(parse_safe_expression(p["x_min"], evaluate=True).evalf()), float(parse_safe_expression(p["x_max"], evaluate=True).evalf()))
+                                                bounds["y"] = (float(parse_safe_expression(p["y_min"], evaluate=True).evalf()), float(parse_safe_expression(p["y_max"], evaluate=True).evalf()))
                                             except Exception:
                                                 pass
 

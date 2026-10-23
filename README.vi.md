@@ -14,7 +14,7 @@
 *MathWeave Studio được xây dựng nhằm giúp học sinh, sinh viên và người nghiên cứu thấu hiểu chuỗi lập luận và quy tắc biến đổi toán học, thay vì xem phần mềm tính toán như một "hộp đen" chỉ trả về đáp số cuối cùng.*
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
+[![Python 3.14+](https://img.shields.io/badge/Python-3.14+-blue.svg)](https://www.python.org/)
 [![Status: MVP v0.1.0](https://img.shields.io/badge/Status-MVP%20v0.1.0-orange.svg)](pyproject.toml)
 
 </div>
@@ -103,16 +103,16 @@ Mở trình duyệt web tại: **[http://localhost:8080](http://localhost:8080)*
 MathWeave Studio duy trì bộ kiểm thử tự động toàn diện kiểm soát ranh giới kiến trúc Clean Architecture, tính chính xác của các thuật toán và độ ổn định của giao diện:
 
 ```bash
-# Chạy toàn bộ 190 bài kiểm thử tự động
+# Chạy toàn bộ 206 bài kiểm thử tự động
 uv run pytest
 ```
 
-Toàn bộ 190 bài kiểm thử đều vượt qua với tỷ lệ thành công 100%.
+Toàn bộ 206 bài kiểm thử đều vượt qua với tỷ lệ thành công 100%.
 
 ---
 
 ## Bản quyền & Tác giả
 
 - **Giấy phép:** Giấy phép GNU General Public License v3.0 ([GPL-3.0](LICENSE)).
-- **Tác giả:** TQV (`TqvNoCode` — `chienthuatcovua2@gmail.com`)
+- **Tác giả:** TQV (`TqvNoCode` — `92263302+TqvNoCode@users.noreply.github.com`)
 - **Bản quyền:** `© 2026 by TQV`

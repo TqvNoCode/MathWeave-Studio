@@ -10,6 +10,7 @@ from math_app.application.ports.solver import Solver
 from math_app.domain.exceptions import InvalidInputError
 from math_app.domain.models import ProblemType, SolutionStatus
 from math_app.domain.step_content import ExpressionStepContent
+from math_app.input.parser import parse_safe_expression
 from math_app.rendering.latex.formatter import expr_to_latex
 from math_app.verification.calculus.stokes_theorem_verifier import StokesTheoremVerifier
 
@@ -39,15 +40,16 @@ class StokesTheoremSolver(Solver):
             raise InvalidInputError("Định lý Stokes yêu cầu trường vectơ 3D dạng 'P, Q, R' (ví dụ: 'y, z, x' hoặc '2*y, 3*z, -x').")
 
         try:
-            P = sp.sympify(parts[0])
-            Q = sp.sympify(parts[1])
-            R = sp.sympify(parts[2])
+            allowed_xyz = {"x", "y", "z"}
+            P = parse_safe_expression(parts[0], allowed_variables=allowed_xyz, evaluate=True)
+            Q = parse_safe_expression(parts[1], allowed_variables=allowed_xyz, evaluate=True)
+            R = parse_safe_expression(parts[2], allowed_variables=allowed_xyz, evaluate=True)
         except Exception as exc:
             raise InvalidInputError(f"Thành phần trường vectơ không hợp lệ: {exc}") from exc
 
         raw_surf = str(params.get("surface_expr", "0")).strip()
         try:
-            g_xy = sp.sympify(raw_surf)
+            g_xy = parse_safe_expression(raw_surf, allowed_variables={"x", "y"}, evaluate=True)
         except Exception as exc:
             raise InvalidInputError(f"Hàm mặt cong z = g(x, y) không hợp lệ: {exc}") from exc
 
@@ -57,10 +59,10 @@ class StokesTheoremSolver(Solver):
         raw_y_max = str(params.get("y_max", "1")).strip()
 
         try:
-            x_min = sp.sympify(raw_x_min)
-            x_max = sp.sympify(raw_x_max)
-            y_min = sp.sympify(raw_y_min)
-            y_max = sp.sympify(raw_y_max)
+            x_min = parse_safe_expression(raw_x_min, evaluate=True)
+            x_max = parse_safe_expression(raw_x_max, evaluate=True)
+            y_min = parse_safe_expression(raw_y_min, evaluate=True)
+            y_max = parse_safe_expression(raw_y_max, evaluate=True)
         except Exception as exc:
             raise InvalidInputError(f"Cận biên miền không hợp lệ: {exc}") from exc
 

@@ -24,6 +24,9 @@ from math_app.solvers.calculus.vector_calculus.greens_theorem_solver import Gree
 from math_app.solvers.calculus.vector_calculus.stokes_theorem_solver import StokesTheoremSolver
 from math_app.solvers.linear_algebra.solver import MatrixSolver
 
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8080
+
 
 def build_application() -> SolveProblemUseCase:
     """Wire together solvers, registry, and application use cases."""
@@ -88,18 +91,18 @@ def build_application() -> SolveProblemUseCase:
     return SolveProblemUseCase(registry)
 
 
-def get_available_port(default_port: int = 8080) -> int:
+def get_available_port(host: str = DEFAULT_HOST, default_port: int = DEFAULT_PORT) -> int:
     """Find an available port starting at default_port or dynamically binding to 0."""
     import socket
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
-            s.bind(("127.0.0.1", default_port))
+            s.bind((host, default_port))
             return default_port
         except OSError:
             pass
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
+        s.bind((host, 0))
         return s.getsockname()[1]
 
 
@@ -147,7 +150,7 @@ def main() -> None:
 
     _setup_signal_handlers()
 
-    port = get_available_port()
+    port = get_available_port(DEFAULT_HOST, DEFAULT_PORT)
     # Allow explicit flag --browser or default to native window when display is available
     use_native = "--browser" not in sys.argv
     if use_native and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
@@ -160,6 +163,7 @@ def main() -> None:
 
     try:
         ui.run(
+            host=DEFAULT_HOST,
             title=f"{__title__} — Phần mềm Học tập & Nghiên cứu Toán học",
             port=port,
             reload=False,

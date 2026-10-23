@@ -25,7 +25,7 @@ This guide covers the installation and setup of **MathWeave Studio** on **Arch L
 
 MathWeave Studio requires:
 - **Operating System:** Arch Linux (x86_64).
-- **Python:** Version `>= 3.11` (Arch Linux default Python 3.12+ / 3.14+ supported).
+- **Python:** Version `>= 3.14` (as defined in `pyproject.toml` and `.python-version`).
 - **Package Manager:** [`uv`](https://docs.astral.sh/uv/) (recommended for fast, reproducible dependency resolution) or standard `python-virtualenv`.
 - **Web Browser:** Any modern browser (Firefox, Chromium, Brave) to render the NiceGUI interface and KaTeX/MathML formulas.
 

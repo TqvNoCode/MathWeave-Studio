@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "MathWeave Studio — Phần mềm Hỗ trợ Học tập & Nghiên cứu Toán học Chuyên sâu"
 readme = "README.md"
 authors = [
-    { name = "TqvNoCode", email = "chienthuatcovua2@gmail.com" }
+    { name = "TqvNoCode", email = "92263302+TqvNoCode@users.noreply.github.com" }
 ]
 requires-python = ">=3.14"
 dependencies = [

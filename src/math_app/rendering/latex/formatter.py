@@ -17,7 +17,8 @@ def expr_to_latex(expr: sp.Expr | str) -> str:
             prefix = cleaned[:-4].strip()
             return f"{expr_to_latex(prefix)} - C"
         try:
-            expr = sp.sympify(cleaned)
+            from math_app.input.parser import parse_safe_expression
+            expr = parse_safe_expression(cleaned, evaluate=False)
         except Exception:
             return cleaned
 

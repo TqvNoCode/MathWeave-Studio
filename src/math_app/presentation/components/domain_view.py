@@ -6,6 +6,7 @@ import re
 import sympy as sp
 from nicegui import ui
 
+from math_app.input.parser import parse_safe_expression
 from math_app.presentation.components.math_view import ui_math
 from math_app.rendering.latex.formatter import expr_to_latex
 
@@ -40,7 +41,7 @@ def format_domain_condition(res: str, var_name: str = "x") -> tuple[str, str, st
         if raw_expr:
             try:
                 var = sp.Symbol(var_name)
-                expr = sp.sympify(raw_expr)
+                expr = parse_safe_expression(raw_expr, target_variable=var_name, evaluate=True)
                 base_denom = sp.sqf_part(expr)
                 denom_ltx = expr_to_latex(base_denom)
                 roots = sp.solve(sp.Eq(base_denom, 0), var)

@@ -10,7 +10,7 @@ from math_app.application.ports.solver import Solver
 from math_app.domain.exceptions import InvalidInputError
 from math_app.domain.models import ProblemType, SolutionStatus
 from math_app.domain.step_content import ExpressionStepContent
-from math_app.input.parser import parse_mathematical_input
+from math_app.input.parser import parse_mathematical_input, parse_safe_expression
 from math_app.rendering.latex.formatter import expr_to_latex
 from math_app.verification.calculus.surface_of_revolution_verifier import SurfaceOfRevolutionVerifier
 
@@ -31,13 +31,13 @@ class SurfaceOfRevolutionSolver(Solver):
         params = request.parameters
 
         var_name = request.target_variable or "x"
-        x = sp.Symbol(var_name, real=True)
+        x = sp.Symbol(var_name)
 
         raw_a = str(params.get("lower_bound", "0")).strip()
         raw_b = str(params.get("upper_bound", "1")).strip()
         try:
-            a_bound = sp.sympify(raw_a)
-            b_bound = sp.sympify(raw_b)
+            a_bound = parse_safe_expression(raw_a, evaluate=True)
+            b_bound = parse_safe_expression(raw_b, evaluate=True)
         except Exception as exc:
             raise InvalidInputError(f"Cận tích phân không hợp lệ: {exc}") from exc
 

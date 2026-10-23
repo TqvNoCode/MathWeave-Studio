@@ -7,7 +7,7 @@ from math_app.solvers.calculus.integration.surface_integral_solver import Surfac
 
 
 def test_scalar_surface_integral_flat_plane():
-    """Verify scalar surface integral \iint_S 1 dS over rectangle [0, 2] x [0, 3] on plane z = 0 equals area 6."""
+    r"""Verify scalar surface integral \iint_S 1 dS over rectangle [0, 2] x [0, 3] on plane z = 0 equals area 6."""
     solver = SurfaceIntegralSolver()
     req = ProblemRequest(
         raw_input="1",

@@ -10,6 +10,7 @@ from math_app.application.ports.solver import Solver
 from math_app.domain.exceptions import InvalidInputError
 from math_app.domain.models import ProblemType, SolutionStatus
 from math_app.domain.step_content import ExpressionStepContent
+from math_app.input.parser import parse_safe_expression
 from math_app.rendering.latex.formatter import expr_to_latex
 from math_app.verification.calculus.triple_integral_verifier import TripleIntegralVerifier
 
@@ -38,17 +39,18 @@ class TripleIntegralSolver(Solver):
         coord = str(params.get("coord_system", "cartesian")).lower()
 
         # Parse coordinate variables and bounds based on coordinate system
+        allowed_triple = {"x", "y", "z", "r", "theta", "rho", "phi", "θ", "φ", "ρ"}
         if coord in ("cylindrical", "tru"):
             v_in_name = str(params.get("var_inner", "z")).strip()
             v_mid_name = str(params.get("var_middle", "r")).strip()
             v_out_name = str(params.get("var_outer", "theta")).strip()
             try:
-                in_min = sp.sympify(str(params.get("z_min", params.get("inner_min", "0"))).strip())
-                in_max = sp.sympify(str(params.get("z_max", params.get("inner_max", "1"))).strip())
-                mid_min = sp.sympify(str(params.get("r_min", params.get("middle_min", "0"))).strip())
-                mid_max = sp.sympify(str(params.get("r_max", params.get("middle_max", "1"))).strip())
-                out_min = sp.sympify(str(params.get("th_min", params.get("theta_min", params.get("outer_min", "0")))).strip())
-                out_max = sp.sympify(str(params.get("th_max", params.get("theta_max", params.get("outer_max", "2*pi")))).strip())
+                in_min = parse_safe_expression(str(params.get("z_min", params.get("inner_min", "0"))).strip(), allowed_variables=allowed_triple, evaluate=True)
+                in_max = parse_safe_expression(str(params.get("z_max", params.get("inner_max", "1"))).strip(), allowed_variables=allowed_triple, evaluate=True)
+                mid_min = parse_safe_expression(str(params.get("r_min", params.get("middle_min", "0"))).strip(), allowed_variables=allowed_triple, evaluate=True)
+                mid_max = parse_safe_expression(str(params.get("r_max", params.get("middle_max", "1"))).strip(), allowed_variables=allowed_triple, evaluate=True)
+                out_min = parse_safe_expression(str(params.get("th_min", params.get("theta_min", params.get("outer_min", "0")))).strip(), allowed_variables=allowed_triple, evaluate=True)
+                out_max = parse_safe_expression(str(params.get("th_max", params.get("theta_max", params.get("outer_max", "2*pi")))).strip(), allowed_variables=allowed_triple, evaluate=True)
             except Exception as exc:
                 raise InvalidInputError(f"Cận tích phân tọa độ trụ không hợp lệ: {exc}") from exc
         elif coord in ("spherical", "cau"):
@@ -56,12 +58,12 @@ class TripleIntegralSolver(Solver):
             v_mid_name = str(params.get("var_middle", "phi")).strip()
             v_out_name = str(params.get("var_outer", "theta")).strip()
             try:
-                in_min = sp.sympify(str(params.get("rho_min", params.get("inner_min", "0"))).strip())
-                in_max = sp.sympify(str(params.get("rho_max", params.get("inner_max", "1"))).strip())
-                mid_min = sp.sympify(str(params.get("phi_min", params.get("middle_min", "0"))).strip())
-                mid_max = sp.sympify(str(params.get("phi_max", params.get("middle_max", "pi"))).strip())
-                out_min = sp.sympify(str(params.get("th_min", params.get("theta_min", params.get("outer_min", "0")))).strip())
-                out_max = sp.sympify(str(params.get("th_max", params.get("theta_max", params.get("outer_max", "2*pi")))).strip())
+                in_min = parse_safe_expression(str(params.get("rho_min", params.get("inner_min", "0"))).strip(), allowed_variables=allowed_triple, evaluate=True)
+                in_max = parse_safe_expression(str(params.get("rho_max", params.get("inner_max", "1"))).strip(), allowed_variables=allowed_triple, evaluate=True)
+                mid_min = parse_safe_expression(str(params.get("phi_min", params.get("middle_min", "0"))).strip(), allowed_variables=allowed_triple, evaluate=True)
+                mid_max = parse_safe_expression(str(params.get("phi_max", params.get("middle_max", "pi"))).strip(), allowed_variables=allowed_triple, evaluate=True)
+                out_min = parse_safe_expression(str(params.get("th_min", params.get("theta_min", params.get("outer_min", "0")))).strip(), allowed_variables=allowed_triple, evaluate=True)
+                out_max = parse_safe_expression(str(params.get("th_max", params.get("theta_max", params.get("outer_max", "2*pi")))).strip(), allowed_variables=allowed_triple, evaluate=True)
             except Exception as exc:
                 raise InvalidInputError(f"Cận tích phân tọa độ cầu không hợp lệ: {exc}") from exc
         else:
@@ -69,12 +71,12 @@ class TripleIntegralSolver(Solver):
             v_mid_name = str(params.get("var_middle", "y")).strip()
             v_out_name = str(params.get("var_outer", "x")).strip()
             try:
-                in_min = sp.sympify(str(params.get("z_min", params.get("inner_min", "0"))).strip())
-                in_max = sp.sympify(str(params.get("z_max", params.get("inner_max", "1"))).strip())
-                mid_min = sp.sympify(str(params.get("y_min", params.get("middle_min", "0"))).strip())
-                mid_max = sp.sympify(str(params.get("y_max", params.get("middle_max", "1"))).strip())
-                out_min = sp.sympify(str(params.get("x_min", params.get("outer_min", "0"))).strip())
-                out_max = sp.sympify(str(params.get("x_max", params.get("outer_max", "1"))).strip())
+                in_min = parse_safe_expression(str(params.get("z_min", params.get("inner_min", "0"))).strip(), allowed_variables=allowed_triple, evaluate=True)
+                in_max = parse_safe_expression(str(params.get("z_max", params.get("inner_max", "1"))).strip(), allowed_variables=allowed_triple, evaluate=True)
+                mid_min = parse_safe_expression(str(params.get("y_min", params.get("middle_min", "0"))).strip(), allowed_variables=allowed_triple, evaluate=True)
+                mid_max = parse_safe_expression(str(params.get("y_max", params.get("middle_max", "1"))).strip(), allowed_variables=allowed_triple, evaluate=True)
+                out_min = parse_safe_expression(str(params.get("x_min", params.get("outer_min", "0"))).strip(), allowed_variables=allowed_triple, evaluate=True)
+                out_max = parse_safe_expression(str(params.get("x_max", params.get("outer_max", "1"))).strip(), allowed_variables=allowed_triple, evaluate=True)
             except Exception as exc:
                 raise InvalidInputError(f"Cận tích phân ba lớp Descartes không hợp lệ: {exc}") from exc
 
@@ -84,7 +86,7 @@ class TripleIntegralSolver(Solver):
 
         raw_in = request.raw_input.strip() or "1"
         try:
-            raw_integrand = sp.sympify(raw_in)
+            raw_integrand = parse_safe_expression(raw_in, allowed_variables=allowed_triple, evaluate=True)
         except Exception as exc:
             raise InvalidInputError(f"Hàm dưới dấu tích phân ba lớp không hợp lệ: {exc}") from exc
 

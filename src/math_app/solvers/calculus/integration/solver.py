@@ -9,7 +9,7 @@ from math_app.application.dtos import ProblemRequest, SolutionResponse
 from math_app.application.ports.solver import Solver
 from math_app.domain.exceptions import InvalidInputError
 from math_app.domain.models import ProblemType, SolutionStatus, VerificationStatus
-from math_app.input.parser import parse_mathematical_input
+from math_app.input.parser import parse_mathematical_input, parse_safe_expression
 from math_app.rendering.latex.formatter import expr_to_latex
 from math_app.solvers.calculus.integration.rule_engine import IntegrationRuleEngine
 from math_app.solvers.calculus.integration.step_builder import IntegrationStepBuilder
@@ -75,8 +75,8 @@ class IntegralSolver(Solver):
             raw_b = str(request.parameters.get("upper_bound", "1")).strip()
 
             try:
-                a_bound = sp.sympify(raw_a)
-                b_bound = sp.sympify(raw_b)
+                a_bound = parse_safe_expression(raw_a, evaluate=True)
+                b_bound = parse_safe_expression(raw_b, evaluate=True)
             except Exception as exc:
                 raise InvalidInputError(f"Cận tích phân không hợp lệ: {exc}") from exc
 

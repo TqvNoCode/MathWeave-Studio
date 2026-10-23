@@ -3,7 +3,7 @@
 
 ## Project goals
 Build a cross-platform mathematics learning application using
-Python 3.11+, NiceGUI, SymPy, NumPy and Plotly.
+Python 3.14+, NiceGUI, SymPy, NumPy and Plotly.
 
 ## Architecture
 - Follow Clean Architecture with clear dependency boundaries.

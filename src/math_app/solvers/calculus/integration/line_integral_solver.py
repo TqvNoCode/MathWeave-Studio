@@ -10,7 +10,7 @@ from math_app.application.ports.solver import Solver
 from math_app.domain.exceptions import InvalidInputError
 from math_app.domain.models import ProblemType, SolutionStatus
 from math_app.domain.step_content import ExpressionStepContent
-from math_app.input.parser import parse_mathematical_input
+from math_app.input.parser import parse_mathematical_input, parse_safe_expression
 from math_app.rendering.latex.formatter import expr_to_latex
 from math_app.verification.calculus.line_integral_verifier import LineIntegralVerifier
 
@@ -37,13 +37,13 @@ class LineIntegralSolver(Solver):
 
         params = request.parameters
         param_var_name = str(params.get("param_var", "t")).strip()
-        t = sp.Symbol(param_var_name, real=True)
+        t = sp.Symbol(param_var_name)
 
         raw_t_min = str(params.get("t_min", "0")).strip()
         raw_t_max = str(params.get("t_max", "1")).strip()
         try:
-            t_min = sp.sympify(raw_t_min)
-            t_max = sp.sympify(raw_t_max)
+            t_min = parse_safe_expression(raw_t_min, evaluate=True)
+            t_max = parse_safe_expression(raw_t_max, evaluate=True)
         except Exception as exc:
             raise InvalidInputError(f"Cận tham số t không hợp lệ: {exc}") from exc
 
@@ -101,9 +101,10 @@ class LineIntegralSolver(Solver):
                 raise InvalidInputError("Tích phân đường của trường vectơ yêu cầu 2 hoặc 3 thành phần phân tách bởi dấu phẩy: 'P, Q' hoặc 'P, Q, R'.")
 
             try:
-                P = sp.sympify(parts[0])
-                Q = sp.sympify(parts[1])
-                R = sp.sympify(parts[2]) if len(parts) == 3 else sp.Integer(0)
+                allowed_xyz = {"x", "y", "z"}
+                P = parse_safe_expression(parts[0], allowed_variables=allowed_xyz, evaluate=True)
+                Q = parse_safe_expression(parts[1], allowed_variables=allowed_xyz, evaluate=True)
+                R = parse_safe_expression(parts[2], allowed_variables=allowed_xyz, evaluate=True) if len(parts) == 3 else sp.Integer(0)
             except Exception as exc:
                 raise InvalidInputError(f"Hàm thành phần của trường vectơ không hợp lệ: {exc}") from exc
 
@@ -215,7 +216,7 @@ class LineIntegralSolver(Solver):
             is_reverse = False
             # Scalar line integral: \int_C f ds
             try:
-                f_expr = sp.sympify(raw_in)
+                f_expr = parse_safe_expression(raw_in, allowed_variables={"x", "y", "z", param_var_name}, evaluate=True)
             except Exception as exc:
                 raise InvalidInputError(f"Hàm dưới dấu tích phân đường vô hướng không hợp lệ: {exc}") from exc
 

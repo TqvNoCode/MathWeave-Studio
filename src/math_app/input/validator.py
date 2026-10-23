@@ -15,8 +15,8 @@ ALLOWED_FUNCTIONS = frozenset({
     "asin", "acos", "atan",
     "exp", "log", "ln", "sqrt",
 })
-ALLOWED_CONSTANTS = frozenset({"e", "pi", "E", "PI"})
-ALLOWED_COMMON_VARIABLES = frozenset({"x", "y", "z", "t", "u", "v", "r", "rho", "ρ", "theta", "phi", "θ", "φ"})
+ALLOWED_CONSTANTS = frozenset({"e", "pi", "E", "PI", "oo", "inf", "infinity"})
+ALLOWED_COMMON_VARIABLES = frozenset({"x", "y", "z", "t", "u", "v", "r", "s", "w", "rho", "ρ", "theta", "phi", "θ", "φ"})
 
 
 def get_ast_depth(node: ast.AST) -> int:
@@ -26,7 +26,11 @@ def get_ast_depth(node: ast.AST) -> int:
     return 1 + max(get_ast_depth(child) for child in ast.iter_child_nodes(node))
 
 
-def validate_expression_syntax(raw_expression: str, target_variable: str = "x") -> None:
+def validate_expression_syntax(
+    raw_expression: str,
+    target_variable: str = "x",
+    allowed_variables: set[str] | frozenset[str] | None = None,
+) -> None:
     """Validate mathematical expression against grammar, whitelist, and complexity limits.
 
     Raises:
@@ -66,6 +70,8 @@ def validate_expression_syntax(raw_expression: str, target_variable: str = "x") 
         )
 
     allowed_names = {target_variable} | ALLOWED_CONSTANTS | ALLOWED_FUNCTIONS | ALLOWED_COMMON_VARIABLES
+    if allowed_variables:
+        allowed_names = allowed_names | set(allowed_variables)
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Expression):

@@ -3,6 +3,7 @@
 import os
 import signal
 import subprocess
+import sys
 import time
 import urllib.request
 import pytest
@@ -11,7 +12,7 @@ import pytest
 def test_clean_shutdown_without_calculation():
     """Verify application starts and shuts down cleanly on SIGINT within 5 seconds."""
     p = subprocess.Popen(
-        [".venv/bin/python", "run.py", "--browser"],
+        [sys.executable, "run.py", "--browser"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -30,7 +31,7 @@ def test_clean_shutdown_without_calculation():
 def test_clean_shutdown_after_page_load():
     """Verify application starts, responds to HTTP request, and shuts down cleanly."""
     p = subprocess.Popen(
-        [".venv/bin/python", "run.py", "--browser"],
+        [sys.executable, "run.py", "--browser"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -56,7 +57,7 @@ def test_clean_shutdown_after_page_load():
 def test_repeated_sigint_does_not_deadlock():
     """Verify repeated SIGINT triggers immediate exit without 30s timeout hang."""
     p = subprocess.Popen(
-        [".venv/bin/python", "run.py", "--browser"],
+        [sys.executable, "run.py", "--browser"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )

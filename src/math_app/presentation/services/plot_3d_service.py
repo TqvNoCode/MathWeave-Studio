@@ -12,7 +12,7 @@ import numpy as np
 import plotly.graph_objects as go
 import sympy as sp
 
-from math_app.input.parser import parse_mathematical_input
+from math_app.input.parser import parse_mathematical_input, parse_safe_expression
 
 
 @dataclass(frozen=True)
@@ -324,9 +324,10 @@ def create_parametric_surface_plot(
     try:
         u_sym = sp.Symbol(u_var)
         v_sym = sp.Symbol(v_var)
-        x_expr = sp.sympify(param_x)
-        y_expr = sp.sympify(param_y)
-        z_expr = sp.sympify(param_z)
+        allowed = {u_var, v_var}
+        x_expr = parse_safe_expression(param_x, allowed_variables=allowed, evaluate=True)
+        y_expr = parse_safe_expression(param_y, allowed_variables=allowed, evaluate=True)
+        z_expr = parse_safe_expression(param_z, allowed_variables=allowed, evaluate=True)
 
         fx = sp.lambdify((u_sym, v_sym), x_expr, modules=["numpy"])
         fy = sp.lambdify((u_sym, v_sym), y_expr, modules=["numpy"])

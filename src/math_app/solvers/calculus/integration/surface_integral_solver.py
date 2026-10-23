@@ -10,6 +10,7 @@ from math_app.application.ports.solver import Solver
 from math_app.domain.exceptions import InvalidInputError
 from math_app.domain.models import ProblemType, SolutionStatus
 from math_app.domain.step_content import ExpressionStepContent
+from math_app.input.parser import parse_safe_expression
 from math_app.rendering.latex.formatter import expr_to_latex
 from math_app.verification.calculus.surface_integral_verifier import SurfaceIntegralVerifier
 
@@ -46,10 +47,10 @@ class SurfaceIntegralSolver(Solver):
         raw_v_max = str(params.get("v_max", "1")).strip()
 
         try:
-            u_min = sp.sympify(raw_u_min)
-            u_max = sp.sympify(raw_u_max)
-            v_min = sp.sympify(raw_v_min)
-            v_max = sp.sympify(raw_v_max)
+            u_min = parse_safe_expression(raw_u_min, evaluate=True)
+            u_max = parse_safe_expression(raw_u_max, evaluate=True)
+            v_min = parse_safe_expression(raw_v_min, evaluate=True)
+            v_max = parse_safe_expression(raw_v_max, evaluate=True)
         except Exception as exc:
             raise InvalidInputError(f"Cận của miền tham số u, v không hợp lệ: {exc}") from exc
 
@@ -75,7 +76,7 @@ class SurfaceIntegralSolver(Solver):
             # Explicit surface z = g(x, y)
             surface_str = raw_surf or "0"
             try:
-                g_xy = sp.sympify(surface_str)
+                g_xy = parse_safe_expression(surface_str, allowed_variables={u_name, v_name}, evaluate=True)
             except Exception as exc:
                 raise InvalidInputError(f"Hàm mặt cong z = g({u_name}, {v_name}) không hợp lệ: {exc}") from exc
 
@@ -128,9 +129,10 @@ class SurfaceIntegralSolver(Solver):
                 if len(parts) != 3:
                     raise InvalidInputError("Thông lượng trường vectơ yêu cầu đúng 3 thành phần: 'P, Q, R'.")
                 try:
-                    P = sp.sympify(parts[0])
-                    Q = sp.sympify(parts[1])
-                    R = sp.sympify(parts[2])
+                    allowed_xyz = {"x", "y", "z"}
+                    P = parse_safe_expression(parts[0], allowed_variables=allowed_xyz, evaluate=True)
+                    Q = parse_safe_expression(parts[1], allowed_variables=allowed_xyz, evaluate=True)
+                    R = parse_safe_expression(parts[2], allowed_variables=allowed_xyz, evaluate=True)
                 except Exception as exc:
                     raise InvalidInputError(f"Hàm thành phần của trường vectơ F không hợp lệ: {exc}") from exc
 
@@ -169,7 +171,7 @@ class SurfaceIntegralSolver(Solver):
             else:
                 # Scalar surface integral: f(x, y, z) dS
                 try:
-                    f_xyz = sp.sympify(raw_in)
+                    f_xyz = parse_safe_expression(raw_in, allowed_variables={"x", "y", "z"}, evaluate=True)
                 except Exception as exc:
                     raise InvalidInputError(f"Hàm dưới dấu tích phân mặt vô hướng không hợp lệ: {exc}") from exc
 
@@ -201,9 +203,10 @@ class SurfaceIntegralSolver(Solver):
         else:
             # Parametric surface r(u, v) = (x(u,v), y(u,v), z(u,v))
             try:
-                xu = sp.sympify(params.get("param_x", "u"))
-                yu = sp.sympify(params.get("param_y", "v"))
-                zu = sp.sympify(params.get("param_z", "0"))
+                allowed_uv = {u_name, v_name}
+                xu = parse_safe_expression(params.get("param_x", "u"), allowed_variables=allowed_uv, evaluate=True)
+                yu = parse_safe_expression(params.get("param_y", "v"), allowed_variables=allowed_uv, evaluate=True)
+                zu = parse_safe_expression(params.get("param_z", "0"), allowed_variables=allowed_uv, evaluate=True)
             except Exception as exc:
                 raise InvalidInputError(f"Tham số hóa mặt cong không hợp lệ: {exc}") from exc
 
@@ -237,9 +240,10 @@ class SurfaceIntegralSolver(Solver):
                 parts = [p.strip() for p in raw_in.split(",")]
                 if len(parts) != 3:
                     raise InvalidInputError("Thông lượng trường vectơ yêu cầu đúng 3 thành phần: 'P, Q, R'.")
-                P = sp.sympify(parts[0])
-                Q = sp.sympify(parts[1])
-                R = sp.sympify(parts[2])
+                allowed_xyz = {"x", "y", "z"}
+                P = parse_safe_expression(parts[0], allowed_variables=allowed_xyz, evaluate=True)
+                Q = parse_safe_expression(parts[1], allowed_variables=allowed_xyz, evaluate=True)
+                R = parse_safe_expression(parts[2], allowed_variables=allowed_xyz, evaluate=True)
 
                 subs_dict = {"x": xu, "y": yu, "z": zu}
                 Pu = _substitute_coords(P, subs_dict)
@@ -248,7 +252,7 @@ class SurfaceIntegralSolver(Solver):
 
                 integrand_2d = sp.simplify(sign_orient * (Pu * Nx + Qu * Ny + Ru * Nz))
             else:
-                f_xyz = sp.sympify(raw_in)
+                f_xyz = parse_safe_expression(raw_in, allowed_variables={"x", "y", "z"}, evaluate=True)
                 fu = _substitute_coords(f_xyz, {"x": xu, "y": yu, "z": zu})
                 norm_N = sp.sqrt(sp.simplify(Nx**2 + Ny**2 + Nz**2))
                 integrand_2d = sp.simplify(fu * norm_N)

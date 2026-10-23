@@ -10,7 +10,7 @@ from math_app.application.ports.solver import Solver
 from math_app.domain.exceptions import InvalidInputError
 from math_app.domain.models import ProblemType, SolutionStatus
 from math_app.domain.step_content import ExpressionStepContent
-from math_app.input.parser import parse_mathematical_input
+from math_app.input.parser import parse_mathematical_input, parse_safe_expression
 from math_app.rendering.latex.formatter import expr_to_latex
 from math_app.verification.calculus.arc_length_verifier import ArcLengthVerifier
 
@@ -42,13 +42,13 @@ class ArcLengthSolver(Solver):
         if is_parametric:
             # Parametric curve: r(t) = (x(t), y(t), z(t))
             param_var_name = str(params.get("param_var", "t")).strip()
-            t = sp.Symbol(param_var_name, real=True)
+            t = sp.Symbol(param_var_name)
 
             raw_a = str(params.get("t_min", params.get("lower_bound", "0"))).strip()
             raw_b = str(params.get("t_max", params.get("upper_bound", "1"))).strip()
             try:
-                a_bound = sp.sympify(raw_a)
-                b_bound = sp.sympify(raw_b)
+                a_bound = parse_safe_expression(raw_a, evaluate=True)
+                b_bound = parse_safe_expression(raw_b, evaluate=True)
             except Exception as exc:
                 raise InvalidInputError(f"Cận tham số t không hợp lệ: {exc}") from exc
 
@@ -180,12 +180,12 @@ class ArcLengthSolver(Solver):
         else:
             # Explicit Cartesian curve: y = f(x)
             var_name = request.target_variable or "x"
-            x = sp.Symbol(var_name, real=True)
+            x = sp.Symbol(var_name)
             raw_a = str(params.get("lower_bound", "0")).strip()
             raw_b = str(params.get("upper_bound", "1")).strip()
             try:
-                a_bound = sp.sympify(raw_a)
-                b_bound = sp.sympify(raw_b)
+                a_bound = parse_safe_expression(raw_a, evaluate=True)
+                b_bound = parse_safe_expression(raw_b, evaluate=True)
             except Exception as exc:
                 raise InvalidInputError(f"Cận x không hợp lệ: {exc}") from exc
 

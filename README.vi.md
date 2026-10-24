@@ -89,6 +89,20 @@ Mở trình duyệt web tại: **[http://localhost:8080](http://localhost:8080)*
 
 Để xem hướng dẫn chi tiết trên Arch Linux—bao gồm trạng thái gói AUR/yay, gói hệ thống, chạy với môi trường ảo tiêu chuẩn và cách gỡ cài đặt sạch sẽ—vui lòng xem [Hướng dẫn cài đặt trên Arch Linux](docs/INSTALL_ARCH.md).
 
+### Ứng dụng Desktop Độc lập trên Windows
+
+Tải tệp `MathWeaveStudio-Beta.exe` từ GitHub Releases.
+Nhấp đúp vào tệp EXE để mở MathWeave Studio trực tiếp trong cửa sổ ứng dụng desktop mà không cần cài đặt Python hay uv.
+
+> **Yêu cầu hệ thống cho chế độ Desktop Windows:**
+> MathWeave Studio sử dụng Microsoft Edge WebView2 để tạo cửa sổ ứng dụng native. WebView2 đã được tích hợp sẵn trên Windows 11 và các bản cập nhật Windows 10 tiêu chuẩn. Đối với các phiên bản Windows rút gọn hoặc ngoại tuyến chưa có WebView2, vui lòng cài đặt [Microsoft Edge WebView2 Evergreen Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703), hoặc chạy ứng dụng từ dòng lệnh với tham số `--browser`.
+
+#### Đóng gói tệp EXE trên Windows:
+```powershell
+uv sync --all-groups
+uv run pyinstaller mathweave-studio-onefile.spec --clean --noconfirm
+```
+
 ---
 
 ## Tài liệu dự án
@@ -103,11 +117,11 @@ Mở trình duyệt web tại: **[http://localhost:8080](http://localhost:8080)*
 MathWeave Studio duy trì bộ kiểm thử tự động toàn diện kiểm soát ranh giới kiến trúc Clean Architecture, tính chính xác của các thuật toán và độ ổn định của giao diện:
 
 ```bash
-# Chạy toàn bộ 206 bài kiểm thử tự động
+# Chạy toàn bộ 229 bài kiểm thử tự động
 uv run pytest
 ```
 
-Toàn bộ 206 bài kiểm thử đều vượt qua với tỷ lệ thành công 100%.
+Toàn bộ 229 bài kiểm thử đều vượt qua với tỷ lệ thành công 100%.
 
 ---
 

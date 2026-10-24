@@ -9,6 +9,7 @@ or
 
 from __future__ import annotations
 
+import multiprocessing
 import sys
 from pathlib import Path
 
@@ -20,5 +21,6 @@ if str(SRC_DIR) not in sys.path:
 
 from math_app.main import main
 
-if __name__ in {"__main__", "__mp_main__"}:
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
     main()

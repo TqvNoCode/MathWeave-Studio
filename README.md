@@ -89,6 +89,20 @@ Open your browser at: **[http://localhost:8080](http://localhost:8080)**
 
 For complete Arch Linux instructions—including future AUR installation placeholders, system dependencies, running with standard virtual environments, and uninstallation—see the [Arch Linux Installation Guide](docs/INSTALL_ARCH.md).
 
+### Windows Standalone Desktop Application
+
+Download `MathWeaveStudio-Beta.exe` from GitHub Releases.
+Double-click the executable to launch MathWeave Studio directly in a native desktop window without installing Python or uv.
+
+> **System Prerequisites for Windows Native Mode:**
+> MathWeave Studio uses Microsoft Edge WebView2 for its native desktop window. WebView2 is pre-installed on Windows 11 and modern Windows 10 versions. If running on a stripped or offline Windows edition without WebView2, install the official [Microsoft Edge WebView2 Evergreen Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703), or launch with `--browser` from the command prompt.
+
+#### Building Standalone EXE on Windows:
+```powershell
+uv sync --all-groups
+uv run pyinstaller mathweave-studio-onefile.spec --clean --noconfirm
+```
+
 ---
 
 ## Documentation
@@ -103,11 +117,11 @@ For complete Arch Linux instructions—including future AUR installation placeho
 MathWeave Studio maintains an automated test suite enforcing Clean Architecture boundary isolation, solver mathematical validity, and UI stability:
 
 ```bash
-# Run all 206 automated tests
+# Run all 229 automated tests
 uv run pytest
 ```
 
-All 206 tests pass with 100% success rate.
+All 229 tests pass with 100% success rate.
 
 ---
 

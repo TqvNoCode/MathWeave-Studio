@@ -7,7 +7,6 @@ isometric cubic aspect ratio, robust sampling, and structured configuration.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 import numpy as np
 import plotly.graph_objects as go
 import sympy as sp

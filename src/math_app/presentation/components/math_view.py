@@ -81,20 +81,24 @@ def math_html(latex_str: str, block: bool = False, is_icon: bool = False) -> str
 
     try:
         mathml = latex2mathml.converter.convert(normalized, display="block" if block else "inline")
+        # Ensure rendered MathML does not contain injected script tags or event handlers
+        if re.search(r"<(?:script|iframe|object|embed|style)", mathml, re.IGNORECASE) or re.search(r"\bon\w+\s*=", mathml, re.IGNORECASE):
+            raise ValueError("Unsafe HTML tags or event handlers detected in MathML output.")
         if is_icon:
             cls = "math-icon math-container select-none pointer-events-none"
         else:
             cls = "math-block" if block else "math-container"
         return f'<div class="{cls}">{mathml}</div>'
     except Exception:
-        # Fallback to styled mathematical font span
+        # Fallback to styled mathematical font span with explicit HTML escaping
         tag = "div" if block else "span"
         cls = (
             "math-fallback font-serif text-blue-900 tracking-wide select-none"
             if is_icon
             else "math-fallback font-serif text-blue-900 tracking-wide"
         )
-        return f'<{tag} class="{cls}">{normalized}</{tag}>'
+        safe_fallback = html.escape(normalized)
+        return f'<{tag} class="{cls}">{safe_fallback}</{tag}>'
 
 
 def ui_math(latex_str: str, block: bool = False, classes: str = "", is_icon: bool = False) -> ui.html:

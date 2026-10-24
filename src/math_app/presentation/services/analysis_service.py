@@ -8,6 +8,9 @@ import plotly.graph_objects as go
 import sympy as sp
 
 from math_app.input.parser import normalize_variable_name, parse_mathematical_input
+from math_app.presentation.services.plot_3d_service import (
+    create_surface_plot_from_expression,
+)
 from math_app.rendering.latex.formatter import expr_to_latex
 
 
@@ -172,15 +175,6 @@ def create_2d_plot(
         return fig
     except Exception:
         return None
-
-
-from math_app.presentation.services.plot_3d_service import (
-    create_surface_plot_from_expression,
-    create_parametric_surface_plot,
-    build_3d_figure,
-    Plot3DConfig,
-    AxisDisplayPolicy,
-)
 
 
 def can_plot_3d(raw_expr: str) -> bool:

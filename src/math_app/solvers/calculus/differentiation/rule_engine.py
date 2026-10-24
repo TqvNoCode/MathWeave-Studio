@@ -80,8 +80,8 @@ class DifferentiationRuleEngine:
             rule_name_vi="Tính toán ký hiệu trực tiếp",
             title="Tính đạo hàm trực tiếp bằng bộ giải ký hiệu",
             description=(
-                f"Đạo hàm của biểu thức được tính toán trực tiếp bằng bộ giải ký hiệu toán học "
-                f"do hệ thống chưa có quy tắc sư phạm phân rã chi tiết cho cấu trúc này."
+                "Đạo hàm của biểu thức được tính toán trực tiếp bằng bộ giải ký hiệu toán học "
+                "do hệ thống chưa có quy tắc sư phạm phân rã chi tiết cho cấu trúc này."
             ),
             before=expr,
             after=direct_result,

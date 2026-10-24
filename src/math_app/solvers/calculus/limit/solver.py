@@ -8,7 +8,7 @@ import sympy as sp
 from math_app.application.dtos import ProblemRequest, SolutionResponse, SolutionStep
 from math_app.application.ports.solver import Solver
 from math_app.domain.exceptions import InvalidInputError
-from math_app.domain.models import ProblemType, SolutionStatus, VerificationStatus
+from math_app.domain.models import ProblemType, SolutionStatus
 from math_app.domain.step_content import ExpressionStepContent
 from math_app.input.parser import parse_mathematical_input, parse_safe_expression
 from math_app.rendering.latex.formatter import expr_to_latex

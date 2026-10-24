@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import time
 import sympy as sp
 
@@ -132,14 +131,14 @@ class MatrixSolver(Solver):
 
             if det_val == 0:
                 raise InvalidInputError(
-                    f"Ma trận suy biến: det(A) = 0 nên ma trận không có ma trận nghịch đảo."
+                    "Ma trận suy biến: det(A) = 0 nên ma trận không có ma trận nghịch đảo."
                 )
 
             inv_mat = A.inv()
             builder.add_step(
                 rule_name="Ma trận nghịch đảo",
                 title="Xác định ma trận nghịch đảo",
-                description=f"Áp dụng công thức A^(-1) = (1 / det(A)) · adj(A) ta được ma trận nghịch đảo.",
+                description="Áp dụng công thức A^(-1) = (1 / det(A)) · adj(A) ta được ma trận nghịch đảo.",
                 before=A,
                 after=inv_mat,
             )
@@ -401,7 +400,7 @@ class MatrixSolver(Solver):
                 x_sol = A.LUsolve(b) if (A.rows == A.cols and A.det() != 0) else A.gauss_jordan_solve(b)[0]
                 builder.add_step(
                     rule_name="Giải hệ phương trình bằng phép khử Gauss-Jordan",
-                    description=f"Tìm được nghiệm duy nhất x cho hệ A * x = b.",
+                    description="Tìm được nghiệm duy nhất x cho hệ A * x = b.",
                     before=aug,
                     after=x_sol,
                 )

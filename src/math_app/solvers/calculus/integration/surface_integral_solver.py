@@ -156,7 +156,7 @@ class SurfaceIntegralSolver(Solver):
                     SolutionStep(
                         step_number=step_idx,
                         rule_name=f"Thiết lập vi phân thông lượng ({orient_txt})",
-                        description=f"Tính tích vô hướng F · dS theo vectơ pháp tuyến định hướng:",
+                        description="Tính tích vô hướng F · dS theo vectơ pháp tuyến định hướng:",
                         content=ExpressionStepContent(
                             expression_before="F . dS",
                             expression_after=str(integrand_2d),

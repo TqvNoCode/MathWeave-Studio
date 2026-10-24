@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import Any
-import sympy as sp
 from nicegui import ui
 
 from math_app.application.dtos import SolutionResponse
@@ -103,14 +102,24 @@ def render_solution_view(
 
     p_params = params or {}
 
-    # 1. Error / Invalid Input Card
-    if response.status in (SolutionStatus.INVALID_INPUT, SolutionStatus.CANNOT_SOLVE, SolutionStatus.ERROR):
-        with ui.card().classes("w-full p-5 border border-red-200 bg-red-50/70 text-red-900 rounded-xl shadow-xs"):
+    # 1. Error / Invalid Input / Timeout Card
+    if response.status in (SolutionStatus.INVALID_INPUT, SolutionStatus.CANNOT_SOLVE, SolutionStatus.ERROR, SolutionStatus.TIMEOUT):
+        is_timeout = (response.status == SolutionStatus.TIMEOUT)
+        card_bg = "border-amber-200 bg-amber-50/80 text-amber-900" if is_timeout else "border-red-200 bg-red-50/70 text-red-900"
+        title_text = (
+            "Quá thời gian tính toán cho phép (Computation Timed Out)"
+            if is_timeout
+            else "Không thể hoàn thành phép tính hoặc dữ liệu không hợp lệ"
+        )
+        icon_name = "timer_off" if is_timeout else "error"
+        icon_color = "warning" if is_timeout else "negative"
+
+        with ui.card().classes(f"w-full p-5 border {card_bg} rounded-xl shadow-xs"):
             with ui.row().classes("items-center gap-2 mb-2"):
-                ui.icon("error", color="negative", size="1.5rem")
-                ui.label("Không thể hoàn thành phép tính hoặc dữ liệu không hợp lệ").classes("font-bold text-base text-red-900")
+                ui.icon(icon_name, color=icon_color, size="1.5rem")
+                ui.label(title_text).classes(f"font-bold text-base {'text-amber-900' if is_timeout else 'text-red-900'}")
             for warn in response.warnings:
-                ui.label(f"• {warn}").classes("text-sm text-red-800 ml-6")
+                ui.label(f"• {warn}").classes(f"text-sm {'text-amber-800' if is_timeout else 'text-red-800'} ml-6")
             if not response.warnings:
                 ui.label("Dữ liệu đầu vào chưa đúng định dạng toán học hoặc vượt quá miền xác định.").classes("text-sm text-red-800 ml-6")
         return

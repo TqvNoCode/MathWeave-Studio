@@ -1,6 +1,5 @@
 """Unit tests for calculus limit solver and verifier."""
 
-import pytest
 
 from math_app.application.dtos import ProblemRequest
 from math_app.domain.models import ProblemType, SolutionStatus, VerificationStatus

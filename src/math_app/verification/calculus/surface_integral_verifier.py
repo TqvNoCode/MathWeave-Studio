@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import sympy as sp
 
 from math_app.application.dtos import VerificationResult

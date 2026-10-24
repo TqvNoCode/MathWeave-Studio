@@ -1,7 +1,6 @@
 """Regression tests verifying structured Vietnamese derivations, rules, and mathematical correctness."""
 
 import sympy as sp
-import pytest
 
 from math_app.application.dtos import ProblemRequest
 from math_app.domain.models import ProblemType, SolutionStatus, VerificationStatus
@@ -98,7 +97,7 @@ def test_unsupported_rule_limitations_labeled_honestly():
     """Unsupported operations should not fabricate steps, and must state limitation honestly in Vietnamese."""
     from math_app.solvers.calculus.differentiation.rule_engine import DifferentiationRuleEngine
     from math_app.solvers.calculus.differentiation.step_builder import DifferentiationStepBuilder
-    
+
     # Empty engine without rules forces fallback
     engine = DifferentiationRuleEngine(rules=[])
     builder = DifferentiationStepBuilder()
@@ -106,6 +105,7 @@ def test_unsupported_rule_limitations_labeled_honestly():
     expr = sp.besselj(0, x)  # Special function not in standard curriculum rules
 
     res = engine.differentiate(expr, x, builder)
+    assert res is not None
     assert engine.had_fallback is True
 
     steps = builder.get_steps()

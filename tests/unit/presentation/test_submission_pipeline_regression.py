@@ -14,7 +14,6 @@ from math_app.domain.step_content import ExpressionStepContent
 from math_app.main import build_application
 from math_app.presentation.components.operation_catalog import (
     OPERATIONS,
-    OperationDef,
     get_operation_by_type,
 )
 from math_app.presentation.components.problem_statement import (

@@ -785,7 +785,7 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                             )
 
                             try:
-                                response: SolutionResponse = await asyncio.to_thread(use_case.execute, request)
+                                response: SolutionResponse = await asyncio.to_thread(use_case.execute, request, 8.0)
                             except Exception as exc:
                                 results_container.clear()
                                 with results_container:

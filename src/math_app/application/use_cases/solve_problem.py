@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import multiprocessing
 import time
+from typing import Any
 
 from math_app.application.dtos import ProblemRequest, SolutionResponse, VerificationResult
 from math_app.application.ports.solver import Solver
@@ -11,11 +13,155 @@ from math_app.application.ports.solver_registry import SolverRegistry
 from math_app.domain.exceptions import InvalidInputError
 from math_app.domain.models import SolutionStatus, VerificationStatus
 
+DEFAULT_SOLVER_TIMEOUT_SECONDS = 8.0
+
+
+def _worker_solve_entrypoint(solver: Solver, request: ProblemRequest, conn: Any) -> None:
+    """Entry point executed in isolated child process for CPU-bound symbolic computations."""
+    try:
+        response = solver.solve(request)
+        conn.send(("ok", response))
+    except InvalidInputError as exc:
+        conn.send(("invalid_input", str(exc)))
+    except Exception as exc:
+        conn.send(("error", str(exc)))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _execute_in_isolated_process(
+    solver: Solver,
+    request: ProblemRequest,
+    timeout_seconds: float,
+) -> SolutionResponse:
+    """Execute solver inside an isolated OS process with hard termination on timeout."""
+    ctx = multiprocessing.get_context("spawn")
+    parent_conn, child_conn = ctx.Pipe()
+    p = ctx.Process(
+        target=_worker_solve_entrypoint,
+        args=(solver, request, child_conn),
+        daemon=True,
+    )
+    t0 = time.perf_counter()
+    p.start()
+    child_conn.close()
+
+    p.join(timeout=timeout_seconds)
+
+    if p.is_alive():
+        # Hard cancellation of hung or CPU-bound computation
+        try:
+            p.terminate()
+            p.join(timeout=1.0)
+            if p.is_alive():
+                p.kill()
+                p.join(timeout=1.0)
+        except Exception:
+            pass
+        finally:
+            parent_conn.close()
+
+        elapsed = (time.perf_counter() - t0) * 1000.0
+        return SolutionResponse(
+            status=SolutionStatus.TIMEOUT,
+            verification=VerificationResult(
+                status=VerificationStatus.FAILED,
+                method="timeout",
+                details=f"Thời gian tính toán vượt quá giới hạn an toàn {timeout_seconds}s.",
+            ),
+            raw_input=request.raw_input,
+            canonical_input=request.raw_input.strip(),
+            final_result="",
+            final_latex="",
+            warnings=(
+                f"Quá trình giải toán vượt quá thời gian cho phép ({timeout_seconds} giây) và đã bị ngắt an toàn (Computation timed out).",
+            ),
+            execution_time_ms=elapsed,
+        )
+
+    # Process completed within timeout
+    elapsed = (time.perf_counter() - t0) * 1000.0
+    try:
+        if parent_conn.poll():
+            status_tag, payload = parent_conn.recv()
+            if status_tag == "ok":
+                resp: SolutionResponse = payload
+                if resp.execution_time_ms <= 0.0:
+                    resp = SolutionResponse(
+                        status=resp.status,
+                        verification=resp.verification,
+                        raw_input=resp.raw_input,
+                        canonical_input=resp.canonical_input,
+                        final_result=resp.final_result,
+                        final_latex=resp.final_latex,
+                        steps=resp.steps,
+                        domain_restrictions=resp.domain_restrictions,
+                        warnings=resp.warnings,
+                        execution_time_ms=elapsed,
+                    )
+                return resp
+            elif status_tag == "invalid_input":
+                return SolutionResponse(
+                    status=SolutionStatus.INVALID_INPUT,
+                    verification=VerificationResult(
+                        status=VerificationStatus.NOT_APPLICABLE,
+                        method="none",
+                        details=payload,
+                    ),
+                    raw_input=request.raw_input,
+                    canonical_input=request.raw_input.strip(),
+                    final_result="",
+                    final_latex="",
+                    warnings=(payload,),
+                    execution_time_ms=elapsed,
+                )
+            else:
+                return SolutionResponse(
+                    status=SolutionStatus.CANNOT_SOLVE,
+                    verification=VerificationResult(
+                        status=VerificationStatus.NOT_APPLICABLE,
+                        method="none",
+                        details=f"Solver error: {payload}",
+                    ),
+                    raw_input=request.raw_input,
+                    canonical_input=request.raw_input.strip(),
+                    final_result="",
+                    final_latex="",
+                    warnings=(f"Solver encountered an error: {payload}",),
+                    execution_time_ms=elapsed,
+                )
+        else:
+            exitcode = p.exitcode
+            return SolutionResponse(
+                status=SolutionStatus.ERROR,
+                verification=VerificationResult(
+                    status=VerificationStatus.FAILED,
+                    method="worker_crash",
+                    details=f"Worker process exited unexpectedly with code {exitcode}.",
+                ),
+                raw_input=request.raw_input,
+                canonical_input=request.raw_input.strip(),
+                final_result="",
+                final_latex="",
+                warnings=(f"Tiến trình tính toán kết thúc đột ngột (Worker crashed with exit code {exitcode}).",),
+                execution_time_ms=elapsed,
+            )
+    finally:
+        parent_conn.close()
+
 
 class SolveProblemUseCase:
     """Orchestrates problem solving via abstract SolverRegistry or solver sequence."""
 
-    def __init__(self, registry: SolverRegistry | Sequence[Solver]) -> None:
+    def __init__(
+        self,
+        registry: SolverRegistry | Sequence[Solver],
+        default_timeout: float | None = None,
+    ) -> None:
+        self.default_timeout = default_timeout
         if hasattr(registry, "get"):
             self._registry: SolverRegistry | None = registry
             self._solvers: Sequence[Solver] | None = None
@@ -23,7 +169,11 @@ class SolveProblemUseCase:
             self._registry = None
             self._solvers = list(registry)
 
-    def execute(self, request: ProblemRequest) -> SolutionResponse:
+    def execute(
+        self,
+        request: ProblemRequest,
+        timeout_seconds: float | None = None,
+    ) -> SolutionResponse:
         start_time = time.perf_counter()
 
         cleaned_input = request.raw_input.strip()
@@ -111,6 +261,10 @@ class SolveProblemUseCase:
                 warnings=(f"No registered solver available for problem type '{request.problem_type.value}'.",),
                 execution_time_ms=elapsed,
             )
+
+        effective_timeout = timeout_seconds if timeout_seconds is not None else self.default_timeout
+        if effective_timeout is not None and effective_timeout > 0:
+            return _execute_in_isolated_process(solver, request, effective_timeout)
 
         try:
             response = solver.solve(request)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-from typing import Any
 import sympy as sp
 
 from math_app.domain.exceptions import ComputationTimeoutError
@@ -61,7 +60,7 @@ class IntegrationRuleEngine:
             builder.add_step(
                 rule_name="Quy tắc lũy thừa và hằng số tích phân C" if not is_definite else "Quy tắc lũy thừa cơ bản",
                 title="Áp dụng quy tắc tích phân của lũy thừa",
-                description=f"Áp dụng công thức nguyên hàm cơ bản cho hàm số bậc nhất với n = 1:",
+                description="Áp dụng công thức nguyên hàm cơ bản cho hàm số bậc nhất với n = 1:",
                 before=expr,
                 after=latex_after,
                 equation_latex=eq_latex,
@@ -232,8 +231,8 @@ class IntegrationRuleEngine:
             rule_name="Công cụ tích phân giải tích",
             title="Tính toán nguyên hàm bằng giải tích",
             description=(
-                f"Tính toán nguyên hàm trực tiếp cho biểu thức bằng công cụ giải tích toán học "
-                f"do hệ thống chưa có quy tắc sư phạm phân rã chi tiết cho cấu trúc này."
+                "Tính toán nguyên hàm trực tiếp cho biểu thức bằng công cụ giải tích toán học "
+                "do hệ thống chưa có quy tắc sư phạm phân rã chi tiết cho cấu trúc này."
             ),
             before=expr,
             after=latex_after,

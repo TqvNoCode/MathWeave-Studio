@@ -1,7 +1,5 @@
 """Regression tests for mathematical rendering, layout, and absence of input/spinner controls."""
 
-import re
-import pytest
 
 from math_app.domain.models import ProblemType, VerificationStatus
 from math_app.presentation.components.math_view import math_html
@@ -10,7 +8,6 @@ from math_app.presentation.components.problem_statement import (
     format_final_answer_latex,
     format_problem_statement_latex,
 )
-from math_app.presentation.components.verification_badge import render_verification_badge
 from math_app.application.dtos import VerificationResult
 
 
@@ -138,3 +135,23 @@ def test_no_successful_verification_badge_when_result_is_empty():
     # Note: render_verification_badge requires nicegui context if rendered,
     # but the rule enforces has_valid_result=False never emits positive badge
     assert result.status == VerificationStatus.VERIFIED
+
+
+def test_math_html_sanitizes_and_escapes_malicious_html():
+    """Verify script tags, event handlers, and fallback rendering do not emit unescaped HTML."""
+    payloads = [
+        "<script>alert('xss')</script>",
+        "<img src=x onerror=alert(1)>",
+        "<svg onload=alert(1)>",
+        "javascript:alert(1)",
+        "<a href='javascript:alert(1)'>click me</a>",
+    ]
+    for p in payloads:
+        out = math_html(p)
+        # Raw unescaped dangerous tags must never be present
+        assert "<script>" not in out
+        assert "<img src=x onerror" not in out
+        assert "<svg onload" not in out
+        # In fallback rendering, HTML characters must be entity-escaped
+        if "<" in p:
+            assert "&lt;" in out or "<math" in out

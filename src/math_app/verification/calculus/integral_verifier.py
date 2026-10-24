@@ -107,6 +107,12 @@ class IntegralVerifier(Verifier):
                         method="numerical_quadrature_audit",
                         details="Kết quả số học khớp với tích phân số độc lập trong sai số cho phép.",
                     )
+                else:
+                    return VerificationResult(
+                        status=VerificationStatus.FAILED,
+                        method="numerical_quadrature_discrepancy",
+                        details=f"Phát hiện sai lệch số học giữa kết quả tính toán ({val_comp.real:.6g}) và tích phân độc lập ({val_ref.real:.6g}).",
+                    )
         except Exception:
             pass
 

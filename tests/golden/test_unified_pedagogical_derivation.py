@@ -1,7 +1,6 @@
 """Golden acceptance tests for unified, continuous pedagogical mathematical derivations."""
 
 import sympy as sp
-import pytest
 
 from math_app.application.dtos import ProblemRequest
 from math_app.domain.models import ProblemType, SolutionStatus, VerificationStatus

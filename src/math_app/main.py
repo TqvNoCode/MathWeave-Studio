@@ -100,6 +100,7 @@ def get_available_port(host: str = DEFAULT_HOST, default_port: int = DEFAULT_POR
     import socket
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((host, default_port))
             return default_port
         except OSError:
@@ -128,6 +129,11 @@ def _setup_signal_handlers() -> None:
                 sys.stderr.flush()
             except Exception:
                 pass
+            try:
+                from nicegui import run
+                run.tear_down()
+            except Exception:
+                pass
             os._exit(0)
 
         is_shutting_down = True
@@ -140,6 +146,8 @@ def _setup_signal_handlers() -> None:
     try:
         signal.signal(signal.SIGINT, _handle_signal)
         signal.signal(signal.SIGTERM, _handle_signal)
+        if hasattr(signal, "SIGBREAK"):
+            signal.signal(signal.SIGBREAK, _handle_signal)
     except (ValueError, OSError):
         pass
 
@@ -172,7 +180,7 @@ def main() -> None:
             port=port,
             reload=False,
             native=use_native,
-            window_size=(1200, 800),
+            window_size=(1200, 800) if use_native else None,
         )
     except KeyboardInterrupt:
         pass

@@ -10,6 +10,7 @@ from math_app.application.registry import DefaultSolverRegistry
 from math_app.application.use_cases.solve_problem import SolveProblemUseCase
 from math_app.domain.models import ProblemType
 from math_app.presentation.app import create_app
+from math_app.solvers.algebra.equation_solver import EquationSolver
 from math_app.solvers.calculus.differentiation.solver import DerivativeSolver
 from math_app.solvers.calculus.geometry.arc_length_solver import ArcLengthSolver
 from math_app.solvers.calculus.geometry.surface_area_solver import SurfaceAreaSolver
@@ -75,6 +76,9 @@ def build_application() -> SolveProblemUseCase:
 
     limit_solver = LimitSolver()
     registry.register(ProblemType.LIMIT, limit_solver)
+
+    equation_solver = EquationSolver()
+    registry.register(ProblemType.SOLVE_EQUATION, equation_solver)
 
     # Linear algebra solver
     matrix_solver = MatrixSolver()

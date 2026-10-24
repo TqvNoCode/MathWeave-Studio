@@ -1,9 +1,7 @@
 """Unit and regression tests for MathWeave Studio application branding, metadata, and footer."""
 
-import pytest
 from nicegui import ui
 
-import math_app
 from math_app import (
     __author__,
     __compact_name__,

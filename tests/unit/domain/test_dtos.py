@@ -4,12 +4,11 @@ from dataclasses import is_dataclass
 import pytest
 
 from math_app.application.dtos import (
-    ProblemRequest,
     SolutionResponse,
     SolutionStep,
     VerificationResult,
 )
-from math_app.domain.models import ProblemType, SolutionStatus, VerificationStatus
+from math_app.domain.models import SolutionStatus, VerificationStatus
 from math_app.domain.step_content import ExpressionStepContent
 
 

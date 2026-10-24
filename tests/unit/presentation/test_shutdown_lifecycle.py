@@ -1,6 +1,5 @@
 """Tests for clean application lifecycle and bounded shutdown."""
 
-import os
 import signal
 import subprocess
 import sys

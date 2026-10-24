@@ -65,3 +65,10 @@ def test_rref_card_configured():
     rref_op = get_operation_by_type(ProblemType.MATRIX_RREF)
     assert rref_op.title == "Dạng bậc thang rút gọn (RREF)"
     assert "Gauss" in rref_op.description or "bậc thang rút gọn" in rref_op.description
+
+
+def test_solve_equation_card_configured():
+    op = get_operation_by_type(ProblemType.SOLVE_EQUATION)
+    assert op.title == "Giải phương trình"
+    assert op.problem_type == ProblemType.SOLVE_EQUATION
+    assert op.is_calculus is True

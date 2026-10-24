@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 try:
-    from importlib.metadata import PackageNotFoundError, version
+    from importlib.metadata import version
 
     __version__ = version("mathweave-studio")
 except Exception:

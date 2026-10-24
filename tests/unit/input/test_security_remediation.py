@@ -18,7 +18,6 @@ from math_app.input.parser import (
 )
 from math_app.solvers.calculus.geometry.arc_length_solver import ArcLengthSolver
 from math_app.solvers.calculus.geometry.surface_area_solver import SurfaceAreaSolver
-from math_app.solvers.calculus.geometry.surface_of_revolution_solver import SurfaceOfRevolutionSolver
 from math_app.solvers.calculus.integration.solver import IntegralSolver
 from math_app.solvers.calculus.limit.solver import LimitSolver
 from math_app.solvers.calculus.vector_calculus.divergence_theorem_solver import DivergenceTheoremSolver
@@ -138,6 +137,33 @@ def test_resource_bounds_length_depth_and_exponent():
     huge_exp = "x**999"
     with pytest.raises(InvalidInputError, match="Số mũ|Exponent"):
         parse_safe_expression(huge_exp)
+
+
+def test_denial_of_service_nested_and_excessive_exponents_rejected():
+    """Verify adversarial payloads such as x**(9**9**9) and 9**9**9**9 are rejected immediately."""
+    adversarial_payloads = [
+        "x**(9**9**9)",
+        "9**9**9**9",
+        "x^(9^9^9)",
+        "9^9^9^9",
+        "x**(2**3)",
+        "x**(y**z)",
+        "9**9",
+        "x**(-100)",
+        "x**(10*10)",
+        "x**(5*11)",
+        "100000000",
+    ]
+    for payload in adversarial_payloads:
+        with pytest.raises(InvalidInputError):
+            parse_safe_expression(payload)
+        with pytest.raises(InvalidInputError):
+            parse_mathematical_input(payload, "x")
+
+    # Excessive AST node count (under 200 chars but > 100 AST nodes)
+    oversized_node_expr = "x+" * 50 + "x"  # 101 chars, 102 AST nodes
+    with pytest.raises(InvalidInputError, match="giới hạn cho phép|toán tử"):
+        parse_safe_expression(oversized_node_expr)
 
 
 def test_solvers_reject_unsafe_parameter_inputs():

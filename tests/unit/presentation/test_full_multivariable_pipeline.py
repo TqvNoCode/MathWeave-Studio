@@ -2,7 +2,7 @@
 
 import pytest
 import sympy as sp
-from math_app.application.dtos import ProblemRequest, SolutionResponse
+from math_app.application.dtos import ProblemRequest
 from math_app.application.use_cases.solve_problem import SolveProblemUseCase
 from math_app.domain.models import ProblemType, SolutionStatus, VerificationStatus
 from math_app.main import build_application

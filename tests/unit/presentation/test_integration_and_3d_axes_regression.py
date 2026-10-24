@@ -3,30 +3,21 @@
 from __future__ import annotations
 
 import numpy as np
-import plotly.graph_objects as go
 import pytest
-import sympy as sp
 
-from math_app.application.dtos import ProblemRequest
-from math_app.application.use_cases.solve_problem import SolveProblemUseCase
-from math_app.domain.models import ProblemType, SolutionStatus
+from math_app.domain.models import ProblemType
 from math_app.presentation.components.operation_catalog import (
     MAIN_OPERATIONS,
-    OPERATIONS,
     get_operation_by_type,
 )
 from math_app.presentation.components.problem_statement import (
     format_problem_statement_latex,
-    get_result_card_title,
 )
-from math_app.presentation.components.solution_view import determine_contextual_tools
 from math_app.presentation.services.plot_3d_service import (
-    build_3d_figure,
     create_parametric_surface_plot,
     create_surface_plot_from_expression,
-    Plot3DConfig,
 )
-from math_app.presentation.services.analysis_service import can_plot_3d, create_3d_plot
+from math_app.presentation.services.analysis_service import create_3d_plot
 
 
 # ==============================================================================

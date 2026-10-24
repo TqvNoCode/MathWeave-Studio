@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from typing import Any
-import sympy as sp
 
 from math_app.domain.models import ProblemType
 from math_app.input.parser import (
-    normalize_expression_string,
     normalize_variable_name,
     parse_mathematical_input,
     parse_matrix_input,
@@ -37,6 +35,7 @@ def get_result_card_title(op_type: ProblemType) -> str:
         ProblemType.STOKES_THEOREM: "KẾT QUẢ ĐỊNH LÝ STOKES",
         ProblemType.DIVERGENCE_THEOREM: "KẾT QUẢ ĐỊNH LÝ DIVERGENCE (GAUSS)",
         ProblemType.LIMIT: "KẾT QUẢ GIỚI HẠN",
+        ProblemType.SOLVE_EQUATION: "KẾT QUẢ GIẢI PHƯƠNG TRÌNH",
         ProblemType.MATRIX_DETERMINANT: "KẾT QUẢ ĐỊNH THỨC",
         ProblemType.MATRIX_INVERSE: "KẾT QUẢ MA TRẬN NGHỊCH ĐẢO",
         ProblemType.MATRIX_REF: "KẾT QUẢ DẠNG BẬC THANG (REF)",
@@ -265,6 +264,19 @@ def format_problem_statement_latex(
         except Exception:
             return f"\\lim_{{{clean_var} \\to 0}} \\left( {raw_input} \\right)"
 
+    # 5b. Equation Solving
+    if op_type == ProblemType.SOLVE_EQUATION:
+        try:
+            if "=" in raw_input:
+                parts = raw_input.split("=")
+                if len(parts) == 2:
+                    lhs_ltx = expr_to_latex(parts[0].strip())
+                    rhs_ltx = expr_to_latex(parts[1].strip())
+                    return f"{lhs_ltx} = {rhs_ltx}"
+            return f"{expr_to_latex(raw_input)} = 0"
+        except Exception:
+            return f"{raw_input} = 0"
+
     # 6. Matrix Operations
     try:
         if op_type in (
@@ -391,5 +403,8 @@ def format_final_answer_latex(
 
     if op_type == ProblemType.MATRIX_SOLVE_SYSTEM:
         return f"x = {raw_final_latex}"
+
+    if op_type == ProblemType.SOLVE_EQUATION:
+        return raw_final_latex
 
     return raw_final_latex

@@ -12,7 +12,9 @@ from math_app.input.validator import (
     ALLOWED_COMMON_VARIABLES,
     ALLOWED_CONSTANTS,
     ALLOWED_FUNCTIONS,
+    MAX_CONSTANT_VALUE,
     MAX_EXPONENT_VALUE,
+    evaluate_constant_exponent,
     validate_expression_syntax,
 )
 
@@ -96,8 +98,16 @@ class SafeASTToSymPy(ast.NodeVisitor):
         if type(node.value) is bool:
             raise InvalidInputError("Giá trị boolean không được hỗ trợ trong biểu thức toán học (Booleans are not supported).")
         if isinstance(node.value, int):
+            if abs(node.value) > MAX_CONSTANT_VALUE:
+                raise InvalidInputError(
+                    f"Giá trị hằng số {node.value} vượt quá giới hạn an toàn tối đa (Constant exceeds maximum allowed value): {MAX_CONSTANT_VALUE}."
+                )
             return sp.Integer(node.value)
         elif isinstance(node.value, float):
+            if abs(node.value) > MAX_CONSTANT_VALUE:
+                raise InvalidInputError(
+                    f"Giá trị hằng số {node.value} vượt quá giới hạn an toàn tối đa (Constant exceeds maximum allowed value): {MAX_CONSTANT_VALUE}."
+                )
             return sp.Float(node.value)
         raise InvalidInputError(f"Giá trị hằng số '{node.value}' không được hỗ trợ (Disallowed constant value).")
 
@@ -155,10 +165,15 @@ class SafeASTToSymPy(ast.NodeVisitor):
             left_args = left.args if isinstance(left, sp.Mul) else (left,)
             return sp.Mul(*left_args, sp.Pow(right, -1, evaluate=False), evaluate=False)
         elif isinstance(op, ast.Pow):
-            if isinstance(node.right, ast.Constant) and isinstance(node.right.value, (int, float)):
-                if abs(node.right.value) > MAX_EXPONENT_VALUE:
+            if any(isinstance(n, ast.Pow) for n in ast.walk(node.right)):
+                raise InvalidInputError(
+                    "Số mũ không được chứa phép toán lũy thừa lồng nhau (Nested exponents/powers in exponent are not allowed)."
+                )
+            exp_val = evaluate_constant_exponent(node.right)
+            if exp_val is not None:
+                if abs(exp_val) > MAX_EXPONENT_VALUE:
                     raise InvalidInputError(
-                        f"Số mũ {node.right.value} vượt quá giới hạn an toàn tối đa (exceeds maximum allowed value): {MAX_EXPONENT_VALUE}."
+                        f"Số mũ {exp_val} vượt quá giới hạn an toàn tối đa (exceeds maximum allowed value): {MAX_EXPONENT_VALUE}."
                     )
             return (left ** right) if self.evaluate else sp.Pow(left, right, evaluate=False)
         raise InvalidInputError(f"Toán tử '{type(op).__name__}' không được hỗ trợ (Disallowed binary operator).")

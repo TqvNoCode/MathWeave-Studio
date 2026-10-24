@@ -25,7 +25,7 @@ def render_input_bar(on_solve: Callable[[str, str], None]) -> tuple[ui.input, ui
                 value="x",
             ).classes("w-24 text-lg")
 
-            solve_button = ui.button(
+            ui.button(
                 "Tính đạo hàm",
                 icon="calculate",
                 color="primary",

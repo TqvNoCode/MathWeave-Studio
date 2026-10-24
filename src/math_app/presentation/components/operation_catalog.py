@@ -168,6 +168,22 @@ OPERATIONS: list[OperationDef] = [
         ),
     ),
     OperationDef(
+        problem_type=ProblemType.SOLVE_EQUATION,
+        title="Giải phương trình",
+        domain="Đại số & Giải tích",
+        description="Tìm nghiệm chính xác của phương trình đại số, kèm các bước phân tích nhân tử và kiểm chứng nghiệm.",
+        icon="calculate",
+        math_icon=r"f(x) = 0",
+        default_input="x^2 - 5*x + 6 = 0",
+        target_var="x",
+        examples=(
+            ("Bậc hai: x^2 - 5x + 6 = 0", "x^2 - 5*x + 6 = 0"),
+            ("Bậc nhất: 2x + 4 = 0", "2*x + 4 = 0"),
+            ("Hằng đẳng thức: x^2 - 4 = 0", "x^2 - 4 = 0"),
+            ("Vô nghiệm: x + 1 = x", "x + 1 = x"),
+        ),
+    ),
+    OperationDef(
         problem_type=ProblemType.ARC_LENGTH,
         title="Độ dài cung (Arc Length)",
         domain="Giải tích (Calculus)",

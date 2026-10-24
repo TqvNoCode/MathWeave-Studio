@@ -81,7 +81,7 @@ def analyze_term_diff(t: sp.Expr, var: sp.Symbol) -> dict[str, Any]:
             "c_abs": c_abs,
             "raw_step": "0",
             "result_expr": sp.Integer(0),
-            "explanation": f"đạo hàm của hằng số bằng 0:",
+            "explanation": "đạo hàm của hằng số bằng 0:",
             "equation_latex": f"\\frac{{d}}{{d{var.name}}}({expr_to_latex(t_clean)}) = 0",
             "rule_name": "Constant Rule",
             "rule_name_vi": "Quy tắc đạo hàm của hằng số",
@@ -272,10 +272,9 @@ def analyze_term_int(t: sp.Expr, var: sp.Symbol) -> dict[str, Any]:
 
     # 1. Pure constant
     if not mag.has(var):
-        int_mag = mag * var
         simp = coeff * var
         expl = (
-            f"nguyên hàm của hằng số âm:"
+            "nguyên hàm của hằng số âm:"
             if is_neg
             else "nguyên hàm của hằng số:"
         )
@@ -302,7 +301,7 @@ def analyze_term_int(t: sp.Expr, var: sp.Symbol) -> dict[str, Any]:
             else (
                 f"đưa hệ số {expr_to_latex(c_abs)} ra ngoài, áp dụng quy tắc nguyên hàm của lũy thừa:"
                 if c_abs != 1
-                else f"áp dụng quy tắc nguyên hàm của lũy thừa với số mũ 1:"
+                else "áp dụng quy tắc nguyên hàm của lũy thừa với số mũ 1:"
             )
         )
         eq_lhs = f"\\int ({expr_to_latex(t_clean)})\\,d{var.name}" if is_neg else f"\\int {expr_to_latex(t_clean)}\\,d{var.name}"

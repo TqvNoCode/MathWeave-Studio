@@ -67,6 +67,12 @@ class SurfaceAreaVerifier(Verifier):
                         method="numerical_2d_gauss_quadrature_surface_area",
                         details="Xác nhận số học bằng cầu phương Gauss 2D khớp với diện tích mặt tính toán.",
                     )
+                else:
+                    return VerificationResult(
+                        status=VerificationStatus.FAILED,
+                        method="numerical_2d_gauss_quadrature_discrepancy",
+                        details=f"Phát hiện sai lệch giữa diện tích tính toán ({comp_f:.6g}) và cầu phương Gauss 2D ({num_val:.6g}).",
+                    )
         except Exception:
             pass
 

@@ -1,6 +1,5 @@
 """Tests exercising solution view fallback branches and plotting callbacks."""
 
-import pytest
 from nicegui import ui
 
 from math_app.application.dtos import SolutionResponse, VerificationResult
@@ -76,3 +75,36 @@ def test_solution_view_parametric_surface_rendering():
     }
     with ui.card():
         render_solution_view(response, op, "u", params)
+
+
+def test_solution_view_timeout_card_rendering():
+    """Verify SolutionStatus.TIMEOUT renders informative timeout alert card."""
+    op = get_operation_by_type(ProblemType.DERIVATIVE)
+    response = SolutionResponse(
+        status=SolutionStatus.TIMEOUT,
+        verification=VerificationResult(VerificationStatus.FAILED, "timeout", "Timed out"),
+        raw_input="slow_computation",
+        canonical_input="slow_computation",
+        final_result="",
+        final_latex="",
+        warnings=("Quá trình giải toán vượt quá thời gian cho phép (8.0 giây).",),
+        steps=(),
+    )
+    with ui.card():
+        render_solution_view(response, op, "x", {})
+
+
+def test_solution_view_equation_solving_rendering():
+    """Verify solution view renders equation solving result properly."""
+    op = get_operation_by_type(ProblemType.SOLVE_EQUATION)
+    response = SolutionResponse(
+        status=SolutionStatus.SUCCESS,
+        verification=VerificationResult(VerificationStatus.VERIFIED, "algebraic_root_substitution", "Verified"),
+        raw_input="x^2 - 4 = 0",
+        canonical_input="x^2 - 4 = 0",
+        final_result="x = -2, x = 2",
+        final_latex="x = -2, \\quad x = 2",
+        steps=(),
+    )
+    with ui.card():
+        render_solution_view(response, op, "x", {})

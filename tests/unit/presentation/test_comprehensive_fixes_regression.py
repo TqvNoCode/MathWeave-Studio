@@ -6,11 +6,9 @@ import numpy as np
 from math_app.application.dtos import SolutionStep
 from math_app.domain.models import ProblemType
 from math_app.domain.step_content import ExpressionStepContent
-from math_app.input.parser import parse_mathematical_input
 from math_app.presentation.components.domain_view import format_domain_condition
 from math_app.presentation.components.math_view import math_html
 from math_app.presentation.components.operation_catalog import OPERATIONS, get_operation_by_type
-from math_app.presentation.components.problem_statement import format_problem_statement_latex
 from math_app.presentation.components.variation_table import _build_variation_table_html
 from math_app.presentation.services.analysis_service import (
     compute_variation_table,

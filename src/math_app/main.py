@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from nicegui import ui
 
 from math_app import __title__
@@ -27,6 +29,18 @@ from math_app.solvers.linear_algebra.solver import MatrixSolver
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8080
+
+
+def get_resource_path(relative_path: str | Path) -> Path:
+    """Resolve absolute path to a resource, supporting both development and PyInstaller frozen bundles."""
+    import sys
+    from pathlib import Path
+
+    if hasattr(sys, "_MEIPASS"):
+        base_dir = Path(sys._MEIPASS)
+    else:
+        base_dir = Path(__file__).resolve().parent.parent.parent
+    return (base_dir / relative_path).resolve()
 
 
 def build_application() -> SolveProblemUseCase:
@@ -100,6 +114,7 @@ def get_available_port(host: str = DEFAULT_HOST, default_port: int = DEFAULT_POR
     import socket
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((host, default_port))
             return default_port
         except OSError:
@@ -128,6 +143,11 @@ def _setup_signal_handlers() -> None:
                 sys.stderr.flush()
             except Exception:
                 pass
+            try:
+                from nicegui import run
+                run.tear_down()
+            except Exception:
+                pass
             os._exit(0)
 
         is_shutting_down = True
@@ -135,19 +155,31 @@ def _setup_signal_handlers() -> None:
             from nicegui import app
             app.shutdown()
         except Exception:
+            try:
+                from nicegui import run
+                run.tear_down()
+            except Exception:
+                pass
             os._exit(0)
 
     try:
         signal.signal(signal.SIGINT, _handle_signal)
         signal.signal(signal.SIGTERM, _handle_signal)
+        if hasattr(signal, "SIGBREAK"):
+            signal.signal(signal.SIGBREAK, _handle_signal)
     except (ValueError, OSError):
         pass
 
 
 def main() -> None:
     """Application main entrypoint."""
+    import multiprocessing
     import os
     import sys
+
+    # In Windows / frozen environment, prevent spawned child workers from executing main
+    if multiprocessing.current_process().name != "MainProcess":
+        return
 
     use_case = build_application()
     create_app(use_case)
@@ -155,15 +187,55 @@ def main() -> None:
     _setup_signal_handlers()
 
     port = get_available_port(DEFAULT_HOST, DEFAULT_PORT)
-    # Allow explicit flag --browser or default to native window when display is available
+    # Allow explicit flag --browser or default to native desktop window
     use_native = "--browser" not in sys.argv
-    if use_native and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
-        use_native = False
+    if use_native and sys.platform.startswith("linux"):
+        # On Linux, only activate native mode when an X11 or Wayland display server is running
+        if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+            use_native = False
 
-    from nicegui import app
     if use_native:
-        app.native.start_args["gui"] = "qt"
+        from nicegui import app
+        if sys.platform == "win32":
+            # On Windows, pywebview uses WinForms + EdgeChromium (WebView2).
+            # Verify EdgeChromium availability or report actionable diagnostics.
+            try:
+                from webview.platforms.winforms import _is_chromium
+                if not _is_chromium():
+                    msg = (
+                        "Microsoft Edge WebView2 Runtime chưa được cài đặt trên hệ thống Windows này.\n"
+                        "MathWeave Studio yêu cầu WebView2 Runtime để chạy ở chế độ cửa sổ ứng dụng desktop.\n\n"
+                        "Vui lòng tải và cài đặt Microsoft Edge WebView2 Runtime từ:\n"
+                        "https://go.microsoft.com/fwlink/p/?LinkId=2124703\n\n"
+                        "Hoặc khởi chạy ứng dụng từ dòng lệnh với tham số --browser để mở qua trình duyệt."
+                    )
+                    sys.stderr.write(f"\n[ERROR] {msg}\n\n")
+                    sys.stderr.flush()
+                    try:
+                        import ctypes
+                        ctypes.windll.user32.MessageBoxW(
+                            0,
+                            msg,
+                            "MathWeave Studio — Cần WebView2 Runtime",
+                            0x10,  # MB_ICONERROR
+                        )
+                    except Exception:
+                        pass
+                    sys.exit(1)
+            except ImportError:
+                pass
+        elif sys.platform.startswith("linux"):
+            app.native.start_args["gui"] = "qt"
+
         app.native.window_args["resizable"] = True
+
+    ico_path = get_resource_path("assets/icon.ico")
+    png_path = get_resource_path("assets/icon.png")
+    favicon_path: str | None = None
+    if ico_path.is_file():
+        favicon_path = str(ico_path)
+    elif png_path.is_file():
+        favicon_path = str(png_path)
 
     try:
         ui.run(
@@ -172,14 +244,23 @@ def main() -> None:
             port=port,
             reload=False,
             native=use_native,
-            window_size=(1200, 800),
+            window_size=(1200, 800) if use_native else None,
+            favicon=favicon_path,
+            timeout_graceful_shutdown=3.0,
         )
     except KeyboardInterrupt:
         pass
     finally:
+        try:
+            from nicegui import run
+            run.tear_down()
+        except Exception:
+            pass
         sys.stdout.flush()
         sys.stderr.flush()
 
 
-if __name__ in {"__main__", "__mp_main__"}:
+if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
     main()

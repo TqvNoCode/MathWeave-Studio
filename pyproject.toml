@@ -12,6 +12,7 @@ dependencies = [
     "nicegui>=3.18.0",
     "numpy>=2.5.4",
     "plotly>=7.1.0",
+    "pythonnet>=3.0.0; sys_platform == 'win32'",
     "pywebview>=6.2.1",
     "qtpy>=2.4.3",
     "sympy>=1.14.0",

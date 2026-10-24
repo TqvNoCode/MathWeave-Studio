@@ -1,48 +1,67 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import (
+    collect_all,
+    collect_data_files,
+    collect_dynamic_libs,
+    collect_submodules,
+)
 from pathlib import Path
 
 block_cipher = None
 
 datas = []
-datas += collect_data_files("nicegui")
-datas += collect_data_files("plotly")
-datas += collect_data_files("latex2mathml")
+binaries = []
+hiddenimports = []
+
+for pkg in ["nicegui", "plotly", "latex2mathml"]:
+    datas += collect_data_files(pkg)
+    hiddenimports += collect_submodules(pkg)
+
+hiddenimports += collect_submodules("math_app")
 datas += [("assets", "assets")]
 
-hiddenimports = []
-hiddenimports += collect_submodules("math_app")
-hiddenimports += collect_submodules("nicegui")
-hiddenimports += collect_submodules("plotly")
-hiddenimports += collect_submodules("latex2mathml")
+datas += collect_data_files("webview")
+binaries += collect_dynamic_libs("webview")
+hiddenimports += collect_submodules("webview")
+
+for pkg in ["pythonnet", "clr_loader"]:
+    try:
+        pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
+        datas += pkg_datas
+        binaries += pkg_binaries
+        hiddenimports += pkg_hidden
+    except Exception:
+        pass
+
 hiddenimports += [
-    "qtpy",
-    "PyQt6",
-    "PyQt6.QtCore",
-    "PyQt6.QtGui",
-    "PyQt6.QtWidgets",
-    "PyQt6.QtWebEngineWidgets",
-    "PyQt6.QtWebEngineCore",
-    "PyQt6.QtWebChannel",
-    "webview",
-    "webview.platforms.qt",
     "uvicorn",
     "uvicorn.protocols.http.h11_impl",
     "uvicorn.protocols.websockets.websockets_impl",
+    "uvicorn.protocols.websockets.wsproto_impl",
     "uvicorn.lifespan.on",
+    "uvicorn.lifespan.off",
+    "wsproto",
+    "clr",
+    "pythonnet",
+    "clr_loader",
+    "clr_loader.ffi",
+    "webview.platforms.winforms",
+    "webview.platforms.edgechromium",
+    "webview.platforms.win32",
+    "qtpy",
 ]
 
 a = Analysis(
     ["run.py"],
     pathex=["src"],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter", "matplotlib.tests", "scipy"],
+    excludes=["tkinter", "matplotlib.tests", "scipy", "pytest", "pytest_cov"],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -62,7 +81,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
-    icon="assets/icon.png",
+    icon="assets/icon.ico",
 )
 
 coll = COLLECT(

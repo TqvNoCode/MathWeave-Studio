@@ -141,6 +141,11 @@ def _setup_signal_handlers() -> None:
             from nicegui import app
             app.shutdown()
         except Exception:
+            try:
+                from nicegui import run
+                run.tear_down()
+            except Exception:
+                pass
             os._exit(0)
 
     try:
@@ -181,10 +186,16 @@ def main() -> None:
             reload=False,
             native=use_native,
             window_size=(1200, 800) if use_native else None,
+            timeout_graceful_shutdown=3.0,
         )
     except KeyboardInterrupt:
         pass
     finally:
+        try:
+            from nicegui import run
+            run.tear_down()
+        except Exception:
+            pass
         sys.stdout.flush()
         sys.stderr.flush()
 

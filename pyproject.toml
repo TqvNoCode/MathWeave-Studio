@@ -22,7 +22,7 @@ mathweave-studio = "math_app.main:main"
 math-app = "math_app.main:main"
 
 [build-system]
-requires = ["uv_build>=0.12.10,<0.13.0"]
+requires = ["uv_build>=0.12.10,<0.14.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]

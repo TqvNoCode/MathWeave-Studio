@@ -1,14 +1,19 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
 from PyInstaller.utils.hooks import (
     collect_all,
     collect_data_files,
     collect_dynamic_libs,
     collect_submodules,
 )
-from pathlib import Path
 
 block_cipher = None
+
+# Base directory of the project, resolved from spec file location
+project_dir = SPECPATH
+assets_dir = os.path.join(project_dir, "assets")
+icon_path = os.path.join(assets_dir, "icon.ico")
 
 datas = []
 binaries = []
@@ -19,7 +24,7 @@ for pkg in ["nicegui", "plotly", "latex2mathml"]:
     hiddenimports += collect_submodules(pkg)
 
 hiddenimports += collect_submodules("math_app")
-datas += [("assets", "assets")]
+datas += [(assets_dir, "assets")]
 
 datas += collect_data_files("webview")
 binaries += collect_dynamic_libs("webview")
@@ -53,8 +58,8 @@ hiddenimports += [
 ]
 
 a = Analysis(
-    ["run.py"],
-    pathex=["src"],
+    [os.path.join(project_dir, "run.py")],
+    pathex=[os.path.join(project_dir, "src")],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -81,7 +86,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
-    icon="assets/icon.ico",
+    icon=icon_path,
 )
 
 coll = COLLECT(

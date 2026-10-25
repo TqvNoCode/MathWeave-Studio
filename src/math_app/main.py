@@ -207,7 +207,10 @@ def main() -> None:
                         "MathWeave Studio yêu cầu WebView2 Runtime để chạy ở chế độ cửa sổ ứng dụng desktop.\n\n"
                         "Vui lòng tải và cài đặt Microsoft Edge WebView2 Runtime từ:\n"
                         "https://go.microsoft.com/fwlink/p/?LinkId=2124703\n\n"
-                        "Hoặc khởi chạy ứng dụng từ dòng lệnh với tham số --browser để mở qua trình duyệt."
+                        "Hoặc khởi chạy ứng dụng từ dòng lệnh với tham số --browser để mở qua trình duyệt.\n"
+                        "--------------------------------------------------\n"
+                        "Microsoft Edge WebView2 Runtime is not installed on this system.\n"
+                        "Please install it from the link above or launch with --browser."
                     )
                     sys.stderr.write(f"\n[ERROR] {msg}\n\n")
                     sys.stderr.flush()
@@ -222,7 +225,7 @@ def main() -> None:
                     except Exception:
                         pass
                     sys.exit(1)
-            except ImportError:
+            except Exception:
                 pass
         elif sys.platform.startswith("linux"):
             app.native.start_args["gui"] = "qt"

@@ -65,9 +65,9 @@ MathWeave Studio bridges this gap by combining:
 
 ## Installation
 
-MathWeave Studio is primarily developed and tested on **Arch Linux**.
+MathWeave Studio is designed to run as a **native desktop application by default on supported Linux desktop environments and Windows**, while supporting an explicit `--browser` mode for headless workflows.
 
-### Quick Start (Arch Linux via uv)
+### Quick Start (Linux via uv)
 
 1. **Clone the repository:**
    ```bash
@@ -79,13 +79,25 @@ MathWeave Studio is primarily developed and tested on **Arch Linux**.
    ```bash
    uv sync
    ```
+   *(On Linux, `uv sync` automatically installs `pywebview[qt]` with PyQt6 and QtWebEngine).*
 
 3. **Launch the application:**
-   ```bash
-   uv run run.py --browser
-   ```
+   - **Native Desktop Window (Default):**
+     ```bash
+     uv run run.py
+     ```
+     Opens MathWeave Studio in a standalone native desktop window on X11 or Wayland (Arch Linux KDE Plasma, GNOME, Ubuntu, Debian).
+   - **Browser Mode:**
+     ```bash
+     uv run run.py --browser
+     ```
+     Launches the UI directly in your default web browser at **[http://localhost:8080](http://localhost:8080)**. Ideal for headless environments, remote servers, or CI test runners.
 
-Open your browser at: **[http://localhost:8080](http://localhost:8080)**
+> **System Prerequisites for Linux Native Mode:**
+> MathWeave Studio utilizes a Qt6 / QtWebEngine backend via pywebview. Ensure the following system packages are installed:
+> - **Arch Linux:** `sudo pacman -S --needed qt6-webengine qt6-webchannel`
+> - **Ubuntu / Debian:** `sudo apt install -y libgl1 libegl1 libxkbcommon0 libdbus-1-3 libxcb1 libxcb-cursor0`
+> - **Known Backend Limitation:** Native desktop mode requires an active graphical display session (`DISPLAY` or `WAYLAND_DISPLAY`). In headless environments without a display server, launch with `--browser`.
 
 For complete Arch Linux instructions—including future AUR installation placeholders, system dependencies, running with standard virtual environments, and uninstallation—see the [Arch Linux Installation Guide](docs/INSTALL_ARCH.md).
 

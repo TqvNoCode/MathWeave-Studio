@@ -65,9 +65,9 @@ MathWeave Studio giải quyết vấn đề này bằng cách kết hợp:
 
 ## Cài đặt và Khởi động nhanh
 
-MathWeave Studio được phát triển và kiểm chuẩn chính trên môi trường **Arch Linux**.
+MathWeave Studio được thiết kế để chạy dưới dạng **ứng dụng desktop native mặc định trên các môi trường Linux và Windows được hỗ trợ**, đồng thời hỗ trợ chế độ `--browser` rõ ràng cho các quy trình làm việc không có giao diện đồ họa.
 
-### Khởi động nhanh trên Arch Linux (qua uv)
+### Khởi động nhanh (Linux qua uv)
 
 1. **Sao chép mã nguồn kho lưu trữ:**
    ```bash
@@ -79,19 +79,31 @@ MathWeave Studio được phát triển và kiểm chuẩn chính trên môi tr�
    ```bash
    uv sync
    ```
+   *(Trên Linux, lệnh `uv sync` sẽ tự động cài đặt `pywebview[qt]` bao gồm PyQt6 và QtWebEngine).*
 
 3. **Khởi chạy ứng dụng:**
-   ```bash
-   uv run run.py --browser
-   ```
+   - **Cửa sổ ứng dụng Desktop Native (Mặc định):**
+     ```bash
+     uv run run.py
+     ```
+     Mở MathWeave Studio trong cửa sổ desktop độc lập trên X11 hoặc Wayland (Arch Linux KDE Plasma, GNOME, Ubuntu, Debian).
+   - **Chế độ trình duyệt web:**
+     ```bash
+     uv run run.py --browser
+     ```
+     Khởi chạy giao diện trực tiếp trên trình duyệt web mặc định tại **[http://localhost:8080](http://localhost:8080)**. Phù hợp cho môi trường máy chủ headless, phiên SSH từ xa hoặc luồng kiểm thử tự động CI.
 
-Mở trình duyệt web tại: **[http://localhost:8080](http://localhost:8080)**
+> **Yêu cầu hệ thống cho chế độ Desktop Linux:**
+> MathWeave Studio sử dụng backend Qt6 / QtWebEngine thông qua pywebview. Hãy đảm bảo các gói thư viện hệ thống sau đã được cài đặt:
+> - **Arch Linux:** `sudo pacman -S --needed qt6-webengine qt6-webchannel`
+> - **Ubuntu / Debian:** `sudo apt install -y libgl1 libegl1 libxkbcommon0 libdbus-1-3 libxcb1 libxcb-cursor0`
+> - **Giới hạn môi trường đã biết:** Chế độ native desktop yêu cầu một phiên làm việc đồ họa đang hoạt động (`DISPLAY` hoặc `WAYLAND_DISPLAY`). Trong môi trường headless không có display server, vui lòng khởi chạy với cờ `--browser`.
 
 Để xem hướng dẫn chi tiết trên Arch Linux—bao gồm trạng thái gói AUR/yay, gói hệ thống, chạy với môi trường ảo tiêu chuẩn và cách gỡ cài đặt sạch sẽ—vui lòng xem [Hướng dẫn cài đặt trên Arch Linux](docs/INSTALL_ARCH.md).
 
 ### Ứng dụng Desktop Độc lập trên Windows
 
-Tải tệp `MathWeaveStudio-Beta.exe` từ GitHub Releases.
+Download `MathWeaveStudio-Beta.exe` từ GitHub Releases.
 Nhấp đúp vào tệp EXE để mở MathWeave Studio trực tiếp trong cửa sổ ứng dụng desktop mà không cần cài đặt Python hay uv.
 
 > **Yêu cầu hệ thống cho chế độ Desktop Windows:**

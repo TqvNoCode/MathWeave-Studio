@@ -9,7 +9,7 @@ from __future__ import annotations
 from nicegui import ui
 
 from math_app.application.dtos import SolutionStep
-from math_app.presentation.components.math_view import ui_math
+from math_app.presentation.components.math_view import ui_math, ui_math_text
 
 
 def render_substep_compact(substep: SolutionStep) -> None:
@@ -24,14 +24,15 @@ def render_substep_compact(substep: SolutionStep) -> None:
                 ui.label("Số hạng:").classes("font-semibold text-xs md:text-sm text-slate-800")
                 ui_math(term_part, block=False, classes="text-xs md:text-sm font-semibold text-slate-900")
             else:
-                ui.label(raw_title).classes("font-semibold text-xs md:text-sm text-slate-800")
+                ui_math_text(raw_title, classes="font-semibold text-xs md:text-sm text-slate-800")
             rn = substep.display_rule_name
             if rn and rn != raw_title:
-                ui.badge(rn, color="slate-100").classes("text-slate-600 text-[11px] px-2 py-0.5 rounded-md font-medium")
+                with ui.badge(color="slate-100").classes("text-slate-600 text-[11px] px-2 py-0.5 rounded-md font-medium"):
+                    ui_math_text(rn)
 
         # Pedagogical term explanation
         if substep.description:
-            ui.label(substep.description).classes("text-xs md:text-sm text-slate-600 pl-3 leading-relaxed")
+            ui_math_text(substep.description, classes="text-xs md:text-sm text-slate-600 pl-3 leading-relaxed")
 
         # Mathematical term equation
         if substep.equation_latex:
@@ -63,16 +64,18 @@ def render_step(step: SolutionStep) -> None:
         with ui.row().classes("items-center justify-between w-full flex-wrap gap-2 border-b border-slate-100 pb-2.5"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("check_circle_outline", size="1.25rem").classes("text-blue-600")
-                ui.label(f"Bước {step.step_number}: {step_title}").classes("text-base font-bold text-slate-900")
+                ui_math_text(f"Bước {step.step_number}: {step_title}", classes="text-base font-bold text-slate-900")
 
             with ui.row().classes("items-center gap-2"):
-                ui.badge(rule_name_vi, color="blue-1").classes("text-blue-800 text-xs px-2.5 py-0.5 rounded-full font-medium")
+                with ui.badge(color="blue-1").classes("text-blue-800 text-xs px-2.5 py-0.5 rounded-full font-medium"):
+                    ui_math_text(rule_name_vi)
                 if step.notes:
-                    ui.badge(step.notes, color="slate-200").classes("text-slate-700 text-xs px-2 py-0.5 rounded-md font-medium")
+                    with ui.badge(color="slate-200").classes("text-slate-700 text-xs px-2 py-0.5 rounded-md font-medium"):
+                        ui_math_text(step.notes)
 
         # 2. Concise Pedagogical Explanation in Vietnamese (Layer A)
         if step.description:
-            ui.label(step.description).classes("text-xs md:text-sm text-slate-700 leading-relaxed mt-1")
+            ui_math_text(step.description, classes="text-xs md:text-sm text-slate-700 leading-relaxed mt-1")
 
         # 3. Step Assumptions / Conditions (e.g. Với n != -1)
         if step.assumptions:
@@ -130,11 +133,17 @@ def render_steps_container(
         for step in steps:
             render_step(step)
 
-        # Final Boxed Conclusion in the Derivation Sequence
+        # Final Conclusion in the Derivation Sequence
         if final_answer_latex and final_answer_latex.strip():
+            clean_conclusion = final_answer_latex.strip()
+            # Strip outer \boxed{...} or \fbox{...} if present so no inner box/border is rendered
+            if clean_conclusion.startswith(r"\boxed{") and clean_conclusion.endswith("}"):
+                clean_conclusion = clean_conclusion[7:-1].strip()
+            elif clean_conclusion.startswith(r"\fbox{") and clean_conclusion.endswith("}"):
+                clean_conclusion = clean_conclusion[6:-1].strip()
+
             with ui.card().classes("w-full p-4.5 my-2 border-2 border-blue-200 bg-gradient-to-r from-blue-50/80 to-indigo-50/60 rounded-xl gap-2 shadow-xs"):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("task_alt", color="primary", size="1.3rem")
                     ui.label("Kết luận:").classes("text-base font-bold text-blue-950")
-                boxed_latex = f"\\boxed{{{final_answer_latex}}}"
-                ui_math(boxed_latex, block=True, classes="text-xl md:text-2xl font-bold text-blue-900 py-1")
+                ui_math(clean_conclusion, block=True, classes="conclusion-formula text-xl md:text-2xl font-bold text-blue-900 py-1")

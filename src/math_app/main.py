@@ -28,6 +28,13 @@ from math_app.solvers.calculus.integration.line_integral_solver import LineInteg
 from math_app.solvers.calculus.integration.surface_integral_solver import SurfaceIntegralSolver
 from math_app.solvers.calculus.integration.triple_integral_solver import TripleIntegralSolver
 from math_app.solvers.calculus.limit.solver import LimitSolver
+from math_app.solvers.calculus.ode.exact_solver import ODEExactSolver
+from math_app.solvers.calculus.ode.integrating_factor_solver import ODEIntegratingFactorSolver
+from math_app.solvers.calculus.ode.linear_solver import ODELinearSolver
+from math_app.solvers.calculus.ode.reduction_of_order_solver import ODEReductionOfOrderSolver
+from math_app.solvers.calculus.ode.second_order_constant_coeff_solver import ODESecondOrderConstantCoeffSolver
+from math_app.solvers.calculus.ode.separable_solver import ODESeparableSolver
+from math_app.solvers.calculus.ode.wronskian_solver import WronskianSolver
 from math_app.solvers.calculus.vector_calculus.divergence_theorem_solver import DivergenceTheoremSolver
 from math_app.solvers.calculus.vector_calculus.greens_theorem_solver import GreensTheoremSolver
 from math_app.solvers.calculus.vector_calculus.stokes_theorem_solver import StokesTheoremSolver
@@ -99,6 +106,29 @@ def build_application() -> SolveProblemUseCase:
 
     equation_solver = EquationSolver()
     registry.register(ProblemType.SOLVE_EQUATION, equation_solver)
+
+    # Differential Equations solvers
+    ode_linear_solver = ODELinearSolver()
+    registry.register(ProblemType.ODE_FIRST_ORDER_LINEAR, ode_linear_solver)
+
+    ode_separable_solver = ODESeparableSolver()
+    registry.register(ProblemType.ODE_SEPARABLE, ode_separable_solver)
+
+    ode_exact_solver = ODEExactSolver()
+    registry.register(ProblemType.ODE_EXACT, ode_exact_solver)
+
+    ode_integrating_factor_solver = ODEIntegratingFactorSolver()
+    registry.register(ProblemType.ODE_INTEGRATING_FACTOR, ode_integrating_factor_solver)
+
+    ode_second_order_solver = ODESecondOrderConstantCoeffSolver()
+    registry.register(ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF, ode_second_order_solver)
+    registry.register(ProblemType.ODE_SECOND_ORDER_IVP, ode_second_order_solver)
+
+    ode_reduction_of_order_solver = ODEReductionOfOrderSolver()
+    registry.register(ProblemType.ODE_REDUCTION_OF_ORDER, ode_reduction_of_order_solver)
+
+    wronskian_solver = WronskianSolver()
+    registry.register(ProblemType.WRONSKIAN, wronskian_solver)
 
     # Linear algebra solver
     matrix_solver = MatrixSolver()

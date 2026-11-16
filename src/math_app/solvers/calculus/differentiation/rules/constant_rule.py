@@ -27,7 +27,7 @@ class ConstantRule(DifferentiationRule):
             rule_name="Constant Rule",
             rule_name_vi="Quy tắc đạo hàm của hằng số",
             title="Áp dụng quy tắc đạo hàm của hằng số",
-            description=f"Đạo hàm của hằng số không phụ thuộc vào biến {var.name} bằng 0: d/d{var.name}({expr}) = 0.",
+            description=f"Đạo hàm của hằng số không phụ thuộc vào biến ${var.name}$ bằng $0$: $\\frac{{d}}{{d{var.name}}}({expr_to_latex(expr)}) = 0$.",
             before=expr,
             after=result,
             equation_latex=f"\\frac{{d}}{{d{var.name}}}({expr_to_latex(expr)}) = 0",
@@ -89,11 +89,11 @@ class ConstantMultipleRule(DifferentiationRule):
             rule_name="Constant Multiple Rule",
             rule_name_vi="Quy tắc nhân với hằng số",
             title="Đưa hằng số ra ngoài dấu đạo hàm",
-            description=f"Đưa hệ số hằng số {c_ltx} ra ngoài dấu đạo hàm theo công thức [c · u]' = c · u':",
+            description=f"Đưa hệ số hằng số ${c_ltx}$ ra ngoài dấu đạo hàm theo công thức $[c \\cdot u]' = c \\cdot u'$:",
             before=expr,
             after=result,
             substeps=sub_builder.get_steps(),
-            notes=f"Hằng số nhân c = {c_ltx}",
+            notes=f"Hằng số nhân $c = {c_ltx}$",
             equation_latex=aligned_eq,
         )
         return result

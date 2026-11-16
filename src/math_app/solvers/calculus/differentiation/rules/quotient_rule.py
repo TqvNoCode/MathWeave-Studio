@@ -73,8 +73,8 @@ class QuotientRule(DifferentiationRule):
             rule_name_vi="Quy tắc đạo hàm của thương",
             title="Áp dụng quy tắc đạo hàm của thương",
             description=(
-                f"Áp dụng quy tắc đạo hàm của thương hai hàm số [u / v]' = (u'v - uv') / v^2 "
-                f"với tử số u = {u_ltx} và mẫu số v = {v_ltx}:"
+                f"Áp dụng quy tắc đạo hàm của thương hai hàm số $[u / v]' = \\frac{{u'v - uv'}}{{v^2}}$ "
+                f"với tử số $u = {u_ltx}$ và mẫu số $v = {v_ltx}$:"
             ),
             before=expr,
             after=result,

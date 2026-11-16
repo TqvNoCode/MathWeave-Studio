@@ -33,7 +33,7 @@ class PowerRule(DifferentiationRule):
                 rule_name="Identity Variable Rule",
                 rule_name_vi="Quy tắc đạo hàm của hàm đồng nhất",
                 title="Áp dụng quy tắc đạo hàm của biến số đồng nhất",
-                description=f"Đạo hàm của biến số {var.name} theo chính nó bằng 1: d/d{var.name}({var.name}) = 1.",
+                description=f"Đạo hàm của biến số ${var.name}$ theo chính nó bằng $1$: $\\frac{{d}}{{d{var.name}}}({var.name}) = 1$.",
                 before=expr,
                 after=result,
                 equation_latex=f"f'({var.name}) = \\frac{{d}}{{d{var.name}}}({var.name}) = 1",
@@ -47,12 +47,12 @@ class PowerRule(DifferentiationRule):
             rule_name_vi="Quy tắc đạo hàm của lũy thừa",
             title="Áp dụng quy tắc đạo hàm của lũy thừa",
             description=(
-                f"Với hàm số dạng lũy thừa u({var.name}) = {var.name}^n, ta có u'({var.name}) = n · {var.name}^(n-1). "
+                f"Với hàm số dạng lũy thừa $u({var.name}) = {var.name}^n$, ta có $u'({var.name}) = n \\cdot {var.name}^{{n-1}}$. "
                 f"Áp dụng quy tắc này cho hàm số đã cho:"
             ),
             before=expr,
             after=result,
-            notes=f"Số mũ n = {exp}",
+            notes=f"Số mũ $n = {expr_to_latex(exp)}$",
             equation_latex=f"f'({var.name}) = \\frac{{d}}{{d{var.name}}}\\left({expr_to_latex(expr)}\\right) = {exp}{var.name}^{{{exp}-1}} = {expr_to_latex(result)}",
         )
         return result

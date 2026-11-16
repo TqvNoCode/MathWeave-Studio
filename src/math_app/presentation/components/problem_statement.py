@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from math_app.domain.models import ProblemType
@@ -36,6 +37,14 @@ def get_result_card_title(op_type: ProblemType) -> str:
         ProblemType.DIVERGENCE_THEOREM: "KẾT QUẢ ĐỊNH LÝ DIVERGENCE (GAUSS)",
         ProblemType.LIMIT: "KẾT QUẢ GIỚI HẠN",
         ProblemType.SOLVE_EQUATION: "KẾT QUẢ GIẢI PHƯƠNG TRÌNH",
+        ProblemType.ODE_FIRST_ORDER_LINEAR: "KẾT QUẢ PHƯƠNG TRÌNH VI PHÂN TUYẾN TÍNH",
+        ProblemType.ODE_SEPARABLE: "KẾT QUẢ PHƯƠNG TRÌNH TÁCH BIẾN",
+        ProblemType.ODE_EXACT: "KẾT QUẢ PHƯƠNG TRÌNH VI PHÂN TOÀN PHẦN",
+        ProblemType.ODE_INTEGRATING_FACTOR: "KẾT QUẢ PHƯƠNG TRÌNH THỪA SỐ TÍCH PHÂN",
+        ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF: "KẾT QUẢ PHƯƠNG TRÌNH VI PHÂN CẤP 2",
+        ProblemType.ODE_SECOND_ORDER_IVP: "KẾT QUẢ BÀI TOÁN CAUCHY CẤP 2",
+        ProblemType.ODE_REDUCTION_OF_ORDER: "KẾT QUẢ HẠ BẬC PHƯƠNG TRÌNH CẤP 2",
+        ProblemType.WRONSKIAN: "KẾT QUẢ ĐỊNH THỨC WRONSKIAN",
         ProblemType.MATRIX_DETERMINANT: "KẾT QUẢ ĐỊNH THỨC",
         ProblemType.MATRIX_INVERSE: "KẾT QUẢ MA TRẬN NGHỊCH ĐẢO",
         ProblemType.MATRIX_REF: "KẾT QUẢ DẠNG BẬC THANG (REF)",
@@ -276,6 +285,70 @@ def format_problem_statement_latex(
             return f"{expr_to_latex(raw_input)} = 0"
         except Exception:
             return f"{raw_input} = 0"
+
+    # 5c. Differential Equations
+    if op_type in (
+        ProblemType.ODE_FIRST_ORDER_LINEAR,
+        ProblemType.ODE_SEPARABLE,
+        ProblemType.ODE_EXACT,
+        ProblemType.ODE_INTEGRATING_FACTOR,
+        ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+        ProblemType.ODE_SECOND_ORDER_IVP,
+        ProblemType.ODE_REDUCTION_OF_ORDER,
+    ):
+        try:
+            from math_app.input.ode_parser import extract_second_order_ics_from_string
+            eq_str, y_ic, yp_ic, y1_str = extract_second_order_ics_from_string(raw_input)
+            if not y_ic and p and "initial_condition" in p and p["initial_condition"]:
+                ic_val = str(p["initial_condition"]).strip()
+                if "y'" in ic_val or "yp" in ic_val:
+                    yp_ic = ic_val
+                else:
+                    y_ic = ic_val
+            if not y1_str and p and "y1" in p and p["y1"]:
+                y1_str = str(p["y1"]).strip()
+
+            eq_ltx = eq_str
+            if "=" in eq_str:
+                parts = eq_str.split("=")
+                if len(parts) == 2:
+                    l_str = (
+                        parts[0]
+                        .strip()
+                        .replace("y''", f"\\frac{{d^2y}}{{d{clean_var}^2}}")
+                        .replace("y'", f"\\frac{{dy}}{{d{clean_var}}}")
+                    )
+                    r_str = (
+                        parts[1]
+                        .strip()
+                        .replace("y''", f"\\frac{{d^2y}}{{d{clean_var}^2}}")
+                        .replace("y'", f"\\frac{{dy}}{{d{clean_var}}}")
+                    )
+                    eq_ltx = f"{l_str} = {r_str}"
+
+            addons: list[str] = []
+            if y_ic:
+                addons.append(y_ic)
+            if yp_ic:
+                addons.append(yp_ic)
+            if y1_str:
+                clean_y1 = re.sub(r"^y_?1\s*=\s*", "", y1_str).strip()
+                addons.append(f"y_1 = {clean_y1}")
+
+            if addons:
+                return f"{eq_ltx}, \\quad " + ", \\quad ".join(addons)
+            return eq_ltx
+        except Exception:
+            return raw_input
+
+    # 5d. Wronskian
+    if op_type == ProblemType.WRONSKIAN:
+        try:
+            from math_app.input.ode_parser import parse_wronskian_input
+            y1_e, y2_e, _ = parse_wronskian_input(raw_input, target_variable=clean_var, parameters=p)
+            return f"W\\left({expr_to_latex(y1_e)},\\, {expr_to_latex(y2_e)}\\right)({clean_var})"
+        except Exception:
+            return f"W({raw_input})"
 
     # 6. Matrix Operations
     try:

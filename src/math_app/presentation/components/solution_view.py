@@ -159,7 +159,7 @@ def render_solution_view(
         with ui.column().classes("w-full p-5 bg-gradient-to-r from-blue-50/70 to-indigo-50/50 border border-blue-200 rounded-xl gap-2"):
             ui.label("ĐÁP SỐ CUỐI CÙNG:").classes("text-xs font-bold text-blue-900 uppercase tracking-wider")
             if final_answer_latex and final_answer_latex.strip():
-                ui_math(final_answer_latex, block=True, classes="text-2xl md:text-3xl font-bold text-blue-900 py-1")
+                ui_math(final_answer_latex, block=True, classes="text-2xl md:text-3xl font-medium text-blue-900 py-1")
             else:
                 ui.label(response.final_result or "Không tìm thấy kết quả hữu hạn").classes("text-xl font-bold text-slate-800 font-mono")
 

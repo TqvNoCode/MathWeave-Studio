@@ -80,13 +80,13 @@ class ChainRule(DifferentiationRule):
             rule_name_vi="Quy tắc đạo hàm của hàm hợp",
             title="Áp dụng quy tắc đạo hàm của hàm hợp",
             description=(
-                f"Áp dụng quy tắc đạo hàm hàm hợp [f(g({var.name}))]' = f'(g({var.name})) · g'({var.name}) "
-                f"với hàm ngoài f(u) = {outer_ltx} và biểu thức trong u = {inner_ltx}:"
+                f"Áp dụng quy tắc đạo hàm hàm hợp $[f(g({var.name}))]' = f'(g({var.name})) \\cdot g'({var.name})$ "
+                f"với hàm ngoài $f(u) = {outer_ltx}$ và biểu thức trong $u = {inner_ltx}$:"
             ),
             before=expr,
             after=result,
             substeps=sub_builder.get_steps(),
-            notes=f"Hàm ngoài {outer_ltx}, hàm trong {inner_ltx}",
+            notes=f"Hàm ngoài ${outer_ltx}$, hàm trong ${inner_ltx}$",
             equation_latex=aligned_eq,
         )
         return result

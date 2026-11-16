@@ -82,3 +82,39 @@ def test_problem_statement_limit():
     )
 
     assert "\\lim_{x \\to 0}" in res
+
+
+def test_problem_statement_differential_equations():
+    assert get_result_card_title(ProblemType.ODE_FIRST_ORDER_LINEAR) == "KẾT QUẢ PHƯƠNG TRÌNH VI PHÂN TUYẾN TÍNH"
+    assert get_result_card_title(ProblemType.ODE_SEPARABLE) == "KẾT QUẢ PHƯƠNG TRÌNH TÁCH BIẾN"
+    assert get_result_card_title(ProblemType.ODE_EXACT) == "KẾT QUẢ PHƯƠNG TRÌNH VI PHÂN TOÀN PHẦN"
+    assert get_result_card_title(ProblemType.ODE_INTEGRATING_FACTOR) == "KẾT QUẢ PHƯƠNG TRÌNH THỪA SỐ TÍCH PHÂN"
+    assert get_result_card_title(ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF) == "KẾT QUẢ PHƯƠNG TRÌNH VI PHÂN CẤP 2"
+    assert get_result_card_title(ProblemType.ODE_SECOND_ORDER_IVP) == "KẾT QUẢ BÀI TOÁN CAUCHY CẤP 2"
+    assert get_result_card_title(ProblemType.ODE_REDUCTION_OF_ORDER) == "KẾT QUẢ HẠ BẬC PHƯƠNG TRÌNH CẤP 2"
+    assert get_result_card_title(ProblemType.WRONSKIAN) == "KẾT QUẢ ĐỊNH THỨC WRONSKIAN"
+
+    raw_input = "y' + (1/2)*y = t + 2, y(0) = 1"
+    res = format_problem_statement_latex(raw_input, ProblemType.ODE_FIRST_ORDER_LINEAR, "t")
+    assert "\\frac{dy}{dt}" in res
+    assert "y(0) = 1" in res
+
+    # Second-order IVP
+    raw_so = "y'' + 5*y' + 6*y = 0, y(0) = 2, y'(0) = 3"
+    res_so = format_problem_statement_latex(raw_so, ProblemType.ODE_SECOND_ORDER_IVP, "t")
+    assert "\\frac{d^2y}{dt^2}" in res_so
+    assert "\\frac{dy}{dt}" in res_so
+    assert "y(0) = 2" in res_so
+    assert "y'(0) = 3" in res_so
+
+    # Reduction of order
+    raw_red = "2*t^2*y'' + 3*t*y' - y = 0, y1 = 1/t"
+    res_red = format_problem_statement_latex(raw_red, ProblemType.ODE_REDUCTION_OF_ORDER, "t")
+    assert "y_1 = 1/t" in res_red
+
+    # Wronskian
+    raw_w = "cos(t), sin(t)"
+    res_w = format_problem_statement_latex(raw_w, ProblemType.WRONSKIAN, "t")
+    assert "W" in res_w
+    assert "\\cos" in res_w
+    assert "\\sin" in res_w

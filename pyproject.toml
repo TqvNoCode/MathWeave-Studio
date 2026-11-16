@@ -1,7 +1,7 @@
 [project]
 name = "mathweave-studio"
-version = "0.1.0"
-description = "MathWeave Studio — Phần mềm Hỗ trợ Học tập & Nghiên cứu Toán học Chuyên sâu"
+version = "0.1.1"
+description = "MathWeave Studio — Phần mềm Hỗ trợ Học tập & Nghiên cứu Toán học Chuyên sâu, giải phương trình vi phân"
 readme = "README.md"
 authors = [
     { name = "TqvNoCode", email = "92263302+TqvNoCode@users.noreply.github.com" }

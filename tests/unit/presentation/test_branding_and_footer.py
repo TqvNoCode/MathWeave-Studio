@@ -21,7 +21,7 @@ def test_branding_identifiers():
     assert __slug__ == "mathweave-studio"
     assert __author__ == "TQV"
     assert __copyright__ == "© 2026 by TQV"
-    assert __version__ == "0.1.0"
+    assert __version__ == "0.1.1"
 
 
 def test_author_credit_constant():
@@ -38,7 +38,7 @@ def test_backward_compatibility_exceptions():
 def test_version_badge_format():
     """Verify that version badge reflects truthful MVP version and excludes 'Desktop' label."""
     badge_text = f"MVP · v{__version__}"
-    assert badge_text == "MVP · v0.1.0"
+    assert badge_text == "MVP · v0.1.1"
     assert "Desktop" not in badge_text
     assert "v1.0" not in badge_text
 

@@ -118,7 +118,7 @@ class GreensTheoremSolver(Solver):
                 content=ExpressionStepContent(
                     expression_before="integrand_2d",
                     expression_after=str(integrand_2d),
-                    latex_before=r"\text{Biểu thức dưới dấu tích phân}",
+                    latex_before=r"\frac{\partial Q}{\partial x} - \frac{\partial P}{\partial y}",
                     latex_after=deriv_ltx,
                 ),
                 equation_latex=deriv_ltx,

@@ -61,8 +61,8 @@ class ProductRule(DifferentiationRule):
             rule_name_vi="Quy tắc đạo hàm của tích",
             title="Áp dụng quy tắc đạo hàm của tích",
             description=(
-                f"Áp dụng quy tắc đạo hàm của tích hai hàm số (u · v)' = u'v + uv' "
-                f"với u = {u_ltx} và v = {v_ltx}:"
+                f"Áp dụng quy tắc đạo hàm của tích hai hàm số $[u \\cdot v]' = u'v + uv'$ "
+                f"với $u = {u_ltx}$ và $v = {v_ltx}$:"
             ),
             before=expr,
             after=result,

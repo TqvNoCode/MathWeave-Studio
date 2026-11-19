@@ -12,6 +12,7 @@ Tài liệu này cung cấp hướng dẫn thực hành gọn gàng, rõ ràng �
    - [Nguyên hàm và Hằng số tích phân C](#ví-dụ-2-nguyên-hàm-và-hằng-số-tích-phân-c)
    - [Giới hạn hàm số](#ví-dụ-3-giới-hạn-hàm-số-limit)
    - [Đại số tuyến tính & Hệ phương trình ma trận](#ví-dụ-4-đại-số-tuyến-tính--hệ-phương-trình-ma-trận)
+   - [Phương trình vi phân & Bài toán Cauchy](#ví-dụ-5-phương-trình-vi-phân-ode--bài-toán-cauchy)
 3. [Đọc hiểu kết quả và kiểm chứng độc lập](#3-đọc-hiểu-kết-quả-và-kiểm-chứng-độc-lập)
    - [Cây bước giải sư phạm và Bước con](#cây-bước-giải-sư-phạm-và-bước-con-substeps)
    - [Huy hiệu kiểm chứng độc lập (Verification Badge)](#huy-hiệu-kiểm-chứng-độc-lập-verification-badge)
@@ -86,6 +87,88 @@ Tất cả ma trận đều sử dụng cú pháp danh sách lồng nhau chuẩn
   - Nhập: `[[1, 2], [3, 4]] = [5, 11]`
   - Kết quả: Nghiệm duy nhất $x = 1, y = 2$ với các bước khử Gauss–Jordan trên ma trận mở rộng $[A | b]$.
 
+### Ví dụ 5: Phương trình vi phân (ODE) & Bài toán Cauchy
+
+MathWeave Studio hỗ trợ phương trình vi phân cấp 1: tuyến tính (hệ số hằng & biến số), phương trình tách biến, vi phân toàn phần và phương trình có thừa số tích phân $\mu(x)$ hoặc $\mu(y)$.
+
+- **Phương trình tuyến tính hệ số biến (Nhân tử tích phân):**
+  - Nhập: `y' + (1/2)*y = t + 2`
+  - Biến độc lập: `t`
+  - Kết quả: $y(t) = 2t + C e^{-t/2}$
+  - Các bước giải sư phạm:
+    1. Nhận dạng dạng chuẩn: $p(t) = 1/2$, $g(t) = t + 2$.
+    2. Tìm thừa số tích phân: $\mu(t) = e^{\int \frac{1}{2}dt} = e^{t/2}$.
+    3. Nhân hai vế với $\mu(t)$ và biến đổi vế trái thành $\frac{d}{dt}[e^{t/2}y] = (t+2)e^{t/2}$.
+    4. Tích phân hai vế: $e^{t/2}y = 2t e^{t/2} + C$.
+    5. Chia cho $\mu(t)$ và rút ra nghiệm tổng quát $y(t) = 2t + C e^{-t/2}$.
+
+- **Bài toán giá trị ban đầu Cauchy (IVP):**
+  - Nhập: `y' = 2*y + 3, y(0) = 1`
+  - Kết quả: $y(t) = \frac{5}{2}e^{2t} - \frac{3}{2}$
+  - Diễn giải: Xác định nghiệm cân bằng $y_{eq} = -3/2$, suy ra nghiệm tổng quát $y(t) = C e^{2t} - 3/2$, thay $t=0, y=1$ giải ra $C = 5/2$.
+  - Kiểm định: Đạo hàm $y'(t) = 5e^{2t}$ thế vào biểu thức dư $R(t) = y' - 2y - 3 \equiv 0$ và nghiệm đúng $y(0) = 1$.
+
+- **Phương trình vi phân toàn phần (Exact ODE):**
+  - Nhập: `(2*x*y + 3)*dx + (x^2 + 4*y)*dy = 0` (hoặc `(2*x*y + 3) + (x^2 + 4*y)*y' = 0`)
+  - Biến độc lập: `x`
+  - Kết quả: $x^2 y + 3x + 2y^2 = C$
+  - Diễn giải: Kiểm tra điều kiện vi phân toàn phần $\frac{\partial M}{\partial y} = 2x = \frac{\partial N}{\partial x}$, tích phân $\Psi(x, y) = \int M dx = x^2 y + 3x$, tìm $h(y) = 2y^2$ và kết luận hàm thế $F(x, y) = C$.
+
+- **Phương trình có thừa số tích phân (Integrating Factor):**
+  - Nhập: `(3*x*y + y^2)*dx + (x^2 + x*y)*dy = 0`
+  - Biến độc lập: `x`
+  - Kết quả: $x^3 y + \frac{1}{2}x^2 y^2 = C$
+  - Diễn giải: Đạo hàm riêng $\frac{\partial M}{\partial y} = 3x + 2y \ne \frac{\partial N}{\partial x} = 2x + y$. Tính tỉ số $\frac{M_y - N_x}{N} = \frac{1}{x} = f(x)$, suy ra thừa số tích phân $\mu(x) = e^{\int \frac{1}{x}dx} = x$. Nhân hai vế với $\mu(x)$ đưa về phương trình vi phân toàn phần và xác định hàm thế $F(x, y) = C$.
+
+- **Phương trình vi phân cấp 2 hệ số hằng ($a y'' + b y' + c y = 0$):**
+  - Nhập: `y'' + 5*y' + 6*y = 0`
+  - Biến độc lập: `t`
+  - Kết quả: $y(t) = C_1 e^{-2t} + C_2 e^{-3t}$
+  - Các bước giải sư phạm:
+    1. Thiết lập phương trình đặc trưng: $r^2 + 5r + 6 = 0$.
+    2. Tính biệt thức Delta: $\Delta = 5^2 - 4(1)(6) = 1 > 0$.
+    3. Xác định hai nghiệm thực phân biệt: $r_1 = -2, r_2 = -3$.
+    4. Xây dựng hệ nghiệm cơ bản $y_1 = e^{-2t}, y_2 = e^{-3t}$ và nghiệm tổng quát $y(t) = C_1 e^{-2t} + C_2 e^{-3t}$.
+    5. Kiểm chứng độc lập bằng biểu thức dư $R(t) \equiv 0$.
+
+- **Bài toán Cauchy cấp 2 (Second-Order IVP):**
+  - Nhập: `y'' + 5*y' + 6*y = 0, y(0) = 2, y'(0) = 3`
+  - Biến độc lập: `t`
+  - Kết quả: $y(t) = 9e^{-2t} - 7e^{-3t}$
+  - Diễn giải: Lập hệ phương trình tuyến tính cho $C_1, C_2$:
+    $$\begin{cases} C_1 + C_2 = 2 \\ -2C_1 - 3C_2 = 3 \end{cases} \implies C_1 = 9, \; C_2 = -7$$
+    Thay vào nghiệm tổng quát thu được nghiệm riêng $y(t) = 9e^{-2t} - 7e^{-3t}$.
+    Kiểm chứng thành công: $y(0) = 9 - 7 = 2$, $y'(0) = -18 + 21 = 3$, và biểu thức dư đồng nhất bằng 0.
+
+- **Hạ bậc phương trình cấp 2 (Reduction of Order):**
+  - Nhập: `2*t^2*y'' + 3*t*y' - y = 0, y1 = 1/t`
+  - Biến độc lập: `t`
+  - Kết quả: $y(t) = \frac{C_1}{t} + C_2 \sqrt{t}$
+  - Diễn giải:
+    1. Chuẩn hóa: $y'' + \frac{3}{2t}y' - \frac{1}{2t^2}y = 0 \implies p(t) = \frac{3}{2t}$.
+    2. Kiểm chứng nghiệm đã biết $y_1(t) = 1/t$: Biểu thức dư $R_1(t) \equiv 0$.
+    3. Đặt $y_2(t) = v(t)y_1(t)$, đưa về phương trình cấp một cho $u = v'$: $u' + \left(\frac{3}{2t} + \frac{2(-1/t^2)}{1/t}\right)u = 0 \implies u' - \frac{1}{2t}u = 0$.
+    4. Giải ra $u(t) = \sqrt{t}$ (với $t > 0$) hoặc $u(t) = \sqrt{-t}$ (với $t < 0$), nguyên hàm $v(t) = \frac{2}{3}|t|^{3/2}$.
+    5. Nghiệm cơ bản thứ hai: $y_2(t) \propto \sqrt{t}$ trên $t > 0$ (hoặc $\sqrt{-t}$ trên $t < 0$).
+    6. Kiểm chứng độc lập qua định thức Wronskian $W(y_1, y_2) = \frac{3}{2} t^{-3/2} \ne 0$ trên $(0, +\infty)$ và điểm kỳ dị tại $t = 0$.
+
+- **Định thức Wronskian (Wronskian Determinant) & Lưu ý Định lý Peano:**
+  - Nhập: `cos(t), sin(t)`
+  - Kết quả: $W(y_1, y_2)(t) = 1 \ne 0$
+  - Diễn giải: Đạo hàm $y_1' = -\sin(t)$, $y_2' = \cos(t)$. Ma trận Wronski:
+    $$W = \cos(t)\cos(t) - (-\sin(t))\sin(t) = \cos^2(t) + \sin^2(t) = 1 \ne 0$$
+    Kết luận: Hai hàm số độc lập tuyến tính trên toàn trục số.
+  - **Lưu ý quan trọng về $W \equiv 0$:** Đối với hai hàm số bất kỳ không kèm phương trình vi phân tuyến tính cấp 2 đã được kiểm chứng, $W \equiv 0$ là **chưa thể kết luận** (inconclusive, hiển thị huy hiệu hổ phách) do phản ví dụ kinh điển của Peano ($y_1 = t^2, y_2 = t|t|$ có $W \equiv 0$ trên $\mathbb{R}$ nhưng độc lập tuyến tính). Tính phụ thuộc tuyến tính chỉ được xác nhận khi hai hàm số là nghiệm của cùng một phương trình vi phân tuyến tính thuần nhất trên khoảng liên tục theo Định lý Abel.
+
+- **Bảo toàn Căn thức & Hệ Cauchy cấp 2 (Square Root Preservation):**
+  - Nhập: `2*y'' + y' - 4*y = 0, y(0) = 0, y'(0) = 1`
+  - Biến độc lập: `t`
+  - Kết quả: $y(t) = \frac{2\sqrt{33}}{33} \left(e^{\frac{\sqrt{33}t}{2}} - 1\right) e^{-\frac{(1+\sqrt{33})t}{4}}$
+  - Biệt thức $\Delta = 33$, căn bậc hai $\sqrt{\Delta} = \sqrt{33}$, hai nghiệm thực phân biệt $r_{1,2} = \frac{-1 \pm \sqrt{33}}{4}$.
+  - Hệ điều kiện ban đầu Cauchy:
+    $$\begin{cases} C_1 + C_2 = 0 \\ \frac{-1+\sqrt{33}}{4}C_1 + \frac{-1-\sqrt{33}}{4}C_2 = 1 \end{cases} \implies C_1 = \frac{2\sqrt{33}}{33}, \; C_2 = -\frac{2\sqrt{33}}{33}$$
+  - Toàn bộ căn thức $\sqrt{33}$ được bảo toàn nguyên vẹn xuyên suốt các bước giải và hiển thị dưới dạng MathML chuẩn.
+
 ---
 
 ## 3. Đọc hiểu kết quả và kiểm chứng độc lập
@@ -128,6 +211,7 @@ MathWeave Studio kiểm tra độc lập mọi lời giải bằng hai cơ chế
 | **Nguyên hàm (Tích phân bất định)** | **Ổn định (Tested)** | Phân rã quy tắc lũy thừa, lượng giác, hằng số $+ C$. |
 | **Tích phân xác định cơ bản** | **Ổn định (Tested)** | Cận hữu hạn $[a, b]$, định lý Newton–Leibniz. |
 | **Giới hạn hàm số (Limits)** | **Ổn định (Tested)** | Giới hạn tại điểm hữu hạn và vô cực ($\pm\infty$). |
+| **Phương trình vi phân (Tuyến tính cấp 1, Tách biến, Vi phân toàn phần)** | **Ổn định (Tested)** | 100% test cases đạt; hỗ trợ hệ số hằng/biến, nghiệm cân bằng, hàm thế và bài toán Cauchy. |
 | **Ma trận (Det, Nghịch đảo, REF, RREF, Hệ $Ax=b$)** | **Ổn định (Tested)** | Khử Gauss và Gauss–Jordan từng bước. |
 | **Tích phân mặt tham số & Đa biến phức tạp** | **Giới hạn / Thử nghiệm** | Tối ưu cho miền chữ nhật; miền cong tùy ý đang phát triển. |
 | **Tích phân không sơ cấp** | **Dự phòng ký hiệu** | Trả về nghiệm rút gọn chính xác từ SymPy, không chia nhỏ bước sơ cấp. |
@@ -147,6 +231,9 @@ MathWeave Studio kiểm tra độc lập mọi lời giải bằng hai cơ chế
 | Logarit | `ln(x)` hoặc `log(x)` | `ln(x + 1)` |
 | Vô cực | `oo` hoặc `inf` | `x -> oo` |
 | Ma trận | `[[hàng 1], [hàng 2]]` | `[[1, 2], [3, 4]]` |
+| Đạo hàm phương trình vi phân | `y'`, `dy/dt`, `dy/dx` | `y' + 1/2*y = t + 2` |
+| Dạng vi phân toàn phần | `M*dx + N*dy = 0` | `(2*x*y + 3)*dx + (x^2 + 4*y)*dy = 0` |
+| Điều kiện ban đầu Cauchy | `y(t0) = y0` | `y' = 2*y + 3, y(0) = 1` |
 
 ### Xử lý lỗi thường gặp
 

@@ -39,6 +39,16 @@ for pkg in ["pythonnet", "clr_loader"]:
     except Exception:
         pass
 
+if sys.platform.startswith("linux"):
+    for pkg in ["PyQt6"]:
+        try:
+            pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
+            datas += pkg_datas
+            binaries += pkg_binaries
+            hiddenimports += pkg_hidden
+        except Exception:
+            pass
+
 hiddenimports += [
     "uvicorn",
     "uvicorn.protocols.http.h11_impl",

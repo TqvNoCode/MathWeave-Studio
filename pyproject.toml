@@ -1,7 +1,7 @@
 [project]
 name = "mathweave-studio"
-version = "0.1.0"
-description = "MathWeave Studio — Phần mềm Hỗ trợ Học tập & Nghiên cứu Toán học Chuyên sâu"
+version = "0.1.1"
+description = "MathWeave Studio — Phần mềm Hỗ trợ Học tập & Nghiên cứu Toán học Chuyên sâu, giải phương trình vi phân"
 readme = "README.md"
 authors = [
     { name = "TqvNoCode", email = "92263302+TqvNoCode@users.noreply.github.com" }
@@ -13,7 +13,8 @@ dependencies = [
     "numpy>=2.5.4",
     "plotly>=7.1.0",
     "pythonnet>=3.0.0; sys_platform == 'win32'",
-    "pywebview>=6.2.1",
+    "pywebview[qt]>=6.2.1; sys_platform == 'linux'",
+    "pywebview>=6.2.1; sys_platform != 'linux'",
     "qtpy>=2.4.3",
     "sympy>=1.14.0",
 ]
@@ -39,7 +40,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-python_files = ["test_*.py"]
+python_files = ["test_*.py", "*_acceptance.py"]
 addopts = "-ra --strict-markers"
 
 [tool.ruff]

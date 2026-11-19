@@ -15,7 +15,7 @@
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Python 3.14+](https://img.shields.io/badge/Python-3.14+-blue.svg)](https://www.python.org/)
-[![Status: MVP v0.1.0](https://img.shields.io/badge/Status-MVP%20v0.1.0-orange.svg)](pyproject.toml)
+[![Status: v0.1.1](https://img.shields.io/badge/Status-v0.1.1-green.svg)](pyproject.toml)
 
 </div>
 
@@ -28,10 +28,11 @@ Hầu hết các phần mềm toán học hiện nay chỉ đưa ra đáp án sa
 MathWeave Studio giải quyết vấn đề này bằng cách kết hợp:
 - **Đại số ký hiệu chính xác:** Xử lý tính toán đại số chính xác tuyệt đối với SymPy.
 - **Bộ máy phân rã từng bước sư phạm:** Tách bạch các quy tắc giải tích chuẩn mực (Quy tắc lũy thừa, tổng, hiệu, tích, thương, hàm hợp, lượng giác...) kèm các bước con (*Substeps*) có thể mở rộng.
+- **Hiển thị toán học MathML & LaTeX an toàn:** Hiển thị công thức toán học nội dòng và độc lập bằng MathML chuẩn, tự động làm sạch và bảo mật chống tấn công XSS.
 - **Kiểm chuẩn độc lập hai tầng:** Mọi lời giải đều được đối chiếu chéo độc lập bằng đại số biểu tượng và lấy mẫu số học đa điểm (*Numerical Probing*).
 - **Trực quan hóa tương tác:** Đồ thị hàm số 2D tự động phát hiện tiệm cận và điểm gián đoạn, đồ thị mặt cong 3D chuẩn màu hệ trục và bảng biến thiên toán học.
 
-> **Lưu ý về phiên bản:** MathWeave Studio hiện đang trong giai đoạn phát triển tích cực (`MVP · v0.1.0`). Việc đẩy commit lên GitHub chưa tự động tạo phiên bản phát hành mới; một GitHub Release kèm Git tag tương ứng phải được tạo chính thức để các huy hiệu phát hành cập nhật tự động.
+> **Lưu ý về phiên bản:** MathWeave Studio hiện đang ở phiên bản `v0.1.1`. Việc đẩy commit lên GitHub chưa tự động tạo phiên bản phát hành mới; một GitHub Release kèm Git tag tương ứng phải được tạo chính thức để các huy hiệu phát hành cập nhật tự động.
 
 ---
 
@@ -44,6 +45,16 @@ MathWeave Studio giải quyết vấn đề này bằng cách kết hợp:
 - **Tích phân:** Nguyên hàm (tích phân bất định) kèm quy tắc và hằng số tích phân $+ C$; tích phân xác định trên đoạn $[a, b]$ theo định lý Newton–Leibniz.
 - **Giới hạn hàm số (Limits):** Giới hạn hai phía và một phía ($\lim_{x \to a^{\pm}}$) tại điểm hữu hạn và vô cực ($\pm\infty$).
 - **Giải tích đa biến & Hình học:** Độ dài cung, diện tích mặt cong, mặt/khối tròn xoay, tích phân đường, tích phân mặt và tích phân khối (Descartes, trụ, cầu).
+
+### Phương trình vi phân (Differential Equations)
+- **Phương trình tuyến tính cấp 1 ($y' = ay + b$ & $y' + p(t)y = g(t)$):** Hệ số hằng và hệ số biến với phương pháp thừa số tích phân ($\mu(t) = e^{\int p(t)dt}$) và bảo toàn nghiệm cân bằng.
+- **Phương trình tách biến ($y' = f(t)g(y)$):** Phân tách biến số an toàn, bảo toàn nghiệm cân bằng từ phương trình $g(y) = 0$.
+- **Phương trình vi phân toàn phần ($M(x, y)dx + N(x, y)dy = 0$):** Kiểm tra điều kiện vi phân toàn phần ($\frac{\partial M}{\partial y} = \frac{\partial N}{\partial x}$) và xây dựng hàm thế $F(x, y) = C$.
+- **Thừa số tích phân ($\mu(x)$ / $\mu(y)$):** Chuyển đổi phương trình không toàn phần về toàn phần.
+- **Phương trình vi phân cấp 2 hệ số hằng ($ay'' + by' + cy = 0$):** Phân tích đa thức đặc trưng ($ar^2 + br + c = 0$), phân loại biệt thức ($\Delta > 0$ hai nghiệm thực phân biệt, $\Delta < 0$ nghiệm phức liên hợp qua công thức Euler, $\Delta = 0$ nghiệm kép với thừa số nhân $t$), xây dựng hệ nghiệm cơ bản và kiểm chứng độc lập.
+- **Bài toán Cauchy cấp 2 (Second-Order IVP):** Hệ hai điều kiện ban đầu $y(t_0) = y_0$ và $y'(t_0) = v_0$, giải hệ phương trình tuyến tính $2 \times 2$ tìm $C_1, C_2$ và kiểm chứng nghiệm riêng.
+- **Phương pháp hạ bậc (Reduction of Order):** Dẫn xuất nghiệm cơ bản thứ hai $y_2(t) = v(t)y_1(t)$ từ nghiệm đã biết $y_1(t)$ qua phương trình vi phân cấp một $u = v'$ và công thức tích phân $u(t) = \frac{e^{-\int p(t)dt}}{y_1(t)^2}$, kèm phát hiện điểm kỳ dị và miền xác định.
+- **Định thức Wronskian ($W(y_1, y_2)$):** Kiểm tra tính độc lập tuyến tính của hệ nghiệm cơ bản và kiểm chứng đồng nhất thức Abel.
 
 ### Đại số tuyến tính (Linear Algebra)
 - **Định thức (Determinants):** Công thức $2 \times 2$ và khai triển Laplace cho ma trận bậc cao.
@@ -65,9 +76,9 @@ MathWeave Studio giải quyết vấn đề này bằng cách kết hợp:
 
 ## Cài đặt và Khởi động nhanh
 
-MathWeave Studio được phát triển và kiểm chuẩn chính trên môi trường **Arch Linux**.
+MathWeave Studio được thiết kế để chạy dưới dạng **ứng dụng desktop native mặc định trên các môi trường Linux và Windows được hỗ trợ**, đồng thời hỗ trợ chế độ `--browser` rõ ràng cho các quy trình làm việc không có giao diện đồ họa.
 
-### Khởi động nhanh trên Arch Linux (qua uv)
+### Khởi động nhanh (Linux qua uv)
 
 1. **Sao chép mã nguồn kho lưu trữ:**
    ```bash
@@ -79,19 +90,31 @@ MathWeave Studio được phát triển và kiểm chuẩn chính trên môi tr�
    ```bash
    uv sync
    ```
+   *(Trên Linux, lệnh `uv sync` sẽ tự động cài đặt `pywebview[qt]` bao gồm PyQt6 và QtWebEngine).*
 
 3. **Khởi chạy ứng dụng:**
-   ```bash
-   uv run run.py --browser
-   ```
+   - **Cửa sổ ứng dụng Desktop Native (Mặc định):**
+     ```bash
+     uv run run.py
+     ```
+     Mở MathWeave Studio trong cửa sổ desktop độc lập trên X11 hoặc Wayland (Arch Linux KDE Plasma, GNOME, Ubuntu, Debian).
+   - **Chế độ trình duyệt web:**
+     ```bash
+     uv run run.py --browser
+     ```
+     Khởi chạy giao diện trực tiếp trên trình duyệt web mặc định tại **[http://localhost:8080](http://localhost:8080)**. Phù hợp cho môi trường máy chủ headless, phiên SSH từ xa hoặc luồng kiểm thử tự động CI.
 
-Mở trình duyệt web tại: **[http://localhost:8080](http://localhost:8080)**
+> **Yêu cầu hệ thống cho chế độ Desktop Linux:**
+> MathWeave Studio sử dụng backend Qt6 / QtWebEngine thông qua pywebview. Hãy đảm bảo các gói thư viện hệ thống sau đã được cài đặt:
+> - **Arch Linux:** `sudo pacman -S --needed qt6-webengine qt6-webchannel`
+> - **Ubuntu / Debian:** `sudo apt install -y libgl1 libegl1 libxkbcommon0 libdbus-1-3 libxcb1 libxcb-cursor0`
+> - **Giới hạn môi trường đã biết:** Chế độ native desktop yêu cầu một phiên làm việc đồ họa đang hoạt động (`DISPLAY` hoặc `WAYLAND_DISPLAY`). Trong môi trường headless không có display server, vui lòng khởi chạy với cờ `--browser`.
 
 Để xem hướng dẫn chi tiết trên Arch Linux—bao gồm trạng thái gói AUR/yay, gói hệ thống, chạy với môi trường ảo tiêu chuẩn và cách gỡ cài đặt sạch sẽ—vui lòng xem [Hướng dẫn cài đặt trên Arch Linux](docs/INSTALL_ARCH.md).
 
 ### Ứng dụng Desktop Độc lập trên Windows
 
-Tải tệp `MathWeaveStudio-Beta.exe` từ GitHub Releases.
+Download `MathWeaveStudio-Beta.exe` từ GitHub Releases.
 Nhấp đúp vào tệp EXE để mở MathWeave Studio trực tiếp trong cửa sổ ứng dụng desktop mà không cần cài đặt Python hay uv.
 
 > **Yêu cầu hệ thống cho chế độ Desktop Windows:**

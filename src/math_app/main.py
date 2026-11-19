@@ -12,6 +12,12 @@ from math_app.application.registry import DefaultSolverRegistry
 from math_app.application.use_cases.solve_problem import SolveProblemUseCase
 from math_app.domain.models import ProblemType
 from math_app.presentation.app import create_app
+from math_app.presentation.startup import (
+    HeadlessEnvironmentError,
+    NativeBackendError,
+    resolve_startup_mode,
+    validate_and_prepare_native_backend,
+)
 from math_app.solvers.algebra.equation_solver import EquationSolver
 from math_app.solvers.calculus.differentiation.solver import DerivativeSolver
 from math_app.solvers.calculus.geometry.arc_length_solver import ArcLengthSolver
@@ -22,6 +28,14 @@ from math_app.solvers.calculus.integration.line_integral_solver import LineInteg
 from math_app.solvers.calculus.integration.surface_integral_solver import SurfaceIntegralSolver
 from math_app.solvers.calculus.integration.triple_integral_solver import TripleIntegralSolver
 from math_app.solvers.calculus.limit.solver import LimitSolver
+from math_app.solvers.calculus.ode.classical_homogeneous_solver import ODEClassicalHomogeneousSolver
+from math_app.solvers.calculus.ode.exact_solver import ODEExactSolver
+from math_app.solvers.calculus.ode.integrating_factor_solver import ODEIntegratingFactorSolver
+from math_app.solvers.calculus.ode.linear_solver import ODELinearSolver
+from math_app.solvers.calculus.ode.reduction_of_order_solver import ODEReductionOfOrderSolver
+from math_app.solvers.calculus.ode.second_order_constant_coeff_solver import ODESecondOrderConstantCoeffSolver
+from math_app.solvers.calculus.ode.separable_solver import ODESeparableSolver
+from math_app.solvers.calculus.ode.wronskian_solver import WronskianSolver
 from math_app.solvers.calculus.vector_calculus.divergence_theorem_solver import DivergenceTheoremSolver
 from math_app.solvers.calculus.vector_calculus.greens_theorem_solver import GreensTheoremSolver
 from math_app.solvers.calculus.vector_calculus.stokes_theorem_solver import StokesTheoremSolver
@@ -93,6 +107,32 @@ def build_application() -> SolveProblemUseCase:
 
     equation_solver = EquationSolver()
     registry.register(ProblemType.SOLVE_EQUATION, equation_solver)
+
+    # Differential Equations solvers
+    ode_linear_solver = ODELinearSolver()
+    registry.register(ProblemType.ODE_FIRST_ORDER_LINEAR, ode_linear_solver)
+
+    ode_classical_homog_solver = ODEClassicalHomogeneousSolver()
+    registry.register(ProblemType.ODE_FIRST_ORDER_HOMOGENEOUS, ode_classical_homog_solver)
+
+    ode_separable_solver = ODESeparableSolver()
+    registry.register(ProblemType.ODE_SEPARABLE, ode_separable_solver)
+
+    ode_exact_solver = ODEExactSolver()
+    registry.register(ProblemType.ODE_EXACT, ode_exact_solver)
+
+    ode_integrating_factor_solver = ODEIntegratingFactorSolver()
+    registry.register(ProblemType.ODE_INTEGRATING_FACTOR, ode_integrating_factor_solver)
+
+    ode_second_order_solver = ODESecondOrderConstantCoeffSolver()
+    registry.register(ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF, ode_second_order_solver)
+    registry.register(ProblemType.ODE_SECOND_ORDER_IVP, ode_second_order_solver)
+
+    ode_reduction_of_order_solver = ODEReductionOfOrderSolver()
+    registry.register(ProblemType.ODE_REDUCTION_OF_ORDER, ode_reduction_of_order_solver)
+
+    wronskian_solver = WronskianSolver()
+    registry.register(ProblemType.WRONSKIAN, wronskian_solver)
 
     # Linear algebra solver
     matrix_solver = MatrixSolver()
@@ -174,63 +214,21 @@ def _setup_signal_handlers() -> None:
 def main() -> None:
     """Application main entrypoint."""
     import multiprocessing
-    import os
     import sys
 
     # In Windows / frozen environment, prevent spawned child workers from executing main
     if multiprocessing.current_process().name != "MainProcess":
         return
 
-    use_case = build_application()
-    create_app(use_case)
+    # 1. Resolve startup mode (Native window by default, Browser with --browser)
+    try:
+        startup_mode = resolve_startup_mode()
+    except HeadlessEnvironmentError as exc:
+        sys.stderr.write(f"\n[ERROR] {exc}\n\n")
+        sys.stderr.flush()
+        sys.exit(1)
 
-    _setup_signal_handlers()
-
-    port = get_available_port(DEFAULT_HOST, DEFAULT_PORT)
-    # Allow explicit flag --browser or default to native desktop window
-    use_native = "--browser" not in sys.argv
-    if use_native and sys.platform.startswith("linux"):
-        # On Linux, only activate native mode when an X11 or Wayland display server is running
-        if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
-            use_native = False
-
-    if use_native:
-        from nicegui import app
-        if sys.platform == "win32":
-            # On Windows, pywebview uses WinForms + EdgeChromium (WebView2).
-            # Verify EdgeChromium availability or report actionable diagnostics.
-            try:
-                from webview.platforms.winforms import _is_chromium
-                if not _is_chromium():
-                    msg = (
-                        "Microsoft Edge WebView2 Runtime chưa được cài đặt trên hệ thống Windows này.\n"
-                        "MathWeave Studio yêu cầu WebView2 Runtime để chạy ở chế độ cửa sổ ứng dụng desktop.\n\n"
-                        "Vui lòng tải và cài đặt Microsoft Edge WebView2 Runtime từ:\n"
-                        "https://go.microsoft.com/fwlink/p/?LinkId=2124703\n\n"
-                        "Hoặc khởi chạy ứng dụng từ dòng lệnh với tham số --browser để mở qua trình duyệt.\n"
-                        "--------------------------------------------------\n"
-                        "Microsoft Edge WebView2 Runtime is not installed on this system.\n"
-                        "Please install it from the link above or launch with --browser."
-                    )
-                    sys.stderr.write(f"\n[ERROR] {msg}\n\n")
-                    sys.stderr.flush()
-                    try:
-                        import ctypes
-                        ctypes.windll.user32.MessageBoxW(
-                            0,
-                            msg,
-                            "MathWeave Studio — Cần WebView2 Runtime",
-                            0x10,  # MB_ICONERROR
-                        )
-                    except Exception:
-                        pass
-                    sys.exit(1)
-            except Exception:
-                pass
-        elif sys.platform.startswith("linux"):
-            app.native.start_args["gui"] = "qt"
-
-        app.native.window_args["resizable"] = True
+    use_native = startup_mode.is_native
 
     ico_path = get_resource_path("assets/icon.ico")
     png_path = get_resource_path("assets/icon.png")
@@ -239,6 +237,24 @@ def main() -> None:
         favicon_path = str(ico_path)
     elif png_path.is_file():
         favicon_path = str(png_path)
+
+    # 2. If native mode is active, validate and configure the native backend
+    if use_native:
+        try:
+            validate_and_prepare_native_backend(
+                icon_path=png_path if png_path.is_file() else ico_path
+            )
+        except NativeBackendError as exc:
+            sys.stderr.write(f"\n[ERROR] {exc}\n\n")
+            sys.stderr.flush()
+            sys.exit(1)
+
+    use_case = build_application()
+    create_app(use_case)
+
+    _setup_signal_handlers()
+
+    port = get_available_port(DEFAULT_HOST, DEFAULT_PORT)
 
     try:
         ui.run(

@@ -72,6 +72,45 @@ VIETNAMESE_RULE_NAMES: dict[str, str] = {
     "Phép Trừ hai ma trận": "Trừ hai ma trận",
     "Phép nhân ma trận": "Nhân hai ma trận",
     "Lập ma trận mở rộng": "Lập ma trận mở rộng",
+    # Differential Equations rules
+    "Nhận dạng dạng phương trình": "Nhận dạng dạng phương trình vi phân",
+    "Xác định hệ số": "Xác định các hàm hệ số",
+    "Thừa số tích phân": "Tìm thừa số tích phân",
+    "Nhân thừa số tích phân": "Nhân hai vế với thừa số tích phân",
+    "Quy tắc đạo hàm của tích (ODE)": "Biến đổi vế trái theo quy tắc đạo hàm của tích",
+    "Tích phân hai vế": "Tích phân hai vế",
+    "Rút ra nghiệm tổng quát": "Rút ra nghiệm tổng quát",
+    "Nghiệm cân bằng": "Xác định nghiệm cân bằng",
+    "Áp dụng điều kiện ban đầu": "Áp dụng điều kiện ban đầu để xác định hằng số C",
+    "Nghiệm riêng": "Nghiệm riêng của bài toán giá trị ban đầu",
+    "Phân tách biến số": "Phân tách biến số",
+    "Kiểm tra tính vi phân toàn phần": "Kiểm tra điều kiện vi phân toàn phần",
+    "Kiểm tra tính vi phân toàn phần sau khi nhân mu": "Kiểm tra điều kiện vi phân toàn phần sau khi nhân thừa số tích phân",
+    "Thừa số tích phân mu(x)": "Tìm thừa số tích phân theo biến độc lập μ(x)",
+    "Thừa số tích phân mu(y)": "Tìm thừa số tích phân theo biến phụ thuộc μ(y)",
+    "Nhân thừa số tích phân (ODE không toàn phần)": "Nhân hai vế với thừa số tích phân",
+    "Xây dựng hàm thế": "Xây dựng hàm thế vi phân toàn phần",
+    "Nghiệm ẩn": "Nghiệm ẩn vi phân toàn phần",
+    # Second-Order Differential Equations rules
+    "Phương trình đặc trưng": "Thiết lập phương trình đặc trưng",
+    "Biệt thức Delta": "Tính biệt thức Delta",
+    "Hai nghiệm thực phân biệt": "Xác định hai nghiệm thực phân biệt",
+    "Nghiệm phức liên hợp": "Xác định nghiệm phức liên hợp",
+    "Nghiệm kép thực": "Xác định nghiệm kép thực",
+    "Hệ nghiệm cơ bản": "Xây dựng hệ nghiệm cơ bản",
+    "Kiểm chứng nghiệm": "Kiểm chứng toán học độc lập",
+    "Chuẩn hóa phương trình cấp hai": "Đưa phương trình về dạng chuẩn tắc y'' + p(t)y' + q(t)y = 0",
+    "Kiểm tra nghiệm đã biết y1": "Kiểm chứng nghiệm đã biết y1",
+    "Đổi biến hạ bậc y2 = v*y1": "Đặt ẩn phụ hạ bậc y2 = v(t)y1(t)",
+    "Đạo hàm cấp một và cấp hai": "Tính các đạo hàm của hàm nghiệm phụ",
+    "Thế vào phương trình vi phân": "Thay vào phương trình vi phân ban đầu",
+    "Triệt tiêu số hạng đồng nhất": "Triệt tiêu số hạng theo nghiệm y1",
+    "Đổi biến u = v'": "Đưa về phương trình vi phân cấp 1 cho u = v'",
+    "Giải phương trình cho u": "Giải phương trình vi phân cấp 1 tìm u",
+    "Tích phân tìm v": "Tích phân hàm u(t) để tìm v(t)",
+    "Xác định nghiệm cơ bản y2": "Xác định nghiệm cơ bản thứ hai y2 = v*y1",
+    "Định thức Wronskian": "Tính định thức Wronskian và kiểm tra độc lập tuyến tính",
+    "Định thức Wronski": "Tính định thức Wronskian",
 }
 
 
@@ -124,6 +163,23 @@ class ProblemRequest:
 
 
 @dataclass(frozen=True)
+class BranchSolution:
+    """Provenance, domain restrictions, and verification outcome of an individual ODE branch solution."""
+
+    expression: Any
+    solution_str: str
+    solution_latex: str
+    branch_identity: str
+    integration_constant: Any = None
+    integration_constant_val: Any = None
+    real_root_restrictions: tuple[str, ...] = ()
+    denominator_exclusions: tuple[str, ...] = ()
+    domain_interval: tuple[Any, Any] | None = None
+    domain_restrictions: tuple[str, ...] = ()
+    verification: VerificationResult | None = None
+
+
+@dataclass(frozen=True)
 class SolutionResponse:
     """Normalized, serializable response returned across application boundaries."""
 
@@ -137,3 +193,4 @@ class SolutionResponse:
     domain_restrictions: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
     execution_time_ms: float = 0.0
+    branch_solutions: tuple[BranchSolution, ...] = ()

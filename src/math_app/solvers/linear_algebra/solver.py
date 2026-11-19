@@ -96,7 +96,7 @@ class MatrixSolver(Solver):
                 builder.add_step(
                     rule_name="Công thức định thức cấp 2",
                     title="Tính định thức cấp hai",
-                    description=f"Áp dụng công thức định thức cho ma trận cấp hai: det(A) = ad - bc = ({a})·({d}) - ({b})·({c}) = {det_val}.",
+                    description=f"Áp dụng công thức định thức cho ma trận cấp hai: $\\det(A) = ad - bc = ({expr_to_latex(a)}) \\cdot ({expr_to_latex(d)}) - ({expr_to_latex(b)}) \\cdot ({expr_to_latex(c)}) = {expr_to_latex(det_val)}$.",
                     before=r"\left|" + sp.latex(A, mat_delim=None) + r"\right|",
                     after=det_val,
                 )
@@ -104,7 +104,7 @@ class MatrixSolver(Solver):
                 builder.add_step(
                     rule_name="Khai triển định thức",
                     title=f"Tính định thức cấp {n}",
-                    description=f"Khai triển định thức ma trận vuông cấp {n} thu được kết quả: det(A) = {det_val}.",
+                    description=f"Khai triển định thức ma trận vuông cấp {n} thu được kết quả: $\\det(A) = {expr_to_latex(det_val)}$.",
                     before=r"\left|" + sp.latex(A, mat_delim=None) + r"\right|",
                     after=det_val,
                 )
@@ -124,7 +124,7 @@ class MatrixSolver(Solver):
             builder.add_step(
                 rule_name="Kiểm tra định thức",
                 title="Kiểm tra tính khả nghịch qua định thức",
-                description=f"Tính định thức det(A) = {det_val}. Do det(A) ≠ 0 nên ma trận khả nghịch.",
+                description=f"Tính định thức $\\det(A) = {expr_to_latex(det_val)}$. Do $\\det(A) \\neq 0$ nên ma trận khả nghịch.",
                 before=r"\left|" + sp.latex(A, mat_delim=None) + r"\right|",
                 after=det_val,
             )
@@ -138,7 +138,7 @@ class MatrixSolver(Solver):
             builder.add_step(
                 rule_name="Ma trận nghịch đảo",
                 title="Xác định ma trận nghịch đảo",
-                description="Áp dụng công thức A^(-1) = (1 / det(A)) · adj(A) ta được ma trận nghịch đảo.",
+                description=r"Áp dụng công thức $A^{-1} = \frac{1}{\det(A)} \cdot \operatorname{adj}(A)$ ta được ma trận nghịch đảo.",
                 before=A,
                 after=inv_mat,
             )
@@ -162,7 +162,7 @@ class MatrixSolver(Solver):
             builder.add_step(
                 rule_name="Xác định hạng ma trận",
                 title="Xác định hạng ma trận",
-                description=f"Hạng của ma trận bằng số lượng hàng khác 0 trong dạng bậc thang = {rank_val}.",
+                description=f"Hạng của ma trận bằng số lượng hàng khác 0 trong dạng bậc thang: $\\operatorname{{rank}}(A) = {rank_val}$.",
                 before=rref_mat,
                 after=sp.Integer(rank_val),
             )
@@ -222,7 +222,7 @@ class MatrixSolver(Solver):
                         builder.add_step(
                             rule_name="Khử phần tử dưới trụ",
                             title=f"Khử phần tử tại hàng {i + 1}",
-                            description=f"Triệt tiêu phần tử dưới vị trí trụ: R_{i + 1} ← R_{i + 1} - ({factor})·R_{r + 1}.",
+                            description=f"Triệt tiêu phần tử dưới vị trí trụ: $R_{{{i + 1}}} \\leftarrow R_{{{i + 1}}} - ({factor_ltx}) \\cdot R_{{{r + 1}}}$.",
                             before=before_elim,
                             after=M.copy(),
                             notes=f"R_{{{i + 1}}} \\leftarrow R_{{{i + 1}}} - ({factor_ltx}) R_{{{r + 1}}}",
@@ -299,7 +299,7 @@ class MatrixSolver(Solver):
                         builder.add_step(
                             rule_name="Khử phần tử trong cột trụ",
                             title=f"Khử phần tử tại hàng {i + 1}",
-                            description=f"Khử phần tử tại hàng {i + 1} bằng phép biến đổi: R_{i + 1} ← R_{i + 1} - ({factor})·R_{r + 1}.",
+                            description=f"Khử phần tử tại hàng {i + 1} bằng phép biến đổi: $R_{{{i + 1}}} \\leftarrow R_{{{i + 1}}} - ({factor_ltx}) \\cdot R_{{{r + 1}}}$.",
                             before=before_elim,
                             after=M.copy(),
                             notes=f"R_{{{i + 1}}} \\leftarrow R_{{{i + 1}}} - ({factor_ltx}) R_{{{r + 1}}}",
@@ -351,11 +351,11 @@ class MatrixSolver(Solver):
                 rule_name="Phép nhân ma trận",
                 title="Nhân hai ma trận",
                 description=(
-                    f"Nhân ma trận A ({A.rows} × {A.cols}) với ma trận B ({B.rows} × {B.cols}): "
-                    f"Mỗi phần tử (i, j) là tích vô hướng của hàng i của A với cột j của B. "
-                    f"Kích thước ma trận tích: ({A.rows} × {B.cols})."
+                    f"Nhân ma trận $A$ (${A.rows} \\times {A.cols}$) với ma trận $B$ (${B.rows} \\times {B.cols}$): "
+                    f"Mỗi phần tử $(i, j)$ là tích vô hướng của hàng $i$ của $A$ với cột $j$ của $B$. "
+                    f"Kích thước ma trận tích: (${A.rows} \\times {B.cols}$)."
                 ),
-                before="A * B",
+                before="A \\cdot B",
                 after=result_mat,
             )
             verification = self._verifier.verify_generic(result_mat, A * B)
@@ -382,7 +382,7 @@ class MatrixSolver(Solver):
             aug = A.row_join(b)
             builder.add_step(
                 rule_name="Lập ma trận mở rộng [A | b]",
-                description=f"Ghép ma trận hệ số A ({A.rows} × {A.cols}) với vectơ vế phải b ({b.rows} × 1).",
+                description=f"Ghép ma trận hệ số $A$ (${A.rows} \\times {A.cols}$) với vectơ vế phải $b$ (${b.rows} \\times 1)$ thành $[A \\mid b]$.",
                 before="[A | b]",
                 after=aug,
             )
@@ -400,7 +400,7 @@ class MatrixSolver(Solver):
                 x_sol = A.LUsolve(b) if (A.rows == A.cols and A.det() != 0) else A.gauss_jordan_solve(b)[0]
                 builder.add_step(
                     rule_name="Giải hệ phương trình bằng phép khử Gauss-Jordan",
-                    description="Tìm được nghiệm duy nhất x cho hệ A * x = b.",
+                    description=r"Tìm được nghiệm duy nhất $x$ cho hệ $A \cdot x = b$.",
                     before=aug,
                     after=x_sol,
                 )

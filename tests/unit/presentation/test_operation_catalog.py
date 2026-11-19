@@ -72,3 +72,42 @@ def test_solve_equation_card_configured():
     assert op.title == "Giải phương trình"
     assert op.problem_type == ProblemType.SOLVE_EQUATION
     assert op.is_calculus is True
+
+
+def test_ode_operations_configured():
+    # Main menu card
+    ode_op = get_operation_by_type(ProblemType.ODE_FIRST_ORDER_LINEAR)
+    assert ode_op.is_menu_card is True
+    assert "Phương trình vi phân" in ode_op.title
+    assert "y'" in ode_op.math_icon
+
+    # Subtypes
+    sep_op = get_operation_by_type(ProblemType.ODE_SEPARABLE)
+    assert sep_op.is_menu_card is False
+    assert "tách biến" in sep_op.title.lower()
+
+    exact_op = get_operation_by_type(ProblemType.ODE_EXACT)
+    assert exact_op.is_menu_card is False
+    assert "toàn phần" in exact_op.title.lower()
+
+    if_op = get_operation_by_type(ProblemType.ODE_INTEGRATING_FACTOR)
+    assert if_op.is_menu_card is False
+    assert "thừa số tích phân" in if_op.title.lower()
+
+    # Second-order ODE operations
+    so_op = get_operation_by_type(ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF)
+    assert so_op.is_menu_card is True
+    assert "cấp 2" in so_op.title or "Second-Order" in so_op.title
+    assert "y''" in so_op.math_icon
+
+    ivp_op = get_operation_by_type(ProblemType.ODE_SECOND_ORDER_IVP)
+    assert ivp_op.is_menu_card is False
+    assert "cauchy" in ivp_op.title.lower() or "ivp" in ivp_op.title.lower()
+
+    red_op = get_operation_by_type(ProblemType.ODE_REDUCTION_OF_ORDER)
+    assert red_op.is_menu_card is False
+    assert "hạ bậc" in red_op.title.lower() or "reduction" in red_op.title.lower()
+
+    wron_op = get_operation_by_type(ProblemType.WRONSKIAN)
+    assert wron_op.is_menu_card is False
+    assert "wronskian" in wron_op.title.lower()

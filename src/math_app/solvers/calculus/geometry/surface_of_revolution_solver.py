@@ -55,7 +55,7 @@ class SurfaceOfRevolutionSolver(Solver):
         axis_str = "trục hoành Ox (y = 0)" if is_about_x else "trục tung Oy (x = 0)"
         setup_ltx = (
             rf"y = f({x.name}) = {expr_to_latex(fx)}, \quad "
-            rf"{x.name} \in [{expr_to_latex(a_bound)}, {expr_to_latex(b_bound)}], \quad \text{{quay quanh }} {axis_str}"
+            rf"{x.name} \in [{expr_to_latex(a_bound)}, {expr_to_latex(b_bound)}]"
         )
         steps.append(
             SolutionStep(

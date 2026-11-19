@@ -19,6 +19,17 @@ class ProblemType(str, Enum):
     LIMIT = "limit"
     SOLVE_EQUATION = "solve_equation"
 
+    # Differential Equations
+    ODE_FIRST_ORDER_LINEAR = "ode_first_order_linear"
+    ODE_FIRST_ORDER_HOMOGENEOUS = "ode_first_order_homogeneous"
+    ODE_SEPARABLE = "ode_separable"
+    ODE_EXACT = "ode_exact"
+    ODE_INTEGRATING_FACTOR = "ode_integrating_factor"
+    ODE_SECOND_ORDER_CONSTANT_COEFF = "ode_second_order_constant_coeff"
+    ODE_SECOND_ORDER_IVP = "ode_second_order_ivp"
+    ODE_REDUCTION_OF_ORDER = "ode_reduction_of_order"
+    WRONSKIAN = "wronskian"
+
     # Multivariable & Advanced Definite Integration (Phase 3)
     LINE_INTEGRAL = "line_integral"
     SURFACE_INTEGRAL = "surface_integral"
@@ -52,6 +63,11 @@ class ProblemType(str, Enum):
         return self in _MATRIX_PROBLEM_TYPES
 
     @property
+    def is_ode(self) -> bool:
+        """Return True if this problem type belongs to differential equations."""
+        return self in _ODE_PROBLEM_TYPES
+
+    @property
     def is_calculus(self) -> bool:
         """Return True if this problem type belongs to calculus operations."""
         return not self.is_matrix
@@ -69,6 +85,55 @@ _MATRIX_PROBLEM_TYPES: frozenset[ProblemType] = frozenset({
     ProblemType.MATRIX_SOLVE_SYSTEM,
 })
 
+_ODE_PROBLEM_TYPES: frozenset[ProblemType] = frozenset({
+    ProblemType.ODE_FIRST_ORDER_LINEAR,
+    ProblemType.ODE_FIRST_ORDER_HOMOGENEOUS,
+    ProblemType.ODE_SEPARABLE,
+    ProblemType.ODE_EXACT,
+    ProblemType.ODE_INTEGRATING_FACTOR,
+    ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+    ProblemType.ODE_SECOND_ORDER_IVP,
+    ProblemType.ODE_REDUCTION_OF_ORDER,
+    ProblemType.WRONSKIAN,
+})
+
+
+class ODEType(str, Enum):
+    """Classification of ordinary differential equations."""
+
+    FIRST_ORDER_LINEAR = "first_order_linear"
+    CLASSICAL_HOMOGENEOUS = "classical_homogeneous"
+    SEPARABLE = "separable"
+    EXACT = "exact"
+    INTEGRATING_FACTOR = "integrating_factor"
+    HOMOGENEOUS_SECOND_ORDER = "homogeneous_second_order"
+    REDUCTION_OF_ORDER = "reduction_of_order"
+    WRONSKIAN = "wronskian"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class ODEProblemDefinition:
+    """Mathematical domain model representing a structured ODE problem."""
+
+    equation_str: str
+    independent_var: str = "x"
+    dependent_var: str = "y"
+    ode_type: ODEType = ODEType.UNKNOWN
+    initial_condition: tuple[str, str] | None = None  # (x0_str, y0_str)
+    order: int = 1
+    is_linear: bool = False
+    is_exact: bool = False
+    is_autonomous: bool = False
+
+
+class EquilibriumUniqueness(str, Enum):
+    """Assessment of equilibrium solution uniqueness under Cauchy initial conditions."""
+
+    UNIQUE_PROVEN = "unique_proven"
+    NONUNIQUE_PROVEN = "nonunique_proven"
+    UNIQUENESS_NOT_ESTABLISHED = "uniqueness_not_established"
+
 
 class SolutionStatus(str, Enum):
     """Overall outcome for a problem resolution attempt."""
@@ -81,6 +146,8 @@ class SolutionStatus(str, Enum):
     DISCREPANCY_DETECTED = "discrepancy"
     ERROR = "error"
     UNVERIFIED = "unverified"
+    DIVERGENT = "divergent"
+    INCONCLUSIVE = "inconclusive"
 
 
 class VerificationStatus(str, Enum):

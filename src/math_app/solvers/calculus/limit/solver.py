@@ -59,7 +59,7 @@ class LimitSolver(Solver):
                     step_number=step_idx,
                     rule_name="Thay số trực tiếp",
                     title="Phương pháp thay số trực tiếp",
-                    description=f"Thay trực tiếp {var.name} = {target_pt} vào biểu thức, thu được giá trị xác định {sub_val}.",
+                    description=f"Thay trực tiếp ${var.name} = {expr_to_latex(target_pt)}$ vào biểu thức, thu được giá trị xác định ${expr_to_latex(sub_val)}$.",
                     content=ExpressionStepContent(
                         expression_before=str(expr),
                         expression_after=str(sub_val),
@@ -78,14 +78,14 @@ class LimitSolver(Solver):
                     rule_name="Nhận dạng dạng vô định",
                     title="Nhận dạng dạng vô định",
                     description=(
-                        f"Thay trực tiếp {var.name} → {target_pt} dẫn tới dạng vô định hoặc điểm gián đoạn. "
+                        f"Thay trực tiếp ${var.name} \\to {expr_to_latex(target_pt)}$ dẫn tới dạng vô định hoặc điểm gián đoạn. "
                         "Cần áp dụng các phép biến đổi đại số, quy tắc L'Hôpital hoặc khai triển tương đương."
                     ),
                     content=ExpressionStepContent(
                         expression_before=f"lim_{{{var.name} -> {target_pt}}} {expr}",
                         expression_after="Dạng vô định",
                         latex_before=f"\\lim_{{{var.name} \\to {expr_to_latex(target_pt)}}} {expr_to_latex(expr)}",
-                        latex_after="\\text{Dạng vô định } [0/0] \\text{ hoặc } [\\infty/\\infty]",
+                        latex_after=r"\left[\frac{0}{0}\right] \lor \left[\frac{\infty}{\infty}\right]",
                     ),
                 )
             )

@@ -42,8 +42,27 @@ class DerivativeSolver(Solver):
                 order = 1
 
         # 2. Derive steps using rule engine
+        is_partial = (request.problem_type == ProblemType.PARTIAL_DERIVATIVE)
         builder = DifferentiationStepBuilder()
-        engine = DifferentiationRuleEngine()
+        engine = DifferentiationRuleEngine(is_partial=is_partial)
+
+        if is_partial:
+            other_vars = [s.name for s in expr.free_symbols if s != var]
+            other_desc = (
+                f"; các biến còn lại ({', '.join(sorted(other_vars))}) được xem là hằng số"
+                if other_vars
+                else "; các biến còn lại được xem là hằng số"
+            )
+            builder.add_step(
+                rule_name="Partial Differentiation Context",
+                rule_name_vi="Thiết lập đạo hàm riêng",
+                title=f"Đạo hàm riêng theo biến {var.name}",
+                description=f"Đang lấy đạo hàm riêng theo biến ${var.name}${other_desc}.",
+                before=expr,
+                after=expr,
+                equation_latex=rf"\frac{{\partial f}}{{\partial {var.name}}} \quad \left( f = {expr_to_latex(expr)} \right)",
+                notes=f"Đạo hàm riêng theo {var.name}",
+            )
 
         current_expr = expr
         raw_derived = expr

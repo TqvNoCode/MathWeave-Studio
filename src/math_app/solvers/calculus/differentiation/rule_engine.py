@@ -26,7 +26,12 @@ SOFT_TIMEOUT_SECONDS = 2.0
 class DifferentiationRuleEngine:
     """Dispatches symbolic expressions to pedagogical differentiation rules."""
 
-    def __init__(self, rules: list[DifferentiationRule] | None = None) -> None:
+    def __init__(
+        self,
+        rules: list[DifferentiationRule] | None = None,
+        is_partial: bool = False,
+    ) -> None:
+        self.is_partial = is_partial
         if rules is None:
             # Pedagogical dispatch order is critical:
             # 1. Pure constants

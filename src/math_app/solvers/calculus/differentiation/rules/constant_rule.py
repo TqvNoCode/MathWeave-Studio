@@ -23,14 +23,31 @@ class ConstantRule(DifferentiationRule):
         builder: Any,
     ) -> sp.Expr:
         result = sp.Integer(0)
+        is_partial = getattr(engine, "is_partial", False)
+        diff_op = rf"\frac{{\partial}}{{\partial {var.name}}}" if is_partial else rf"\frac{{d}}{{d{var.name}}}"
+        if is_partial:
+            r_name = "Constant Rule (Partial Differentiation)"
+            r_name_vi = "Quy tắc hằng số trong đạo hàm riêng"
+            title = "Quy tắc hằng số trong đạo hàm riêng"
+            desc = (
+                f"Đang lấy đạo hàm riêng theo biến ${var.name}$; các biến còn lại được xem là hằng số. "
+                f"Biểu thức ${expr_to_latex(expr)}$ không phụ thuộc vào biến ${var.name}$, do đó đạo hàm riêng bằng $0$: "
+                f"${diff_op}({expr_to_latex(expr)}) = 0$."
+            )
+        else:
+            r_name = "Constant Rule"
+            r_name_vi = "Quy tắc đạo hàm của hằng số"
+            title = "Áp dụng quy tắc đạo hàm của hằng số"
+            desc = f"Đạo hàm của hằng số không phụ thuộc vào biến ${var.name}$ bằng $0$: ${diff_op}({expr_to_latex(expr)}) = 0$."
+
         builder.add_step(
-            rule_name="Constant Rule",
-            rule_name_vi="Quy tắc đạo hàm của hằng số",
-            title="Áp dụng quy tắc đạo hàm của hằng số",
-            description=f"Đạo hàm của hằng số không phụ thuộc vào biến {var.name} bằng 0: d/d{var.name}({expr}) = 0.",
+            rule_name=r_name,
+            rule_name_vi=r_name_vi,
+            title=title,
+            description=desc,
             before=expr,
             after=result,
-            equation_latex=f"\\frac{{d}}{{d{var.name}}}({expr_to_latex(expr)}) = 0",
+            equation_latex=f"{diff_op}({expr_to_latex(expr)}) = 0",
         )
         return result
 
@@ -75,25 +92,35 @@ class ConstantMultipleRule(DifferentiationRule):
         du_ltx = expr_to_latex(du)
         res_ltx = expr_to_latex(result)
 
+        is_partial = getattr(engine, "is_partial", False)
+        diff_op = rf"\frac{{\partial}}{{\partial {var.name}}}" if is_partial else rf"\frac{{d}}{{d{var.name}}}"
+        lhs_op = rf"\frac{{\partial f}}{{\partial {var.name}}}" if is_partial else rf"f'({var.name})"
+
         aligned_eq = (
             f"\\begin{{aligned}}\n"
-            f"  f'({var.name})\n"
-            f"  &= \\frac{{d}}{{d{var.name}}}\\left({c_ltx} \\cdot {u_ltx}\\right) \\\\\n"
-            f"  &= {c_ltx} \\cdot \\frac{{d}}{{d{var.name}}}\\left({u_ltx}\\right) \\\\\n"
+            f"  {lhs_op}\n"
+            f"  &= {diff_op}\\left({c_ltx} \\cdot {u_ltx}\\right) \\\\\n"
+            f"  &= {c_ltx} \\cdot {diff_op}\\left({u_ltx}\\right) \\\\\n"
             f"  &= {c_ltx} \\cdot ({du_ltx}) \\\\\n"
             f"  &= {res_ltx}\n"
             f"\\end{{aligned}}"
         )
 
+        desc = (
+            f"Đưa hệ số ${c_ltx}$ (xem như hằng số khi lấy đạo hàm riêng theo ${var.name}$) ra ngoài dấu đạo hàm riêng:"
+            if is_partial
+            else f"Đưa hệ số hằng số ${c_ltx}$ ra ngoài dấu đạo hàm theo công thức $[c \\cdot u]' = c \\cdot u'$:"
+        )
+
         builder.add_step(
             rule_name="Constant Multiple Rule",
             rule_name_vi="Quy tắc nhân với hằng số",
-            title="Đưa hằng số ra ngoài dấu đạo hàm",
-            description=f"Đưa hệ số hằng số {c_ltx} ra ngoài dấu đạo hàm theo công thức [c · u]' = c · u':",
+            title="Đưa hằng số ra ngoài dấu đạo hàm" if not is_partial else "Đưa thừa số hằng số ra ngoài đạo hàm riêng",
+            description=desc,
             before=expr,
             after=result,
             substeps=sub_builder.get_steps(),
-            notes=f"Hằng số nhân c = {c_ltx}",
+            notes=f"Hằng số nhân $c = {c_ltx}$",
             equation_latex=aligned_eq,
         )
         return result

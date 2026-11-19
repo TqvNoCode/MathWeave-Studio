@@ -40,7 +40,7 @@ def render_variation_table_component(table_data: dict[str, Any]) -> None:
         with ui.column().classes("w-full items-center text-center gap-1.5 border-b border-slate-100 pb-3"):
             ctx_title = table_data.get("context_title", "Bảng biến thiên của hàm số")
             ui.label(ctx_title).classes("text-base font-bold text-red-600 tracking-tight")
-            header_math = f"y = {expr_ltx}, \\quad \\text{{trên }} {domain_ltx}"
+            header_math = f"y = {expr_ltx}, \\quad {clean_var} \\in {domain_ltx}"
             ui_math(header_math, block=True, classes="text-lg md:text-xl font-bold text-blue-900 py-0.5")
             ui_math(f"f'({clean_var}) = {d_expr_ltx}", block=False, classes="text-xs font-mono text-slate-600")
 

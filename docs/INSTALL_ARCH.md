@@ -99,24 +99,19 @@ pip install -e .
 
 ### Step 4: Launch the Application
 
-Launch the application in browser mode:
+- **Native Desktop Mode (Default):**
+  ```bash
+  uv run run.py
+  ```
+  Opens MathWeave Studio directly in a native desktop window via Qt6/PyQt6 and pywebview on X11 or Wayland (including KDE Plasma).
 
-```bash
-uv run run.py --browser
-```
+- **Browser Mode:**
+  ```bash
+  uv run run.py --browser
+  ```
+  Launches the UI directly in your default web browser at **[http://localhost:8080](http://localhost:8080)**.
 
-*(Or using the activated virtual environment: `python run.py --browser`).*
-
-The terminal will report:
-
-```text
-NiceGUI ready to go on http://127.0.0.1:8080
-```
-
-Open your browser at:
-👉 **[http://localhost:8080](http://localhost:8080)**
-
-To stop the application cleanly, press **`Ctrl + C`** in your terminal. The shutdown handler will immediately release the port and terminate worker processes.
+To stop the application cleanly, press **`Ctrl + C`** in your terminal or close the native window. The shutdown handler immediately releases the port and cleanly terminates worker processes.
 
 ### Step 5: Verify the Test Suite
 
@@ -126,12 +121,16 @@ To verify that all mathematical solvers, architectural boundaries, and pedagogic
 uv run pytest
 ```
 
-Expected result: **190 passed** in under 10 seconds.
+Expected result: **243 passed** in under 25 seconds.
 
 ### Troubleshooting
 
 - **Port 8080 in use:** If port 8080 is already occupied by another service, MathWeave Studio automatically binds to an available ephemeral port. Check the terminal output for the active URL (e.g., `http://127.0.0.1:42189`).
-- **Qt Platform / WebEngine errors in native window mode:** When launched without `--browser` on a minimal Wayland or container setup lacking `qt6-wayland` or `xcb-util-cursor`, PyWebView may fail to initialize a native window. Always append `--browser` to run smoothly through your default web browser.
+- **Qt Platform / WebEngine system dependencies:** MathWeave Studio uses pywebview with the Qt backend. On Arch Linux, ensure system Qt dependencies are installed:
+  ```bash
+  sudo pacman -S --needed qt6-webengine qt6-webchannel
+  ```
+- **Headless environments without display:** If running on a server or container without X11/Wayland (`DISPLAY` or `WAYLAND_DISPLAY`), launch with `--browser`.
 
 ---
 

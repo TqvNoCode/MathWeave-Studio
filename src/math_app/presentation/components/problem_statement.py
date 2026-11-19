@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from math_app.domain.models import ProblemType
@@ -36,6 +37,14 @@ def get_result_card_title(op_type: ProblemType) -> str:
         ProblemType.DIVERGENCE_THEOREM: "KẾT QUẢ ĐỊNH LÝ DIVERGENCE (GAUSS)",
         ProblemType.LIMIT: "KẾT QUẢ GIỚI HẠN",
         ProblemType.SOLVE_EQUATION: "KẾT QUẢ GIẢI PHƯƠNG TRÌNH",
+        ProblemType.ODE_FIRST_ORDER_LINEAR: "KẾT QUẢ PHƯƠNG TRÌNH VI PHÂN TUYẾN TÍNH",
+        ProblemType.ODE_SEPARABLE: "KẾT QUẢ PHƯƠNG TRÌNH TÁCH BIẾN",
+        ProblemType.ODE_EXACT: "KẾT QUẢ PHƯƠNG TRÌNH VI PHÂN TOÀN PHẦN",
+        ProblemType.ODE_INTEGRATING_FACTOR: "KẾT QUẢ PHƯƠNG TRÌNH THỪA SỐ TÍCH PHÂN",
+        ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF: "KẾT QUẢ PHƯƠNG TRÌNH VI PHÂN CẤP 2",
+        ProblemType.ODE_SECOND_ORDER_IVP: "KẾT QUẢ BÀI TOÁN CAUCHY CẤP 2",
+        ProblemType.ODE_REDUCTION_OF_ORDER: "KẾT QUẢ HẠ BẬC PHƯƠNG TRÌNH CẤP 2",
+        ProblemType.WRONSKIAN: "KẾT QUẢ ĐỊNH THỨC WRONSKIAN",
         ProblemType.MATRIX_DETERMINANT: "KẾT QUẢ ĐỊNH THỨC",
         ProblemType.MATRIX_INVERSE: "KẾT QUẢ MA TRẬN NGHỊCH ĐẢO",
         ProblemType.MATRIX_REF: "KẾT QUẢ DẠNG BẬC THANG (REF)",
@@ -75,9 +84,9 @@ def format_problem_statement_latex(
             expr_ltx = expr_to_latex(expr)
             free_symbols = sorted(list(expr.free_symbols), key=lambda s: s.name)
             vars_str = ", ".join(s.name for s in free_symbols) if free_symbols else clean_var
-            return f"f({vars_str}) = {expr_ltx} \\quad \\left(\\text{{tính }} \\frac{{\\partial f}}{{\\partial {clean_var}}}\\right)"
+            return f"\\frac{{\\partial f}}{{\\partial {clean_var}}}, \\quad f({vars_str}) = {expr_ltx}"
         except Exception:
-            return f"f({clean_var}) = {raw_input} \\quad \\left(\\text{{tính }} \\frac{{\\partial f}}{{\\partial {clean_var}}}\\right)"
+            return f"\\frac{{\\partial f}}{{\\partial {clean_var}}}, \\quad f({clean_var}) = {raw_input}"
 
     # 3. Indefinite Integral
     if op_type in (ProblemType.INDEFINITE_INTEGRAL, ProblemType.INTEGRAL):
@@ -118,7 +127,7 @@ def format_problem_statement_latex(
             curve_parts.append(expr_to_latex(zt))
         curve_desc = rf"\mathbf{{r}}({param_var}) = \left({', '.join(curve_parts)}\right), \; {param_var} \in [{t_min}, {t_max}]"
         if is_reverse:
-            curve_desc += r" \text{ (chiều nghịch)}"
+            curve_desc += r" \quad (-C)"
 
         if mode == "vector" or ("," in raw_input and mode != "scalar"):
             return rf"\int_C \mathbf{{F}}\cdot d\mathbf{{r}} \quad \left( \mathbf{{F}} = ({raw_input}), \; C: {curve_desc} \right)"
@@ -151,7 +160,7 @@ def format_problem_statement_latex(
             surf_desc = rf"S: z = {expr_to_latex(surf_expr)}, \; {u_var}\in[{u_min},{u_max}], \; {v_var}\in[{v_min},{v_max}]"
 
         if mode in ("vector", "flux") or ("," in raw_input and mode != "scalar"):
-            orient_txt = r", \mathbf{n} \text{ hướng xuống}" if orientation in ("downward", "down", "negative", "-") else r", \mathbf{n} \text{ hướng lên}"
+            orient_txt = r", \; \mathbf{n} = -\mathbf{k}" if orientation in ("downward", "down", "negative", "-") else r", \; \mathbf{n} = \mathbf{k}"
             return rf"\iint_S \mathbf{{F}}\cdot\mathbf{{n}}\,dS \quad \left( \mathbf{{F}} = ({raw_input}), \; {surf_desc}{orient_txt} \right)"
         try:
             f_expr, _ = parse_mathematical_input(raw_input, u_var)
@@ -221,7 +230,7 @@ def format_problem_statement_latex(
         axis_str = "Ox" if axis == "x" else "Oy"
         a = expr_to_latex(p.get("lower_bound", "0"))
         b = expr_to_latex(p.get("upper_bound", "1"))
-        return rf"y = {raw_input}, \quad {clean_var} \in [{a}, {b}] \quad \left(\text{{quay quanh }} {axis_str}\right)"
+        return rf"y = {raw_input}, \quad {clean_var} \in [{a}, {b}], \quad (\text{{trục }} {axis_str})"
 
     # Green's Theorem
     if op_type == ProblemType.GREENS_THEOREM:
@@ -277,6 +286,70 @@ def format_problem_statement_latex(
         except Exception:
             return f"{raw_input} = 0"
 
+    # 5c. Differential Equations
+    if op_type in (
+        ProblemType.ODE_FIRST_ORDER_LINEAR,
+        ProblemType.ODE_SEPARABLE,
+        ProblemType.ODE_EXACT,
+        ProblemType.ODE_INTEGRATING_FACTOR,
+        ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+        ProblemType.ODE_SECOND_ORDER_IVP,
+        ProblemType.ODE_REDUCTION_OF_ORDER,
+    ):
+        try:
+            from math_app.input.ode_parser import extract_second_order_ics_from_string
+            eq_str, y_ic, yp_ic, y1_str = extract_second_order_ics_from_string(raw_input)
+            if not y_ic and p and "initial_condition" in p and p["initial_condition"]:
+                ic_val = str(p["initial_condition"]).strip()
+                if "y'" in ic_val or "yp" in ic_val:
+                    yp_ic = ic_val
+                else:
+                    y_ic = ic_val
+            if not y1_str and p and "y1" in p and p["y1"]:
+                y1_str = str(p["y1"]).strip()
+
+            eq_ltx = eq_str
+            if "=" in eq_str:
+                parts = eq_str.split("=")
+                if len(parts) == 2:
+                    l_str = (
+                        parts[0]
+                        .strip()
+                        .replace("y''", f"\\frac{{d^2y}}{{d{clean_var}^2}}")
+                        .replace("y'", f"\\frac{{dy}}{{d{clean_var}}}")
+                    )
+                    r_str = (
+                        parts[1]
+                        .strip()
+                        .replace("y''", f"\\frac{{d^2y}}{{d{clean_var}^2}}")
+                        .replace("y'", f"\\frac{{dy}}{{d{clean_var}}}")
+                    )
+                    eq_ltx = f"{l_str} = {r_str}"
+
+            addons: list[str] = []
+            if y_ic:
+                addons.append(y_ic)
+            if yp_ic:
+                addons.append(yp_ic)
+            if y1_str:
+                clean_y1 = re.sub(r"^y_?1\s*=\s*", "", y1_str).strip()
+                addons.append(f"y_1 = {clean_y1}")
+
+            if addons:
+                return f"{eq_ltx}, \\quad " + ", \\quad ".join(addons)
+            return eq_ltx
+        except Exception:
+            return raw_input
+
+    # 5d. Wronskian
+    if op_type == ProblemType.WRONSKIAN:
+        try:
+            from math_app.input.ode_parser import parse_wronskian_input
+            y1_e, y2_e, _ = parse_wronskian_input(raw_input, target_variable=clean_var, parameters=p)
+            return f"W\\left({expr_to_latex(y1_e)},\\, {expr_to_latex(y2_e)}\\right)({clean_var})"
+        except Exception:
+            return f"W({raw_input})"
+
     # 6. Matrix Operations
     try:
         if op_type in (
@@ -307,7 +380,7 @@ def format_problem_statement_latex(
                 A = parse_matrix_input(parts[0].strip())
                 b = parse_matrix_input(parts[1].strip())
                 return f"{expr_to_latex(A)} \\cdot x = {expr_to_latex(b)}"
-            return f"A \\cdot x = b \\quad \\text{{với }} {raw_input}"
+            return f"A \\cdot x = b, \\quad A = {raw_input}"
     except Exception:
         pass
 

@@ -65,28 +65,50 @@ class ChainRule(DifferentiationRule):
         d_inner_ltx = expr_to_latex(d_inner)
         res_ltx = expr_to_latex(result)
 
+        is_partial = getattr(engine, "is_partial", False)
+        diff_op = rf"\frac{{\partial}}{{\partial {var.name}}}" if is_partial else rf"\frac{{d}}{{d{var.name}}}"
+        lhs_op = rf"\frac{{\partial f}}{{\partial {var.name}}}" if is_partial else rf"f'({var.name})"
+
         aligned_eq = (
             f"\\begin{{aligned}}\n"
-            f"  f'({var.name})\n"
-            f"  &= \\frac{{d}}{{d{var.name}}}\\left({expr_to_latex(expr)}\\right) \\\\\n"
-            f"  &= {d_outer_ltx} \\cdot \\frac{{d}}{{d{var.name}}}\\left({inner_ltx}\\right) \\\\\n"
+            f"  {lhs_op}\n"
+            f"  &= {diff_op}\\left({expr_to_latex(expr)}\\right) \\\\\n"
+            f"  &= {d_outer_ltx} \\cdot {diff_op}\\left({inner_ltx}\\right) \\\\\n"
             f"  &= {d_outer_ltx} \\cdot ({d_inner_ltx}) \\\\\n"
             f"  &= {res_ltx}\n"
             f"\\end{{aligned}}"
         )
 
+        trig_types = (sp.sin, sp.cos, sp.tan, sp.sec, sp.csc, sp.cot, sp.asin, sp.acos, sp.atan)
+        if isinstance(expr, trig_types):
+            rule_name = "Chain Rule"
+            rule_name_vi = "Quy tắc đạo hàm hàm hợp và hàm lượng giác"
+            title = "Áp dụng quy tắc đạo hàm hàm hợp cho hàm lượng giác"
+        elif isinstance(expr, (sp.exp, sp.log)):
+            rule_name = "Chain Rule"
+            rule_name_vi = "Quy tắc đạo hàm hàm hợp và hàm mũ/logarit"
+            title = "Áp dụng quy tắc đạo hàm hàm hợp cho hàm mũ/logarit"
+        elif isinstance(expr, sp.Pow):
+            rule_name = "Chain Rule"
+            rule_name_vi = "Quy tắc đạo hàm hàm hợp và lũy thừa"
+            title = "Áp dụng quy tắc đạo hàm hàm hợp cho lũy thừa"
+        else:
+            rule_name = "Chain Rule"
+            rule_name_vi = "Quy tắc đạo hàm của hàm hợp"
+            title = "Áp dụng quy tắc đạo hàm của hàm hợp"
+
         builder.add_step(
-            rule_name="Chain Rule",
-            rule_name_vi="Quy tắc đạo hàm của hàm hợp",
-            title="Áp dụng quy tắc đạo hàm của hàm hợp",
+            rule_name=rule_name,
+            rule_name_vi=rule_name_vi,
+            title=title,
             description=(
-                f"Áp dụng quy tắc đạo hàm hàm hợp [f(g({var.name}))]' = f'(g({var.name})) · g'({var.name}) "
-                f"với hàm ngoài f(u) = {outer_ltx} và biểu thức trong u = {inner_ltx}:"
+                f"Áp dụng quy tắc đạo hàm hàm hợp $[f(g({var.name}))]' = f'(g({var.name})) \\cdot g'({var.name})$ "
+                f"với hàm ngoài $f(u) = {outer_ltx}$ và biểu thức trong $u = {inner_ltx}$:"
             ),
             before=expr,
             after=result,
             substeps=sub_builder.get_steps(),
-            notes=f"Hàm ngoài {outer_ltx}, hàm trong {inner_ltx}",
+            notes=f"Hàm ngoài ${outer_ltx}$, hàm trong ${inner_ltx}$",
             equation_latex=aligned_eq,
         )
         return result

@@ -44,7 +44,7 @@ class IntegrationRuleEngine:
             builder.add_step(
                 rule_name="Quy tắc hằng số và hằng số tích phân C" if not is_definite else "Quy tắc hằng số",
                 title="Áp dụng quy tắc tích phân của hằng số",
-                description=f"Tích phân của hằng số không phụ thuộc vào {var.name}:",
+                description=f"Tích phân của hằng số không phụ thuộc vào ${var.name}$:",
                 before=expr,
                 after=latex_after,
                 equation_latex=eq_latex,
@@ -60,7 +60,7 @@ class IntegrationRuleEngine:
             builder.add_step(
                 rule_name="Quy tắc lũy thừa và hằng số tích phân C" if not is_definite else "Quy tắc lũy thừa cơ bản",
                 title="Áp dụng quy tắc tích phân của lũy thừa",
-                description="Áp dụng công thức nguyên hàm cơ bản cho hàm số bậc nhất với n = 1:",
+                description="Áp dụng công thức nguyên hàm cơ bản cho hàm số bậc nhất với $n = 1$:",
                 before=expr,
                 after=latex_after,
                 equation_latex=eq_latex,
@@ -128,7 +128,7 @@ class IntegrationRuleEngine:
                 builder.add_step(
                     rule_name="Quy tắc nhân với hằng số và hằng số tích phân C" if not is_definite else "Quy tắc nhân với hằng số",
                     title="Đưa hằng số ra ngoài dấu tích phân",
-                    description=f"Đưa hệ số hằng số {c_ltx} ra ngoài dấu tích phân:",
+                    description=f"Đưa hệ số hằng số ${c_ltx}$ ra ngoài dấu tích phân:",
                     before=expr,
                     after=latex_after,
                     substeps=sub_builder.get_steps(),
@@ -148,7 +148,7 @@ class IntegrationRuleEngine:
                     builder.add_step(
                         rule_name="Quy tắc nghịch đảo và hằng số tích phân C" if not is_definite else "Quy tắc nghịch đảo",
                         title="Áp dụng quy tắc tích phân hàm phân thức",
-                        description=f"Tích phân của 1/{var.name}: \\int \\frac{{1}}{{{var.name}}}\\,d{var.name} = {latex_after}",
+                        description=f"Tích phân của $\\frac{{1}}{{{var.name}}}$: $\\int \\frac{{1}}{{{var.name}}}\\,d{var.name} = {latex_after}$",
                         before=expr,
                         after=latex_after,
                         equation_latex=eq_latex,
@@ -169,7 +169,7 @@ class IntegrationRuleEngine:
                     builder.add_step(
                         rule_name="Quy tắc lũy thừa và hằng số tích phân C" if not is_definite else "Quy tắc lũy thừa",
                         title="Áp dụng quy tắc tích phân của lũy thừa",
-                        description=f"Áp dụng công thức tích phân của hàm lũy thừa với số mũ n = {exp}:",
+                        description=f"Áp dụng công thức tích phân của hàm lũy thừa với số mũ $n = {exp}$:",
                         before=expr,
                         after=latex_after,
                         equation_latex=eq_latex,
@@ -186,7 +186,7 @@ class IntegrationRuleEngine:
             builder.add_step(
                 rule_name="Quy tắc hàm mũ cơ số e và hằng số tích phân C" if not is_definite else "Quy tắc hàm mũ cơ số e",
                 title="Áp dụng quy tắc tích phân của hàm mũ",
-                description=f"Tích phân của hàm mũ: \\int e^{{{var.name}}}\\,d{var.name} = {latex_after}",
+                description=f"Tích phân của hàm mũ: $\\int e^{{{var.name}}}\\,d{var.name} = {latex_after}$",
                 before=expr,
                 after=latex_after,
                 equation_latex=eq_latex,
@@ -201,7 +201,7 @@ class IntegrationRuleEngine:
             builder.add_step(
                 rule_name="Quy tắc lượng giác và hằng số tích phân C" if not is_definite else "Quy tắc lượng giác",
                 title="Áp dụng quy tắc tích phân hàm lượng giác",
-                description=f"Tích phân của sin({var.name}): \\int \\sin({var.name})\\,d{var.name} = {latex_after}",
+                description=f"Tích phân của $\\sin({var.name})$: $\\int \\sin({var.name})\\,d{var.name} = {latex_after}$",
                 before=expr,
                 after=latex_after,
                 equation_latex=f"\\int \\sin({var.name})\\,d{var.name} = {latex_after}",
@@ -215,7 +215,7 @@ class IntegrationRuleEngine:
             builder.add_step(
                 rule_name="Quy tắc lượng giác và hằng số tích phân C" if not is_definite else "Quy tắc lượng giác",
                 title="Áp dụng quy tắc tích phân hàm lượng giác",
-                description=f"Tích phân của cos({var.name}): \\int \\cos({var.name})\\,d{var.name} = {latex_after}",
+                description=f"Tích phân của $\\cos({var.name})$: $\\int \\cos({var.name})\\,d{var.name} = {latex_after}$",
                 before=expr,
                 after=latex_after,
                 equation_latex=f"\\int \\cos({var.name})\\,d{var.name} = {latex_after}",

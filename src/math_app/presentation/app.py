@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from nicegui import ui
+from pathlib import Path
+from nicegui import app, ui
 
 from math_app import __title__, __version__
 from math_app.application.dtos import ProblemRequest, SolutionResponse
@@ -25,24 +26,120 @@ from math_app.presentation.components.solution_view import render_solution_view
 def create_app(use_case: SolveProblemUseCase) -> None:
     """Configure the NiceGUI page layout and interaction handlers."""
 
+    # Mount static assets for offline OpenType math fonts and local stylesheets
+    import sys
+    if hasattr(sys, "_MEIPASS"):
+        base_assets = Path(sys._MEIPASS) / "assets"
+    else:
+        base_assets = Path(__file__).resolve().parent.parent.parent.parent / "assets"
+
+    if not base_assets.is_dir():
+        alt_assets = Path(__file__).resolve().parent / "assets"
+        if alt_assets.is_dir():
+            base_assets = alt_assets
+
+    if base_assets.is_dir():
+        try:
+            app.add_static_files("/assets", str(base_assets))
+        except Exception:
+            pass
+
     @ui.page("/")
     def main_page() -> None:
         ui.page_title(f"{__title__} — Phần mềm Học tập & Nghiên cứu Toán học")
 
-        # Inject global styles for typography and MathML rendering without scrollbar artifacts
+        # Inject global styles and local KaTeX for robust cross-browser math rendering
         ui.add_head_html("""
+        <link rel="stylesheet" href="/assets/katex/katex.css">
+        <script src="/assets/katex/katex.js"></script>
+        <script>
+        (function() {
+            function renderMathElement(el) {
+                if (!window.katex || el.getAttribute('data-rendered') === 'true') return;
+                const tex = el.getAttribute('data-tex');
+                if (!tex) return;
+                const isBlock = el.getAttribute('data-display') === 'block';
+                try {
+                    window.katex.render(tex, el, {
+                        displayMode: isBlock,
+                        throwOnError: false,
+                        output: 'htmlAndMathml',
+                        strict: function(errorCode, errorMsg, token) {
+                            if (errorCode === 'unknownSymbol' || errorCode === 'unicodeTextInMathMode') {
+                                return 'ignore';
+                            }
+                            return 'warn';
+                        }
+                    });
+                    el.setAttribute('data-rendered', 'true');
+                } catch (e) {
+                    console.warn('KaTeX render error:', e);
+                }
+            }
+
+            function renderAllMath(root) {
+                if (!window.katex) return;
+                const target = root || document.body;
+                if (!target) return;
+                if (target.matches && target.matches('.math-tex:not([data-rendered="true"])')) {
+                    renderMathElement(target);
+                }
+                const elements = target.querySelectorAll('.math-tex:not([data-rendered="true"])');
+                elements.forEach(renderMathElement);
+            }
+
+            window.renderAllMath = renderAllMath;
+
+            // MutationObserver to automatically render new math elements added dynamically by NiceGUI/Vue
+            const observer = new MutationObserver(function(mutations) {
+                if (!window.katex) return;
+                for (let i = 0; i < mutations.length; i++) {
+                    const m = mutations[i];
+                    for (let j = 0; j < m.addedNodes.length; j++) {
+                        const node = m.addedNodes[j];
+                        if (node.nodeType === 1) { // ELEMENT_NODE
+                            renderAllMath(node);
+                        }
+                    }
+                }
+            });
+
+            document.addEventListener('DOMContentLoaded', function() {
+                renderAllMath();
+                if (document.body) {
+                    observer.observe(document.body, { childList: true, subtree: true });
+                }
+            });
+
+            window.addEventListener('load', function() {
+                renderAllMath();
+            });
+
+            // Fallback periodic check for late-rendered Quasar/Vue components
+            setInterval(renderAllMath, 500);
+        })();
+        </script>
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
-            @import url('https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css');
+            @font-face {
+                font-family: 'DejaVu Math TeX Gyre';
+                src: url('/assets/fonts/DejaVuMathTeXGyre.ttf') format('truetype');
+                font-weight: normal;
+                font-style: normal;
+                font-display: swap;
+            }
             body {
                 font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
                 background-color: #f8fafc;
                 color: #0f172a;
             }
             math {
-                font-family: 'KaTeX_Math', 'Latin Modern Math', 'STIX Two Math', 'Cambria Math', 'Times New Roman', serif;
+                font-family: 'DejaVu Math TeX Gyre', 'Noto Sans Math', 'STIX Two Math', 'Latin Modern Math', 'Cambria Math', 'KaTeX_Math', 'TeX Gyre Termes Math', 'TeX Gyre Pagella Math', 'Lucida Bright Math', math, serif !important;
                 font-size: 1.15em;
-                letter-spacing: 0.02em;
+                font-weight: normal !important;
+                font-style: normal !important;
+                letter-spacing: normal !important;
+                line-height: normal;
             }
             .math-container {
                 display: inline-flex;
@@ -64,7 +161,7 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                 max-height: 100%;
                 line-height: normal;
             }
-            .math-icon math {
+            .math-icon math, .math-icon .katex {
                 font-size: 0.88em;
             }
             math mtable, mtable {
@@ -86,6 +183,17 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                 padding: 0.35rem 0.5rem;
                 scrollbar-width: thin;
                 scrollbar-color: #cbd5e1 transparent;
+                font-weight: normal !important;
+            }
+            .math-block .katex-display {
+                margin: 0 !important;
+                padding: 0 !important;
+                text-align: left !important;
+            }
+            /* Clean conclusion card formula: eliminate inner boxed borders while preserving outer card */
+            .conclusion-formula menclose[notation="box"],
+            .conclusion-formula .fbox {
+                border: none !important;
             }
             /* Eliminate native browser scrollbar stepper arrows and customize scrollbar track */
             *::-webkit-scrollbar-button,
@@ -195,6 +303,7 @@ def create_app(use_case: SolveProblemUseCase) -> None:
 
                     domains = [
                         "Giải tích (Calculus)",
+                        "Phương trình vi phân (Differential Equations)",
                         "Giải tích vectơ (Vector Calculus)",
                         "Đại số tuyến tính (Linear Algebra)",
                     ]
@@ -204,6 +313,8 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                             with ui.row().classes("items-center gap-2"):
                                 if "Giải tích vectơ" in dom:
                                     domain_icon = "all_inclusive"
+                                elif "Phương trình vi phân" in dom:
+                                    domain_icon = "show_chart"
                                 elif "Giải tích" in dom:
                                     domain_icon = "query_stats"
                                 else:
@@ -251,8 +362,10 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                 is_matrix_op = current_op.is_matrix
 
                 with ui.column().classes("w-full gap-5"):
-                    # Navigation Bar with Shared High-Contrast Back Button
-                    with ui.row().classes("w-full items-center justify-between bg-white p-3 rounded-xl border border-slate-200 shadow-xs"):
+                    # Navigation Bar with Shared High-Contrast Back Button (Sticky on scroll)
+                    with ui.row().classes(
+                        "w-full items-center justify-between bg-white p-3 rounded-xl border border-slate-200 shadow-sm sticky top-0 z-30 transition-all"
+                    ):
                         with ui.row().classes("items-center gap-3"):
                             render_back_button(on_click=switch_to_catalog)
                             ui.separator().props("vertical")
@@ -306,6 +419,39 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                                             f"text-xs md:text-sm h-10 px-4 rounded-lg {btn_cls} transition-all font-semibold"
                                         )
 
+                    # Differential Equations Subtype Selector Banner
+                    if current_op.problem_type in {
+                        ProblemType.ODE_FIRST_ORDER_LINEAR,
+                        ProblemType.ODE_SEPARABLE,
+                        ProblemType.ODE_EXACT,
+                        ProblemType.ODE_INTEGRATING_FACTOR,
+                    }:
+                        with ui.card().classes("w-full p-3.5 bg-blue-50/90 border border-blue-200 rounded-xl shadow-xs"):
+                            with ui.row().classes("items-center justify-between w-full flex-wrap gap-3"):
+                                with ui.row().classes("items-center gap-2 shrink-0"):
+                                    ui.icon("alt_route", color="primary", size="1.25rem")
+                                    ui.label("CHỌN DẠNG PHƯƠNG TRÌNH VI PHÂN:").classes("text-xs md:text-sm font-black text-blue-950 uppercase tracking-wider")
+                                with ui.row().classes("gap-2 flex-wrap items-center"):
+                                    ode_subtypes = [
+                                        (ProblemType.ODE_FIRST_ORDER_LINEAR, "Tuyến tính cấp 1"),
+                                        (ProblemType.ODE_SEPARABLE, "Tách biến"),
+                                        (ProblemType.ODE_EXACT, "Vi phân toàn phần"),
+                                        (ProblemType.ODE_INTEGRATING_FACTOR, "Thừa số tích phân"),
+                                    ]
+                                    for pt, lbl in ode_subtypes:
+                                        is_sel = (current_op.problem_type == pt)
+                                        btn_cls = (
+                                            "bg-blue-600 text-white font-bold shadow-sm ring-2 ring-blue-400"
+                                            if is_sel
+                                            else "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+                                        )
+                                        ui.button(
+                                            lbl,
+                                            on_click=lambda _, p=pt: switch_to_operation(get_operation_by_type(p)),
+                                        ).props(f"{'unelevated' if is_sel else 'outline'} no-caps").classes(
+                                            f"text-xs md:text-sm h-10 px-4 rounded-lg {btn_cls} transition-all font-semibold"
+                                        )
+
                     # Dynamic Input Form Card
                     with ui.card().classes("w-full p-5 shadow-xs border border-slate-200 rounded-xl bg-white gap-4"):
                         with ui.column().classes("gap-0.5"):
@@ -338,6 +484,22 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                                 main_input_label = "Hàm mặt cong z = f(x, y)"
                             elif current_op.problem_type == ProblemType.SURFACE_OF_REVOLUTION:
                                 main_input_label = "Hàm đường sinh y = f(x)"
+                            elif current_op.problem_type in (
+                                ProblemType.ODE_FIRST_ORDER_LINEAR,
+                                ProblemType.ODE_SEPARABLE,
+                                ProblemType.ODE_EXACT,
+                                ProblemType.ODE_INTEGRATING_FACTOR,
+                            ):
+                                main_input_label = "Phương trình vi phân cấp 1 (ví dụ: y' + 1/2*y = t + 2 hoặc (2*x*y + 3)*dx + (x^2 + 4*y)*dy = 0)"
+                            elif current_op.problem_type in (
+                                ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+                                ProblemType.ODE_SECOND_ORDER_IVP,
+                            ):
+                                main_input_label = "Phương trình vi phân cấp 2 (ví dụ: y'' + 5*y' + 6*y = 0)"
+                            elif current_op.problem_type == ProblemType.ODE_REDUCTION_OF_ORDER:
+                                main_input_label = "Phương trình vi phân cấp 2 (ví dụ: 2*t^2*y'' + 3*t*y' - y = 0)"
+                            elif current_op.problem_type == ProblemType.WRONSKIAN:
+                                main_input_label = "Hai hàm số y1, y2 (ví dụ: cos(t), sin(t) hoặc exp(t), t*exp(t))"
                             else:
                                 main_input_label = "Biểu thức toán học f(x)"
 
@@ -346,6 +508,37 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                                 placeholder=current_op.default_input,
                                 value=current_op.default_input,
                             ).classes("w-full text-base font-mono")
+
+                            # ODE Optional Initial Condition Input
+                            if current_op.problem_type in (
+                                ProblemType.ODE_FIRST_ORDER_LINEAR,
+                                ProblemType.ODE_SEPARABLE,
+                                ProblemType.ODE_EXACT,
+                                ProblemType.ODE_INTEGRATING_FACTOR,
+                            ):
+                                ic_input = ui.input(
+                                    label="Điều kiện ban đầu y(t0) = y0 (tùy chọn)",
+                                    placeholder="Ví dụ: y(0) = 1 (hoặc có thể viết trực tiếp sau dấu phẩy trong phương trình)",
+                                    value="",
+                                ).classes("w-full text-base font-mono")
+                                extra_controls["initial_condition"] = ic_input
+                            elif current_op.problem_type in (
+                                ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+                                ProblemType.ODE_SECOND_ORDER_IVP,
+                            ):
+                                ic_input = ui.input(
+                                    label="Điều kiện ban đầu Cauchy: y(t0) = y0, y'(t0) = v0 (tùy chọn)",
+                                    placeholder="Ví dụ: y(0) = 2, y'(0) = 3 (hoặc viết sau dấu phẩy trong phương trình)",
+                                    value="",
+                                ).classes("w-full text-base font-mono")
+                                extra_controls["initial_condition"] = ic_input
+                            elif current_op.problem_type == ProblemType.ODE_REDUCTION_OF_ORDER:
+                                y1_input = ui.input(
+                                    label="Nghiệm đã biết y1(t) (tùy chọn nếu đã viết trong phương trình)",
+                                    placeholder="Ví dụ: 1/t hoặc exp(t)",
+                                    value="",
+                                ).classes("w-full text-base font-mono")
+                                extra_controls["y1"] = y1_input
 
                             # 2. Derivative-specific repositioned order field
                             if current_op.problem_type == ProblemType.DERIVATIVE:

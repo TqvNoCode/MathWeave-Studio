@@ -236,8 +236,12 @@ def main() -> None:
     try:
         startup_mode = resolve_startup_mode()
     except HeadlessEnvironmentError as exc:
-        sys.stderr.write(f"\n[ERROR] {exc}\n\n")
-        sys.stderr.flush()
+        if sys.stderr is not None:
+            try:
+                sys.stderr.write(f"\n[ERROR] {exc}\n\n")
+                sys.stderr.flush()
+            except Exception:
+                pass
         sys.exit(1)
 
     use_native = startup_mode.is_native
@@ -257,8 +261,12 @@ def main() -> None:
                 icon_path=png_path if png_path.is_file() else ico_path
             )
         except NativeBackendError as exc:
-            sys.stderr.write(f"\n[ERROR] {exc}\n\n")
-            sys.stderr.flush()
+            if sys.stderr is not None:
+                try:
+                    sys.stderr.write(f"\n[ERROR] {exc}\n\n")
+                    sys.stderr.flush()
+                except Exception:
+                    pass
             sys.exit(1)
 
     use_case = build_application()
@@ -269,6 +277,8 @@ def main() -> None:
     configured_port = resolve_configured_port(sys.argv, os.environ, DEFAULT_PORT)
     port = get_available_port(DEFAULT_HOST, configured_port)
 
+    show_browser = ("--no-show" not in sys.argv) and not use_native
+
     try:
         ui.run(
             host=DEFAULT_HOST,
@@ -278,6 +288,7 @@ def main() -> None:
             native=use_native,
             window_size=(1200, 800) if use_native else None,
             favicon=favicon_path,
+            show=show_browser,
             timeout_graceful_shutdown=3.0,
         )
     except KeyboardInterrupt:
@@ -288,8 +299,16 @@ def main() -> None:
             run.tear_down()
         except Exception:
             pass
-        sys.stdout.flush()
-        sys.stderr.flush()
+        if sys.stdout is not None:
+            try:
+                sys.stdout.flush()
+            except Exception:
+                pass
+        if sys.stderr is not None:
+            try:
+                sys.stderr.flush()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

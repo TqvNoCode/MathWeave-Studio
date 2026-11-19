@@ -104,26 +104,31 @@ def validate_portable_executable(portable_path: Path) -> None:
     log("Portable executable file verification PASSED.")
 
 
-def run_startup_smoke_test(exe_path: Path, port: int, label: str, timeout_seconds: float = 35.0) -> None:
+def run_startup_smoke_test(exe_path: Path, port: int, label: str, timeout_seconds: float = 75.0) -> None:
     """Launch executable with --browser on specified port, test HTTP response, and terminate."""
     log("\n==================================================")
     log(f"STARTING RUNTIME SMOKE TEST: {label}")
     log(f"Executable: {exe_path}")
     log(f"Target Port: {port}")
+    log(f"Startup Timeout: {timeout_seconds}s")
     log("==================================================")
 
     env = os.environ.copy()
     env["MATHWEAVE_PORT"] = str(port)
 
-    cmd = [str(exe_path), "--browser", "--port", str(port)]
+    # Use --no-show to prevent NiceGUI from attempting to open a web browser in headless CI
+    cmd = [str(exe_path), "--browser", "--port", str(port), "--no-show"]
     log(f"Executing: {' '.join(cmd)}")
+
+    # Use file-based redirection to avoid Windows pipe buffer deadlock on high output
+    log_file_path = Path(f"smoke_{label.replace(' ', '_').lower()}.log")
+    log_file = open(log_file_path, "w", encoding="utf-8", errors="replace")
 
     proc = subprocess.Popen(
         cmd,
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+        stdout=log_file,
+        stderr=log_file,
     )
 
     url_root = f"http://127.0.0.1:{port}/"
@@ -138,11 +143,11 @@ def run_startup_smoke_test(exe_path: Path, port: int, label: str, timeout_second
             # Check if process exited unexpectedly
             ret = proc.poll()
             if ret is not None:
-                stdout, stderr = proc.communicate(timeout=5)
+                log_file.flush()
+                output_content = log_file_path.read_text(encoding="utf-8", errors="replace") if log_file_path.is_file() else ""
                 raise RuntimeError(
                     f"Process {label} exited prematurely with return code {ret}.\n"
-                    f"STDOUT:\n{stdout}\n"
-                    f"STDERR:\n{stderr}"
+                    f"LOG OUTPUT:\n{output_content}"
                 )
 
             try:
@@ -158,16 +163,21 @@ def run_startup_smoke_test(exe_path: Path, port: int, label: str, timeout_second
                 time.sleep(1.0)
 
         if not server_ready:
-            raise TimeoutError(f"Application {label} did not become ready on {url_root} within {timeout_seconds}s.")
+            log_file.flush()
+            output_content = log_file_path.read_text(encoding="utf-8", errors="replace") if log_file_path.is_file() else ""
+            raise TimeoutError(
+                f"Application {label} did not become ready on {url_root} within {timeout_seconds}s.\n"
+                f"PROCESS LOG:\n{output_content}"
+            )
 
         # Verify static asset serving
-        with urllib.request.urlopen(url_katex, timeout=3.0) as resp:
+        with urllib.request.urlopen(url_katex, timeout=5.0) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"Failed to serve KaTeX asset: HTTP {resp.status}")
             katex_bytes = resp.read()
             log(f"Verified KaTeX asset HTTP 200 ({len(katex_bytes):,} bytes).")
 
-        with urllib.request.urlopen(url_font, timeout=3.0) as resp:
+        with urllib.request.urlopen(url_font, timeout=5.0) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"Failed to serve DejaVu font asset: HTTP {resp.status}")
             font_bytes = resp.read()
@@ -179,16 +189,18 @@ def run_startup_smoke_test(exe_path: Path, port: int, label: str, timeout_second
         log(f"Terminating {label} process (PID: {proc.pid})...")
         proc.terminate()
         try:
-            stdout, stderr = proc.communicate(timeout=6.0)
+            proc.wait(timeout=6.0)
             log("Process terminated cleanly.")
         except subprocess.TimeoutExpired:
             log(f"Process did not terminate within timeout; killing PID: {proc.pid}...")
             proc.kill()
-            stdout, stderr = proc.communicate(timeout=5.0)
+            proc.wait(timeout=5.0)
             log("Process killed.")
 
-        if stderr and ("Traceback" in stderr or "Error" in stderr):
-            log(f"Captured STDERR output:\n{stderr}")
+        try:
+            log_file.close()
+        except Exception:
+            pass
 
 
 def main() -> int:

@@ -109,7 +109,16 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "Executing smoke tests and runtime verification script..."
-          uv run python .github/scripts/smoke_test_windows.py --onedir-dir dist/mathweave-studio --portable-exe dist/MathWeave-Studio-Portable.exe
+          try {
+            uv run python .github/scripts/smoke_test_windows.py --onedir-dir dist/mathweave-studio --portable-exe dist/MathWeave-Studio-Portable.exe
+          } catch {
+            Write-Host "=== SMOKE TEST FAILURE DIAGNOSTICS ==="
+            Get-ChildItem -Path . -Filter "smoke_*.log" | ForEach-Object {
+              Write-Host "`n--- Content of $($_.Name) ---"
+              Get-Content $_.FullName | Select-Object -Last 100
+            }
+            throw
+          }
 
       - name: Upload Standard Windows (Onedir ZIP) Artifact
         uses: actions/upload-artifact@v4

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from nicegui import ui
@@ -15,6 +16,7 @@ from math_app.presentation.app import create_app
 from math_app.presentation.startup import (
     HeadlessEnvironmentError,
     NativeBackendError,
+    resolve_configured_port,
     resolve_startup_mode,
     validate_and_prepare_native_backend,
 )
@@ -50,11 +52,21 @@ def get_resource_path(relative_path: str | Path) -> Path:
     import sys
     from pathlib import Path
 
+    rel_p = Path(relative_path)
     if hasattr(sys, "_MEIPASS"):
-        base_dir = Path(sys._MEIPASS)
-    else:
-        base_dir = Path(__file__).resolve().parent.parent.parent
-    return (base_dir / relative_path).resolve()
+        candidate = (Path(sys._MEIPASS) / rel_p).resolve()
+        if candidate.exists():
+            return candidate
+
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        for candidate_base in (exe_dir, exe_dir / "_internal"):
+            candidate = (candidate_base / rel_p).resolve()
+            if candidate.exists():
+                return candidate
+
+    base_dir = Path(__file__).resolve().parent.parent.parent
+    return (base_dir / rel_p).resolve()
 
 
 def build_application() -> SolveProblemUseCase:
@@ -254,7 +266,8 @@ def main() -> None:
 
     _setup_signal_handlers()
 
-    port = get_available_port(DEFAULT_HOST, DEFAULT_PORT)
+    configured_port = resolve_configured_port(sys.argv, os.environ, DEFAULT_PORT)
+    port = get_available_port(DEFAULT_HOST, configured_port)
 
     try:
         ui.run(

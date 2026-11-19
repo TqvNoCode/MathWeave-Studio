@@ -87,6 +87,65 @@ def resolve_startup_mode(
     return StartupMode.NATIVE
 
 
+DEFAULT_APP_PORT = 8080
+
+
+def resolve_configured_port(
+    argv: Sequence[str] | None = None,
+    environ: Mapping[str, str] | None = None,
+    default_port: int = DEFAULT_APP_PORT,
+) -> int:
+    """Resolve configured network port from CLI arguments, environment, or default.
+
+    Precedence:
+    1. CLI argument: --port <PORT>
+    2. Environment variable: MATHWEAVE_PORT
+    3. Default port: default_port (8080)
+    """
+    if argv is None:
+        argv = sys.argv
+    if environ is None:
+        environ = os.environ
+
+    if "--port" in argv:
+        try:
+            port_idx = argv.index("--port")
+            if port_idx + 1 < len(argv) and argv[port_idx + 1].isdigit():
+                return int(argv[port_idx + 1])
+        except (ValueError, IndexError):
+            pass
+
+    env_port = environ.get("MATHWEAVE_PORT")
+    if env_port and env_port.isdigit():
+        return int(env_port)
+
+    return default_port
+
+
+def resolve_assets_path() -> Path:
+    """Resolve absolute path to assets directory for web mounting and font delivery."""
+    if hasattr(sys, "_MEIPASS"):
+        candidate = Path(sys._MEIPASS) / "assets"
+        if candidate.is_dir():
+            return candidate
+
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        for candidate in (exe_dir / "assets", exe_dir / "_internal" / "assets"):
+            if candidate.is_dir():
+                return candidate
+
+    base_assets = Path(__file__).resolve().parent.parent.parent.parent / "assets"
+    if base_assets.is_dir():
+        return base_assets
+
+    alt_assets = Path(__file__).resolve().parent / "assets"
+    if alt_assets.is_dir():
+        return alt_assets
+
+    return base_assets
+
+
 def validate_and_prepare_native_backend(
     platform: str | None = None,
     icon_path: str | Path | None = None,

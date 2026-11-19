@@ -1,0 +1,128 @@
+name: Windows Build
+
+run-name: "Windows Build - ${{ github.ref_name }}@${{ github.sha }}"
+
+'on':
+  workflow_dispatch:
+  push:
+    branches: [test]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    name: Build & Validate Windows Distributions
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.14
+        run: uv python install 3.14
+
+      - name: Install locked dependencies
+        run: uv sync --frozen --dev
+
+      - name: Inspect Windows Environment & Dependencies
+        shell: pwsh
+        run: |
+          Write-Host "=== Windows Environment ==="
+          Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion, OsArchitecture
+          uv run python -c "import sys, platform; print(f'Python: {sys.version} ({platform.architecture()[0]})')"
+          Write-Host "`n=== Native Window Backend Diagnostics ==="
+          uv run python -c "import pythonnet, webview; print(f'pythonnet: {pythonnet.__version__}'); print(f'pywebview: {webview.__version__}')"
+          uv run python -c "from webview.platforms.winforms import _is_chromium; print(f'WebView2 Runtime Available: {_is_chromium()}')"
+
+      - name: Build Standard Windows Distribution (Onedir)
+        run: uv run pyinstaller --noconfirm --clean mathweave-studio.spec
+
+      - name: Build Portable Windows Distribution (Onefile)
+        run: uv run pyinstaller --noconfirm --clean mathweave-studio-onefile.spec
+
+      - name: Package Onedir into ZIP Archive
+        shell: pwsh
+        run: |
+          $onedirDir = "dist/mathweave-studio"
+          $zipOutput = "dist/MathWeave-Studio-Windows-Onedir.zip"
+          if (-not (Test-Path $onedirDir)) {
+            Write-Error "CRITICAL: Onedir build directory $onedirDir was not found."
+            exit 1
+          }
+          Write-Host "Compressing onedir directory $onedirDir into $zipOutput..."
+          Compress-Archive -Path "$onedirDir\*" -DestinationPath $zipOutput -CompressionLevel Optimal -Force
+          $zipItem = Get-Item $zipOutput
+          Write-Host "Successfully packaged $zipOutput ($($zipItem.Length) bytes)."
+
+      - name: Validate Artifact Existence and Size Bounds
+        shell: pwsh
+        run: |
+          $validationFailed = $false
+
+          # 1. Validate Onedir ZIP
+          $onedirZip = "dist/MathWeave-Studio-Windows-Onedir.zip"
+          if (-not (Test-Path $onedirZip)) {
+            Write-Error "Missing expected onedir artifact: $onedirZip"
+            $validationFailed = $true
+          } else {
+            $zipSize = (Get-Item $onedirZip).Length
+            if ($zipSize -lt 1000000) {
+              Write-Error "Onedir ZIP is suspiciously small ($zipSize bytes)."
+              $validationFailed = $true
+            } else {
+              Write-Host "Onedir ZIP validated: $onedirZip ($zipSize bytes)"
+            }
+          }
+
+          # 2. Validate Portable Onefile EXE
+          $portableExe = "dist/MathWeave-Studio-Portable.exe"
+          if (-not (Test-Path $portableExe)) {
+            Write-Error "Missing expected portable artifact: $portableExe"
+            $validationFailed = $true
+          } else {
+            $exeSize = (Get-Item $portableExe).Length
+            if ($exeSize -lt 15000000) {
+              Write-Error "Portable EXE is suspiciously small ($exeSize bytes)."
+              $validationFailed = $true
+            } else {
+              Write-Host "Portable EXE validated: $portableExe ($exeSize bytes)"
+            }
+          }
+
+          if ($validationFailed) {
+            Write-Error "Build artifact validation failed."
+            exit 1
+          }
+          Write-Host "All build artifact files exist and meet size thresholds."
+
+      - name: Run Runtime Smoke Tests and Asset Integrity Checks
+        shell: pwsh
+        run: |
+          Write-Host "Executing smoke tests and runtime verification script..."
+          uv run python .github/scripts/smoke_test_windows.py --onedir-dir dist/mathweave-studio --portable-exe dist/MathWeave-Studio-Portable.exe
+
+      - name: Upload Standard Windows (Onedir ZIP) Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MathWeave-Studio-Windows-Onedir
+          path: dist/MathWeave-Studio-Windows-Onedir.zip
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload Portable Windows (Onefile EXE) Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MathWeave-Studio-Windows-Portable
+          path: dist/MathWeave-Studio-Portable.exe
+          retention-days: 14
+          if-no-files-found: error

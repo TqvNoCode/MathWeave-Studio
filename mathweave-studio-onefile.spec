@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
+import sys
 from PyInstaller.utils.hooks import (
     collect_all,
     collect_data_files,
@@ -27,11 +28,18 @@ for pkg in ["nicegui", "plotly", "latex2mathml"]:
 # Application modules and assets
 hiddenimports += collect_submodules("math_app")
 datas += [(assets_dir, "assets")]
+datas += collect_data_files("math_app")
 
 # Pywebview and webview backend
-datas += collect_data_files("webview")
-binaries += collect_dynamic_libs("webview")
-hiddenimports += collect_submodules("webview")
+try:
+    pkg_datas, pkg_binaries, pkg_hidden = collect_all("webview")
+    datas += pkg_datas
+    binaries += pkg_binaries
+    hiddenimports += pkg_hidden
+except Exception:
+    datas += collect_data_files("webview")
+    binaries += collect_dynamic_libs("webview")
+    hiddenimports += collect_submodules("webview")
 
 # Windows-specific native dependencies (pythonnet, clr_loader)
 for pkg in ["pythonnet", "clr_loader"]:
@@ -43,15 +51,14 @@ for pkg in ["pythonnet", "clr_loader"]:
     except Exception:
         pass
 
-if sys.platform.startswith("linux"):
-    for pkg in ["PyQt6"]:
-        try:
-            pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
-            datas += pkg_datas
-            binaries += pkg_binaries
-            hiddenimports += pkg_hidden
-        except Exception:
-            pass
+for pkg in ["PyQt6"]:
+    try:
+        pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
+        datas += pkg_datas
+        binaries += pkg_binaries
+        hiddenimports += pkg_hidden
+    except Exception:
+        pass
 
 hiddenimports += [
     # ASGI and WebSocket server
@@ -62,6 +69,8 @@ hiddenimports += [
     "uvicorn.lifespan.on",
     "uvicorn.lifespan.off",
     "wsproto",
+    "engineio.async_drivers.asgi",
+    "socketio.async_drivers.asgi",
     # Windows pywebview native backend (.NET / WinForms / WebView2)
     "clr",
     "pythonnet",
@@ -99,14 +108,14 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name="MathWeaveStudio-Beta",
+    name="MathWeave-Studio-Portable",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,  # Kept True for beta debugging diagnostics
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

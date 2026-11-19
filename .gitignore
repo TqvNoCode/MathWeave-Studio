@@ -27,6 +27,7 @@ htmlcov/
 # Logs and temporary reports
 /log/
 *.log
+reports/REPOSITORY_CLEANUP_REPORT.md
 
 # Local environment variables and secrets
 .env
@@ -34,6 +35,8 @@ htmlcov/
 !.env.example
 
 # Editor and operating-system files
+.vscode/
+.idea/
 .DS_Store
 Thumbs.db
 *.swp

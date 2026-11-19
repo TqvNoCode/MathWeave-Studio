@@ -210,3 +210,41 @@ def test_solution_view_cross_application_math_in_steps():
     ode2_html = render_math_in_text_html(sample_steps[3].description)
     assert "<msqrt>" in ode2_html
     assert "<mfrac>" in ode2_html
+
+
+def test_solution_view_ode_5_workflows_presentation():
+    """Verify presentation rendering across the 5 core ODE workflows including odd roots."""
+    from math_app.main import build_application
+    from math_app.application.dtos import ProblemRequest
+    from math_app.rendering.text_math_renderer import render_math_in_text_html
+
+    app = build_application()
+    workflows = [
+        ("Separable ODE", "y' = 2*x*y, y(0) = 3", ProblemType.ODE_SEPARABLE, "x"),
+        ("Exact Equation", "(2*x + y) + (x + 2*y)*y' = 0", ProblemType.ODE_EXACT, "x"),
+        ("Integrating Factor", "(3*x*y + y^2)*dx + (x^2 + x*y)*dy = 0", ProblemType.ODE_INTEGRATING_FACTOR, "x"),
+        ("Classical Homogeneous", "y' = y/x + x^2/(3*y^2), y(1) = -2", ProblemType.ODE_FIRST_ORDER_HOMOGENEOUS, "x"),
+        ("Second-order Cauchy IVP", "y'' - 5*y' + 6*y = 0, y(0) = 1, y'(0) = 0", ProblemType.ODE_SECOND_ORDER_IVP, "x"),
+    ]
+
+    for name, raw, pt, var in workflows:
+        req = ProblemRequest(raw_input=raw, problem_type=pt, target_variable=var)
+        res = app.execute(req)
+        assert res.status == SolutionStatus.SUCCESS, f"{name} failed status: {res.status}"
+        assert res.verification.status == VerificationStatus.VERIFIED, f"{name} verification failed"
+
+        # Verify no raw python tokens in final_latex
+        for bad_tok in ("**", "zoo", "nan"):
+            assert bad_tok not in res.final_latex, f"{name}: raw token {bad_tok} in {res.final_latex}"
+
+        # Render in NiceGUI component card
+        op = get_operation_by_type(pt)
+        with ui.card():
+            render_solution_view(res, op, var, {})
+
+        # Test MathML generation for step descriptions
+        for step in res.steps:
+            if step.description and "$" in step.description:
+                html = render_math_in_text_html(step.description)
+                assert "<math" in html, f"{name}: step MathML missing in {step.description}"
+                assert "</math>" in html

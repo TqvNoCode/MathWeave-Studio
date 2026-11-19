@@ -96,8 +96,10 @@ class ODEIntegratingFactorSolver(Solver):
                     rule_name="Kiểm tra tính vi phân toàn phần",
                     title="Kiểm tra điều kiện vi phân toàn phần ban đầu",
                     description=(
-                        f"Tính các đạo hàm riêng: dM/d{y_var} = {dM_dy} và dN/d{x_var} = {dN_dx}. "
-                        f"Vì dM/d{y_var} = dN/d{x_var}, phương trình đã là vi phân toàn phần với thừa số tích phân \u03bc = 1."
+                        f"Tính các đạo hàm riêng: $\\frac{{\\partial M}}{{\\partial {y_var}}} = {expr_to_latex(dM_dy)}$ "
+                        f"và $\\frac{{\\partial N}}{{\\partial {x_var}}} = {expr_to_latex(dN_dx)}$. "
+                        f"Vì $\\frac{{\\partial M}}{{\\partial {y_var}}} = \\frac{{\\partial N}}{{\\partial {x_var}}}$, "
+                        f"phương trình đã là vi phân toàn phần với thừa số tích phân $\\mu = 1$."
                     ),
                     content=ExpressionStepContent(
                         expression_before=f"M = {M_expr}, N = {N_expr}",
@@ -118,16 +120,17 @@ class ODEIntegratingFactorSolver(Solver):
                     rule_name="Kiểm tra tính vi phân toàn phần",
                     title="Kiểm tra điều kiện vi phân toàn phần ban đầu",
                     description=(
-                        f"Xác định M({x_var}, {y_var}) = {M_expr} và N({x_var}, {y_var}) = {N_expr}. "
-                        f"Tính đạo hàm riêng: dM/d{y_var} = {dM_dy} và dN/d{x_var} = {dN_dx}. "
-                        f"Vì dM/d{y_var} khác dN/d{x_var}, phương trình KHÔNG phải là vi phân toàn phần. "
-                        f"Cần tìm thừa số tích phân \u03bc."
+                        f"Xác định $M({x_var}, {y_var}) = {expr_to_latex(M_expr)}$ và $N({x_var}, {y_var}) = {expr_to_latex(N_expr)}$. "
+                        f"Tính đạo hàm riêng: $\\frac{{\\partial M}}{{\\partial {y_var}}} = {expr_to_latex(dM_dy)}$ "
+                        f"và $\\frac{{\\partial N}}{{\\partial {x_var}}} = {expr_to_latex(dN_dx)}$. "
+                        f"Vì $\\frac{{\\partial M}}{{\\partial {y_var}}} \\ne \\frac{{\\partial N}}{{\\partial {x_var}}}$, "
+                        f"phương trình ban đầu không phải vi phân toàn phần. Cần tìm thừa số tích phân $\\mu$."
                     ),
                     content=ExpressionStepContent(
                         expression_before=f"M = {M_expr}, N = {N_expr}",
                         expression_after=f"dM/d{y_var} = {dM_dy} != dN/d{x_var} = {dN_dx}",
                         latex_before=f"M = {expr_to_latex(M_expr)}, \\quad N = {expr_to_latex(N_expr)}",
-                        latex_after=f"{check_latex} \\implies \\text{{Không toàn phần}}",
+                        latex_after=check_latex,
                     ),
                 )
             )
@@ -169,11 +172,12 @@ class ODEIntegratingFactorSolver(Solver):
                         SolutionStep(
                             step_number=step_num,
                             rule_name="Thừa số tích phân mu(x)",
-                            title=f"Xác định thừa số tích phân phụ thuộc biến {x_var}: \u03bc({x_var})",
+                            title=f"Xác định thừa số tích phân phụ thuộc biến ${x_var}$: $\\mu({x_var})$",
                             description=(
-                                f"Tính tỉ số [dM/d{y_var} - dN/d{x_var}] / N = ({dM_dy} - ({dN_dx})) / ({N_expr}) = {f_x}. "
-                                f"Vì biểu thức này chỉ phụ thuộc vào biến {x_var}, thừa số tích phân là: "
-                                f"\u03bc({x_var}) = exp(int({f_x}) d{x_var}) = {mu_expr}."
+                                f"Tính tỉ số $\\frac{{\\frac{{\\partial M}}{{\\partial {y_var}}} - \\frac{{\\partial N}}{{\\partial {x_var}}}}}{{N}} = "
+                                f"\\frac{{{expr_to_latex(dM_dy)} - \\left({expr_to_latex(dN_dx)}\\right)}}{{{expr_to_latex(N_expr)}}} = {expr_to_latex(f_x)}$. "
+                                f"Vì biểu thức này chỉ phụ thuộc vào biến ${x_var}$, thừa số tích phân là: "
+                                f"$\\mu({x_var}) = \\exp\\left(\\int \\left({expr_to_latex(f_x)}\\right)\\,d{x_var}\\right) = {expr_to_latex(mu_expr)}$."
                             ),
                             content=ExpressionStepContent(
                                 expression_before=f"(M_y - N_x) / N = {f_x}",
@@ -216,11 +220,12 @@ class ODEIntegratingFactorSolver(Solver):
                         SolutionStep(
                             step_number=step_num,
                             rule_name="Thừa số tích phân mu(y)",
-                            title=f"Xác định thừa số tích phân phụ thuộc biến {y_var}: \u03bc({y_var})",
+                            title=f"Xác định thừa số tích phân phụ thuộc biến ${y_var}$: $\\mu({y_var})$",
                             description=(
-                                f"Tính tỉ số [dN/d{x_var} - dM/d{y_var}] / M = ({dN_dx} - ({dM_dy})) / ({M_expr}) = {g_y}. "
-                                f"Vì biểu thức này chỉ phụ thuộc vào biến {y_var}, thừa số tích phân là: "
-                                f"\u03bc({y_var}) = exp(int({g_y}) d{y_var}) = {mu_expr}."
+                                f"Tính tỉ số $\\frac{{\\frac{{\\partial N}}{{\\partial {x_var}}} - \\frac{{\\partial M}}{{\\partial {y_var}}}}}{{M}} = "
+                                f"\\frac{{{expr_to_latex(dN_dx)} - \\left({expr_to_latex(dM_dy)}\\right)}}{{{expr_to_latex(M_expr)}}} = {expr_to_latex(g_y)}$. "
+                                f"Vì biểu thức này chỉ phụ thuộc vào biến ${y_var}$, thừa số tích phân là: "
+                                f"$\\mu({y_var}) = \\exp\\left(\\int \\left({expr_to_latex(g_y)}\\right)\\,d{y_var}\\right) = {expr_to_latex(mu_expr)}$."
                             ),
                             content=ExpressionStepContent(
                                 expression_before=f"(N_x - M_y) / M = {g_y}",
@@ -260,10 +265,10 @@ class ODEIntegratingFactorSolver(Solver):
                 SolutionStep(
                     step_number=step_num,
                     rule_name="Nhân thừa số tích phân (ODE không toàn phần)",
-                    title="Nhân phương trình với thừa số tích phân \u03bc",
+                    title=f"Nhân phương trình với thừa số tích phân $\\mu({x_var if found_mu and 'mu(x)' in steps[-1].rule_name else y_var})$",
                     description=(
-                        f"Nhân M và N với \u03bc = {mu_expr} thu được phương trình tương đương: "
-                        f"({M_trans}) d{x_var} + ({N_trans}) d{y_var} = 0."
+                        f"Nhân $M$ và $N$ với $\\mu = {expr_to_latex(mu_expr)}$ thu được phương trình tương đương: "
+                        f"$\\left({expr_to_latex(M_trans)}\\right)\\,d{x_var} + \\left({expr_to_latex(N_trans)}\\right)\\,d{y_var} = 0$."
                     ),
                     content=ExpressionStepContent(
                         expression_before=f"({M_expr})*dx + ({N_expr})*dy = 0",
@@ -303,9 +308,11 @@ class ODEIntegratingFactorSolver(Solver):
                     rule_name="Kiểm tra tính vi phân toàn phần sau khi nhân mu",
                     title="Xác nhận phương trình mới là vi phân toàn phần",
                     description=(
-                        f"Tính đạo hàm riêng của hệ số mới: d(M_new)/d{y_var} = {dM_trans_dy} "
-                        f"và d(N_new)/d{x_var} = {dN_trans_dx}. "
-                        f"Vì d(M_new)/d{y_var} = d(N_new)/d{x_var}, phương trình đã trở thành vi phân toàn phần."
+                        f"Tính đạo hàm riêng của các hệ số mới: "
+                        f"$\\frac{{\\partial M_{{\\text{{new}}}}}}{{\\partial {y_var}}} = {expr_to_latex(dM_trans_dy)}$ "
+                        f"và $\\frac{{\\partial N_{{\\text{{new}}}}}}{{\\partial {x_var}}} = {expr_to_latex(dN_trans_dx)}$. "
+                        f"Vì $\\frac{{\\partial M_{{\\text{{new}}}}}}{{\\partial {y_var}}} = \\frac{{\\partial N_{{\\text{{new}}}}}}{{\\partial {x_var}}}$, "
+                        f"phương trình mới là vi phân toàn phần."
                     ),
                     content=ExpressionStepContent(
                         expression_before=f"M_new = {M_trans}, N_new = {N_trans}",
@@ -347,10 +354,10 @@ class ODEIntegratingFactorSolver(Solver):
             SolutionStep(
                 step_number=step_num,
                 rule_name="Tích phân hai vế",
-                title=f"Tích phân hàm M_new({x_var}, {y_var}) theo biến {x_var}",
+                title=f"Tích phân hàm $M_{{\\text{{new}}}}({x_var}, {y_var})$ theo biến ${x_var}$",
                 description=(
-                    f"Lấy nguyên hàm theo biến {x_var} (coi {y_var} là hằng số): "
-                    f"\u03a8({x_var}, {y_var}) = int({M_trans}) d{x_var} = {psi_expr} + h({y_var})."
+                    f"Lấy nguyên hàm theo biến ${x_var}$ (coi ${y_var}$ là hằng số): "
+                    f"$\\Psi({x_var}, {y_var}) = \\int \\left({expr_to_latex(M_trans)}\\right)\\,d{x_var} = {expr_to_latex(psi_expr)} + h({y_var})$."
                 ),
                 content=ExpressionStepContent(
                     expression_before=f"int({M_trans}) d{x_var}",
@@ -390,11 +397,11 @@ class ODEIntegratingFactorSolver(Solver):
             SolutionStep(
                 step_number=step_num,
                 rule_name="Xác định hệ số",
-                title=f"Xác định hàm số phụ h({y_var})",
+                title=f"Xác định hàm số phụ $h({y_var})$",
                 description=(
-                    f"Đạo hàm riêng theo {y_var}: d\u03a8/d{y_var} = {dpsi_dy}. "
-                    f"So sánh với N_new: h'({y_var}) = N_new - d\u03a8/d{y_var} = {h_prime}. "
-                    f"Tích phân suy ra: h({y_var}) = {h_expr}."
+                    f"Đạo hàm riêng theo ${y_var}$: $\\frac{{\\partial \\Psi}}{{\\partial {y_var}}} = {expr_to_latex(dpsi_dy)}$. "
+                    f"So sánh với $N_{{\\text{{new}}}}$: $h'({y_var}) = N_{{\\text{{new}}}} - \\frac{{\\partial \\Psi}}{{\\partial {y_var}}} = {expr_to_latex(h_prime)}$. "
+                    f"Tích phân suy ra: $h({y_var}) = {expr_to_latex(h_expr)}$."
                 ),
                 content=ExpressionStepContent(
                     expression_before=f"h'({y_var}) = {N_trans} - ({dpsi_dy})",
@@ -414,10 +421,10 @@ class ODEIntegratingFactorSolver(Solver):
             SolutionStep(
                 step_number=step_num,
                 rule_name="Xây dựng hàm thế",
-                title="Xây dựng hàm thế vi phân toàn phần F(x, y)",
+                title=f"Xây dựng hàm thế vi phân toàn phần $F({x_var}, {y_var})$",
                 description=(
-                    f"Hàm thế là F({x_var}, {y_var}) = \u03a8({x_var}, {y_var}) + h({y_var}) = {potential_F}. "
-                    f"Nghiệm ẩn tổng quát của phương trình là F({x_var}, {y_var}) = C."
+                    f"Hàm thế là $F({x_var}, {y_var}) = \\Psi({x_var}, {y_var}) + h({y_var}) = {expr_to_latex(potential_F)}$. "
+                    f"Nghiệm ẩn tổng quát của phương trình là $F({x_var}, {y_var}) = C$, tức ${expr_to_latex(potential_F)} = C$."
                 ),
                 content=ExpressionStepContent(
                     expression_before=f"F = ({psi_expr}) + ({h_expr})",
@@ -444,8 +451,9 @@ class ODEIntegratingFactorSolver(Solver):
                     rule_name="Áp dụng điều kiện ban đầu",
                     title="Xác định hằng số C từ điều kiện ban đầu",
                     description=(
-                        f"Thay {x_var} = {x0} và {y_var} = {y0} vào hàm thế: "
-                        f"C = F({x0}, {y0}) = {c_val} => Nghiệm riêng: {potential_F} = {c_val}."
+                        f"Thay ${x_var} = {expr_to_latex(x0)}$ và ${y_var} = {expr_to_latex(y0)}$ vào hàm thế để tìm hằng số $C$: "
+                        f"$C = F({expr_to_latex(x0)}, {expr_to_latex(y0)}) = {expr_to_latex(c_val)}$. "
+                        f"Nghiệm riêng của bài toán là ${part_latex}$."
                     ),
                     content=ExpressionStepContent(
                         expression_before=f"C = F({x0}, {y0})",

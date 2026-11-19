@@ -21,6 +21,8 @@ def render_substep_compact(substep: SolutionStep) -> None:
             raw_title = substep.title or f"Phép biến đổi {substep.step_number}"
             if raw_title.startswith("Số hạng "):
                 term_part = raw_title[len("Số hạng "):].strip()
+                if term_part.startswith("$") and term_part.endswith("$"):
+                    term_part = term_part[1:-1].strip()
                 ui.label("Số hạng:").classes("font-semibold text-xs md:text-sm text-slate-800")
                 ui_math(term_part, block=False, classes="text-xs md:text-sm font-semibold text-slate-900")
             else:

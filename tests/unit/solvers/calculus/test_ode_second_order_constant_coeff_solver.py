@@ -4,6 +4,7 @@ import pytest
 import sympy as sp
 
 from math_app.application.dtos import ProblemRequest
+from math_app.domain.exceptions import InvalidInputError
 from math_app.domain.models import ProblemType, SolutionStatus, VerificationStatus
 from math_app.solvers.calculus.ode.second_order_constant_coeff_solver import ODESecondOrderConstantCoeffSolver
 
@@ -343,4 +344,89 @@ def test_reported_problem_square_root_preservation_and_ivp(solver: ODESecondOrde
 
     html_sys = render_math_in_text_html(step_sys.description)
     assert "<math" in html_sys
+
+
+# =========================================================================
+# Phase 6 — Second-Order Cauchy IVP Validation Suite
+# =========================================================================
+
+def test_case_7_ivp_mode_missing_both_conditions(solver: ODESecondOrderConstantCoeffSolver):
+    """Case 7: Second-order IVP mode requested without conditions must raise InvalidInputError."""
+    req = ProblemRequest(
+        raw_input="y'' + y = 0",
+        problem_type=ProblemType.ODE_SECOND_ORDER_IVP,
+        target_variable="t",
+    )
+    with pytest.raises(InvalidInputError, match="y\\(t0\\) = y0 và y'\\(t0\\) = v0"):
+        solver.solve(req)
+
+
+def test_case_8_ivp_mode_missing_one_condition(solver: ODESecondOrderConstantCoeffSolver):
+    """Case 8: Second-order IVP mode requested with only y(0) = 1 must raise InvalidInputError."""
+    req = ProblemRequest(
+        raw_input="y'' + y = 0, y(0) = 1",
+        problem_type=ProblemType.ODE_SECOND_ORDER_IVP,
+        target_variable="t",
+    )
+    with pytest.raises(InvalidInputError, match="thiếu điều kiện ban đầu"):
+        solver.solve(req)
+
+
+def test_case_9_general_mode_with_partial_condition_rejects(solver: ODESecondOrderConstantCoeffSolver):
+    """Case 9: General mode with single condition y(0) = 1 must not silently discard condition."""
+    req = ProblemRequest(
+        raw_input="y'' + y = 0, y(0) = 1",
+        problem_type=ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+        target_variable="t",
+    )
+    with pytest.raises(InvalidInputError, match="không hoàn chỉnh"):
+        solver.solve(req)
+
+
+def test_case_10_complete_cauchy_ivp_verified(solver: ODESecondOrderConstantCoeffSolver):
+    """Case 10: Complete Cauchy IVP y'' + y = 0, y(0) = 1, y'(0) = 2 -> cos(t) + 2*sin(t)."""
+    req = ProblemRequest(
+        raw_input="y'' + y = 0, y(0) = 1, y'(0) = 2",
+        problem_type=ProblemType.ODE_SECOND_ORDER_IVP,
+        target_variable="t",
+    )
+    res = solver.solve(req)
+
+    assert res.status == SolutionStatus.SUCCESS
+    assert res.verification.status == VerificationStatus.VERIFIED
+    t = sp.Symbol("t")
+    expected = sp.cos(t) + 2 * sp.sin(t)
+    res_str = res.final_result.split("=", 1)[1].strip()
+    assert sp.simplify(sp.sympify(res_str) - expected) == 0
+
+
+def test_case_11_mismatched_initial_points_rejects(solver: ODESecondOrderConstantCoeffSolver):
+    """Case 11: Mismatched initial points y(0) = 1, y'(1) = 2 must reject as non-Cauchy."""
+    req = ProblemRequest(
+        raw_input="y'' + y = 0, y(0) = 1, y'(1) = 2",
+        problem_type=ProblemType.ODE_SECOND_ORDER_IVP,
+        target_variable="t",
+    )
+    with pytest.raises(InvalidInputError, match="không cùng điểm khởi đầu"):
+        solver.solve(req)
+
+
+def test_case_12_symbolic_cauchy_initial_values(solver: ODESecondOrderConstantCoeffSolver):
+    """Case 12: Symbolic initial values y(0) = y0, y'(0) = v0 preserved exactly."""
+    req = ProblemRequest(
+        raw_input="y'' + y = 0, y(0) = y0, y'(0) = v0",
+        problem_type=ProblemType.ODE_SECOND_ORDER_IVP,
+        target_variable="t",
+    )
+    res = solver.solve(req)
+
+    assert res.status == SolutionStatus.SUCCESS
+    assert res.verification.status == VerificationStatus.VERIFIED
+    t = sp.Symbol("t")
+    y0 = sp.Symbol("y0")
+    v0 = sp.Symbol("v0")
+    expected = y0 * sp.cos(t) + v0 * sp.sin(t)
+    res_str = res.final_result.split("=", 1)[1].strip()
+    assert sp.simplify(sp.sympify(res_str) - expected) == 0
+
 

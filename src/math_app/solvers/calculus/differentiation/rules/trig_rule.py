@@ -27,13 +27,16 @@ class TrigRule(DifferentiationRule):
         builder: Any,
     ) -> sp.Expr:
         arg = expr.args[0]
+        is_partial = getattr(engine, "is_partial", False)
+        diff_op = rf"\frac{{\partial}}{{\partial {var.name}}}" if is_partial else rf"\frac{{d}}{{d{var.name}}}"
+        lhs_op = rf"\frac{{\partial f}}{{\partial {var.name}}}" if is_partial else rf"f'({var.name})"
 
         if isinstance(expr, sp.sin):
             result = sp.cos(arg)
-            desc = f"Đạo hàm của $\\sin({var.name})$ là $\\cos({var.name})$: $\\frac{{d}}{{d{var.name}}}(\\sin({var.name})) = \\cos({var.name})$."
+            desc = f"Đạo hàm của $\\sin({var.name})$ là $\\cos({var.name})$: ${diff_op}(\\sin({var.name})) = \\cos({var.name})$."
         elif isinstance(expr, sp.cos):
             result = -sp.sin(arg)
-            desc = f"Đạo hàm của $\\cos({var.name})$ là $-\\sin({var.name})$: $\\frac{{d}}{{d{var.name}}}(\\cos({var.name})) = -\\sin({var.name})$."
+            desc = f"Đạo hàm của $\\cos({var.name})$ là $-\\sin({var.name})$: ${diff_op}(\\cos({var.name})) = -\\sin({var.name})$."
         elif isinstance(expr, sp.tan):
             result = 1 / (sp.cos(arg) ** 2)
             desc = f"Đạo hàm của $\\tan({var.name})$ là $\\frac{{1}}{{\\cos^2({var.name})}} = \\sec^2({var.name})$."
@@ -59,6 +62,8 @@ class TrigRule(DifferentiationRule):
             result = sp.diff(expr, var)
             desc = f"Tính đạo hàm của ${expr_to_latex(expr)}$ theo biến ${var.name}$."
 
+        eq_ltx = f"{lhs_op} = {diff_op}\\left({expr_to_latex(expr)}\\right) = {expr_to_latex(result)}"
+
         builder.add_step(
             rule_name="Trigonometric Rule",
             rule_name_vi="Quy tắc đạo hàm của hàm lượng giác",
@@ -66,5 +71,6 @@ class TrigRule(DifferentiationRule):
             description=desc,
             before=expr,
             after=result,
+            equation_latex=eq_ltx,
         )
         return result

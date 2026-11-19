@@ -623,10 +623,11 @@ var _text = [D, Dc, T, Tc, T, Tc, T, Tc]; // We only export some of the styles.
  */
 var scriptData = [{
   // Latin characters beyond the Latin-1 characters we have metrics for.
-  // Needed for Czech, Hungarian and Turkish text, for example.
+  // Needed for Czech, Hungarian, Turkish and Vietnamese text, for example.
   name: 'latin',
   blocks: [[0x0100, 0x024f], // Latin Extended-A and Latin Extended-B
-  [0x0300, 0x036f] // Combining Diacritical marks
+  [0x0300, 0x036f], // Combining Diacritical marks
+  [0x1e00, 0x1eff] // Latin Extended Additional (Vietnamese, etc.)
   ]
 }, {
   // The Cyrillic script used by Russian and related languages.
@@ -5376,8 +5377,11 @@ var makeSymbol = function makeSymbol(value, fontName, mode, options, classes) {
 
     symbolNode = new SymbolNode(value, metrics.height, metrics.depth, italic, metrics.skew, metrics.width, classes);
   } else {
-    // TODO(emily): Figure out a good way to only print this in development
-    typeof console !== "undefined" && console.warn("No character metrics " + ("for '" + value + "' in style '" + fontName + "' and mode '" + mode + "'"));
+    // For text mode, characters from supported script blocks (e.g. Latin Extended Additional, CJK)
+    // use system font fallback gracefully without emitting missing metrics warnings.
+    if (mode !== "text" && !supportedCodepoint(value.charCodeAt(0))) {
+      typeof console !== "undefined" && console.warn("No character metrics " + ("for '" + value + "' in style '" + fontName + "' and mode '" + mode + "'"));
+    }
     symbolNode = new SymbolNode(value, 0, 0, 0, 0, 0, classes);
   }
 

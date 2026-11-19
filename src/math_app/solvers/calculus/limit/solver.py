@@ -85,7 +85,7 @@ class LimitSolver(Solver):
                         expression_before=f"lim_{{{var.name} -> {target_pt}}} {expr}",
                         expression_after="Dạng vô định",
                         latex_before=f"\\lim_{{{var.name} \\to {expr_to_latex(target_pt)}}} {expr_to_latex(expr)}",
-                        latex_after="\\text{Dạng vô định } [0/0] \\text{ hoặc } [\\infty/\\infty]",
+                        latex_after=r"\left[\frac{0}{0}\right] \lor \left[\frac{\infty}{\infty}\right]",
                     ),
                 )
             )

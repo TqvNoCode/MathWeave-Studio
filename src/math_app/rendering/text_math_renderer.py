@@ -248,6 +248,29 @@ def delimit_unwrapped_math_in_text(text: str) -> str:
 
     current = _apply_to_text_chunks(current, step_exponents)
 
+    # 12. Unwrapped LaTeX math expressions (e.g. \cos{\left(x \right)}, -\tan{\left(x \right)}, \partial)
+    def step_unwrapped_latex(chunk: str) -> str:
+        pattern = re.compile(
+            r"(?<![a-zA-Z0-9\$\\])("
+            r"(?:[+-]\s*)?"
+            r"\\[a-zA-Z]+"
+            r"(?:"
+                r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}|"
+                r"\[[^\[\]]*\]|"
+                r"\([^()]*\)|"
+                r"\^[a-zA-Z0-9{}]|_\{?[a-zA-Z0-9]+\}?|"
+                r"\s*[\+\-\*\/=,]\s*|"
+                r"\s*\\[a-zA-Z]+|"
+                r"\s+[0-9a-zA-Z]\b|"
+                r"\b[0-9a-zA-Z]\b"
+            r")*"
+            r")(?![a-zA-Z0-9\$\\])"
+        )
+        subbed = pattern.sub(r"$\1$", chunk)
+        return re.sub(r"\$(\s*)(.*?)\s*\$", r"\1$\2$", subbed)
+
+    current = _apply_to_text_chunks(current, step_unwrapped_latex)
+
     return current
 
 

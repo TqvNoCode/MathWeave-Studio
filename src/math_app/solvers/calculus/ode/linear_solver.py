@@ -17,7 +17,10 @@ from math_app.domain.models import ProblemType, SolutionStatus, VerificationStat
 from math_app.domain.step_content import ExpressionStepContent
 from math_app.input.ode_parser import ParsedODE, parse_ode_input
 from math_app.rendering.latex.formatter import expr_to_latex
-from math_app.verification.calculus.ode_verifier import ODEVerifier
+from math_app.verification.calculus.ode_verifier import (
+    ODEVerifier,
+    validate_initial_point_in_domain,
+)
 
 
 class ODELinearSolver(Solver):
@@ -70,6 +73,104 @@ class ODELinearSolver(Solver):
         p_expr = parsed.p_expr if parsed.p_expr is not None else sp.Integer(0)
         g_expr = parsed.g_expr if parsed.g_expr is not None else sp.Integer(0)
         c_sym = sp.Symbol("C")
+        user_warnings: list[str] = []
+
+        if not parsed.is_homogeneous:
+            user_warnings.append(
+                "Lưu ý phạm vi: MathWeave Studio hiện đang chuẩn hóa hệ thống phương trình thuần nhất. "
+                "Chức năng giải không thuần nhất sẽ được nâng cấp toàn diện trong phiên bản tiếp theo."
+            )
+
+        # Validate initial point in domain of linear equation
+        if parsed.initial_condition is not None:
+            t0, y0 = parsed.initial_condition
+
+            # Check original unsimplified denominators and leading coefficients
+            is_valid_orig, orig_err = validate_initial_point_in_domain(
+                None,
+                var,
+                dep_var,
+                t0,
+                y0,
+                original_denominators=parsed.original_denominators,
+                leading_coeffs=parsed.leading_coeffs,
+            )
+            if not is_valid_orig:
+                elapsed = (time.perf_counter() - t0_start) * 1000.0
+                return SolutionResponse(
+                    status=SolutionStatus.INVALID_INPUT,
+                    verification=VerificationResult(
+                        status=VerificationStatus.NOT_APPLICABLE,
+                        method="initial_point_domain_validation",
+                        details=f"Điểm ban đầu ({t0}, {y0}) vi phạm điều kiện xác định ban đầu: {orig_err}",
+                    ),
+                    raw_input=request.raw_input,
+                    canonical_input=parsed.canonical_eq,
+                    final_result="",
+                    final_latex="",
+                    warnings=(
+                        f"Điều kiện ban đầu ({t0}, {y0}) không hợp lệ: {orig_err}",
+                    ),
+                    execution_time_ms=elapsed,
+                )
+
+            is_valid_p, p_err = validate_initial_point_in_domain(
+                p_expr,
+                var,
+                dep_var,
+                t0,
+                y0,
+                original_denominators=parsed.original_denominators,
+                leading_coeffs=parsed.leading_coeffs,
+            )
+            if not is_valid_p:
+                elapsed = (time.perf_counter() - t0_start) * 1000.0
+                return SolutionResponse(
+                    status=SolutionStatus.INVALID_INPUT,
+                    verification=VerificationResult(
+                        status=VerificationStatus.NOT_APPLICABLE,
+                        method="initial_point_domain_validation",
+                        details=f"Điểm ban đầu t0 = {t0} là điểm kỳ dị của hệ số p({var}) = {p_expr}: {p_err}",
+                    ),
+                    raw_input=request.raw_input,
+                    canonical_input=parsed.canonical_eq,
+                    final_result="",
+                    final_latex="",
+                    warnings=(
+                        f"Điều kiện ban đầu ({t0}, {y0}) không hợp lệ: Hệ số p({var}) = {p_expr} "
+                        f"có điểm kỳ dị hoặc không xác định tại {var} = {t0} ({p_err}).",
+                    ),
+                    execution_time_ms=elapsed,
+                )
+
+            is_valid_g, g_err = validate_initial_point_in_domain(
+                g_expr,
+                var,
+                dep_var,
+                t0,
+                y0,
+                original_denominators=parsed.original_denominators,
+                leading_coeffs=parsed.leading_coeffs,
+            )
+            if not is_valid_g:
+                elapsed = (time.perf_counter() - t0_start) * 1000.0
+                return SolutionResponse(
+                    status=SolutionStatus.INVALID_INPUT,
+                    verification=VerificationResult(
+                        status=VerificationStatus.NOT_APPLICABLE,
+                        method="initial_point_domain_validation",
+                        details=f"Điểm ban đầu t0 = {t0} là điểm kỳ dị của hàm tự do g({var}) = {g_expr}: {g_err}",
+                    ),
+                    raw_input=request.raw_input,
+                    canonical_input=parsed.canonical_eq,
+                    final_result="",
+                    final_latex="",
+                    warnings=(
+                        f"Điều kiện ban đầu ({t0}, {y0}) không hợp lệ: Hàm tự do g({var}) = {g_expr} "
+                        f"có điểm kỳ dị hoặc không xác định tại {var} = {t0} ({g_err}).",
+                    ),
+                    execution_time_ms=elapsed,
+                )
 
         steps: list[SolutionStep] = []
         step_num = 1
@@ -528,7 +629,7 @@ class ODELinearSolver(Solver):
         )
 
         # Determine overall solution status
-        warnings_list: list[str] = []
+        warnings_list: list[str] = list(user_warnings)
         if verif_res.status == VerificationStatus.FAILED:
             sol_status = SolutionStatus.DISCREPANCY_DETECTED
             warnings_list.append(f"Cảnh báo kiểm định toán học: {verif_res.details}")

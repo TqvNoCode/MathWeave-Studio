@@ -163,6 +163,23 @@ class ProblemRequest:
 
 
 @dataclass(frozen=True)
+class BranchSolution:
+    """Provenance, domain restrictions, and verification outcome of an individual ODE branch solution."""
+
+    expression: Any
+    solution_str: str
+    solution_latex: str
+    branch_identity: str
+    integration_constant: Any = None
+    integration_constant_val: Any = None
+    real_root_restrictions: tuple[str, ...] = ()
+    denominator_exclusions: tuple[str, ...] = ()
+    domain_interval: tuple[Any, Any] | None = None
+    domain_restrictions: tuple[str, ...] = ()
+    verification: VerificationResult | None = None
+
+
+@dataclass(frozen=True)
 class SolutionResponse:
     """Normalized, serializable response returned across application boundaries."""
 
@@ -176,3 +193,4 @@ class SolutionResponse:
     domain_restrictions: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
     execution_time_ms: float = 0.0
+    branch_solutions: tuple[BranchSolution, ...] = ()

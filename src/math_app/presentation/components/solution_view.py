@@ -9,7 +9,7 @@ from math_app.application.dtos import SolutionResponse
 from math_app.domain.models import ProblemType, SolutionStatus
 from math_app.input.parser import parse_mathematical_input, parse_safe_expression
 from math_app.presentation.components.domain_view import render_domain_restrictions
-from math_app.presentation.components.math_view import ui_math
+from math_app.presentation.components.math_view import ui_math, ui_math_text
 from math_app.presentation.components.operation_catalog import (
     OperationDef,
 )
@@ -166,7 +166,14 @@ def render_solution_view(
         # Domain Notes & Restrictions (Rendered cleanly as proper LaTeX)
         render_domain_restrictions(response.domain_restrictions, target_var)
 
-        if response.warnings:
+        if response.status == SolutionStatus.DIVERGENT:
+            with ui.column().classes("w-full p-4 bg-amber-50 border border-amber-300 rounded-xl gap-2 text-amber-950"):
+                with ui.row().classes("items-center gap-2"):
+                    ui.icon("warning", color="warning", size="1.3rem")
+                    ui.label("KẾT LUẬN TOÁN HỌC: TÍCH PHÂN SUY RỘNG PHÂN KỲ").classes("text-xs font-bold uppercase tracking-wider text-amber-900")
+                for warn in response.warnings:
+                    ui_math_text(warn, classes="text-sm font-medium text-amber-900 leading-relaxed")
+        elif response.warnings:
             with ui.column().classes("w-full p-3.5 bg-orange-50 border border-orange-200 rounded-lg gap-1"):
                 ui.label("Lưu ý thuật toán / Giới hạn:").classes("text-xs font-bold text-orange-900 uppercase tracking-wide")
                 for warn in response.warnings:

@@ -276,3 +276,113 @@ def test_ode_verifier_reduction_of_order():
     )
     assert res.status == VerificationStatus.VERIFIED
     assert "reduction_of_order_full_verification" in res.method
+
+
+def test_adversarial_sample_point_vanishing_residual_not_verified():
+    """An expression whose residual vanishes at previous sample points (0.23, 0.71, 1.45, 2.87)
+    must NEVER be promoted to VERIFIED."""
+    verifier = ODEVerifier()
+    t = sp.Symbol("t")
+    # Equation: y' = 0.
+    # Candidate whose derivative is R(t) = (t - 0.23)*(t - 0.71)*(t - 1.45)*(t - 2.87)
+    s = sp.Symbol("s")
+    poly_integrand = (s - sp.Float("0.23")) * (s - sp.Float("0.71")) * (s - sp.Float("1.45")) * (s - sp.Float("2.87"))
+    fake_sol = sp.integrate(poly_integrand, (s, 0, t))
+
+    res = verifier.verify_explicit(
+        solution=fake_sol,
+        variable=t,
+        p_expr=sp.Integer(0),
+        g_expr=sp.Integer(0),
+    )
+    # Must NOT be VERIFIED!
+    assert res.status != VerificationStatus.VERIFIED
+    assert res.status in (VerificationStatus.FAILED, VerificationStatus.UNVERIFIED)
+
+
+def test_adversarial_wrong_second_order_candidate_not_verified():
+    """A wrong candidate for second-order ODE must return FAILED and not receive a green badge."""
+    verifier = ODEVerifier()
+    t = sp.Symbol("t")
+    # ODE: y'' + y = 0
+    # Candidate: y = cosh(t) (solves y'' - y = 0, NOT y'' + y = 0)
+    res = verifier.verify_second_order(
+        solution=sp.cosh(t),
+        variable=t,
+        a_coeff=sp.Integer(1),
+        b_coeff=sp.Integer(0),
+        c_coeff=sp.Integer(1),
+    )
+    assert res.status == VerificationStatus.FAILED
+
+
+def test_adversarial_ivp_satisfied_ode_wrong_initial_conditions():
+    """A candidate satisfying the differential equation but violating initial conditions must FAIL."""
+    verifier = ODEVerifier()
+    t = sp.Symbol("t")
+    # ODE: y'' + 5y' + 6y = 0. Candidate: y = 9*exp(-2t) - 7*exp(-3t) (y(0) = 2, y'(0) = 3)
+    sol = 9 * sp.exp(-2 * t) - 7 * sp.exp(-3 * t)
+
+    # Test with wrong y(0) = 10
+    res_y = verifier.verify_second_order(
+        solution=sol,
+        variable=t,
+        a_coeff=sp.Integer(1),
+        b_coeff=sp.Integer(5),
+        c_coeff=sp.Integer(6),
+        initial_condition=(sp.Integer(0), sp.Integer(10)),
+        initial_derivative=(sp.Integer(0), sp.Integer(3)),
+    )
+    assert res_y.status == VerificationStatus.FAILED
+    assert "initial_condition_mismatch" in res_y.method
+
+    # Test with wrong y'(0) = -5
+    res_yp = verifier.verify_second_order(
+        solution=sol,
+        variable=t,
+        a_coeff=sp.Integer(1),
+        b_coeff=sp.Integer(5),
+        c_coeff=sp.Integer(6),
+        initial_condition=(sp.Integer(0), sp.Integer(2)),
+        initial_derivative=(sp.Integer(0), sp.Integer(-5)),
+    )
+    assert res_yp.status == VerificationStatus.FAILED
+    assert "initial_derivative_mismatch" in res_yp.method
+
+
+def test_general_solution_arbitrary_constants_verified():
+    """General solutions with arbitrary symbolic constants must be proven identically zero."""
+    verifier = ODEVerifier()
+    t, C1, C2 = sp.symbols("t C1 C2")
+    # y'' + 5y' + 6y = 0 with arbitrary C1, C2
+    gen_sol = C1 * sp.exp(-2 * t) + C2 * sp.exp(-3 * t)
+    res = verifier.verify_second_order(
+        solution=gen_sol,
+        variable=t,
+        a_coeff=sp.Integer(1),
+        b_coeff=sp.Integer(5),
+        c_coeff=sp.Integer(6),
+        c1_sym=C1,
+        c2_sym=C2,
+    )
+    assert res.status == VerificationStatus.VERIFIED
+    assert "second_order_ode_residual_zero_check" in res.method
+
+
+def test_reduction_of_order_nonhomogeneous_rejected():
+    """verify_reduction_of_order must reject a nonhomogeneous equation."""
+    verifier = ODEVerifier()
+    t = sp.Symbol("t")
+    # y'' + y = 1 (forcing_expr = 1)
+    res = verifier.verify_reduction_of_order(
+        y1=sp.cos(t),
+        y2=sp.sin(t),
+        variable=t,
+        a_coeff=sp.Integer(1),
+        b_coeff=sp.Integer(0),
+        c_coeff=sp.Integer(1),
+        forcing_expr=sp.Integer(1),
+    )
+    assert res.status == VerificationStatus.FAILED
+    assert "nonhomogeneous" in res.method
+

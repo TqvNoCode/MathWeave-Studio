@@ -9,6 +9,7 @@ from math_app.application.dtos import (
     ProblemRequest,
     SolutionResponse,
     SolutionStep,
+    VerificationResult,
 )
 from math_app.application.ports.solver import Solver
 from math_app.domain.exceptions import InvalidInputError
@@ -16,7 +17,12 @@ from math_app.domain.models import ProblemType, SolutionStatus, VerificationStat
 from math_app.domain.step_content import ExpressionStepContent
 from math_app.input.ode_parser import ParsedSecondOrderODE, parse_second_order_ode_input
 from math_app.rendering.latex.formatter import expr_to_latex
-from math_app.verification.calculus.ode_verifier import ODEVerifier
+from math_app.verification.calculus.ode_verifier import (
+    ODEVerifier,
+    ResidualCheckOutcome,
+    check_residual_outcome,
+    validate_initial_point_in_domain,
+)
 
 
 class ODEReductionOfOrderSolver(Solver):
@@ -53,6 +59,15 @@ class ODEReductionOfOrderSolver(Solver):
         if sp.simplify(parsed.a_coeff) == 0:
             raise InvalidInputError("Hệ số của y'' bằng 0; không phải phương trình vi phân cấp 2 (a != 0).")
 
+        # Validate homogeneity: Reduction of Order strictly requires homogeneous linear second-order ODE
+        if not parsed.is_homogeneous or parsed.rem_expr != 0:
+            raise InvalidInputError(
+                "Phương pháp hạ bậc nghiệm (Reduction of Order) chỉ áp dụng cho phương trình vi phân tuyến tính thuần nhất "
+                f"(a({parsed.independent_var})*y'' + b({parsed.independent_var})*y' + c({parsed.independent_var})*y = 0). "
+                f"Phương trình đã cho là không thuần nhất với số hạng tự do khác 0: g({parsed.independent_var}) = {expr_to_latex(-parsed.rem_expr)}. "
+                "Không thể áp dụng phương pháp hạ bậc nghiệm."
+            )
+
         # Validate known solution y1 is provided
         if parsed.known_solution is None:
             raise InvalidInputError(
@@ -62,6 +77,7 @@ class ODEReductionOfOrderSolver(Solver):
 
         y1 = parsed.known_solution
         var = parsed.independent_var
+        dep_var = parsed.dependent_var
         a = parsed.a_coeff
         b = parsed.b_coeff
         c = parsed.c_coeff
@@ -70,15 +86,89 @@ class ODEReductionOfOrderSolver(Solver):
         p_expr = sp.simplify(b / a)
         q_expr = sp.simplify(c / a)
 
+        is_neg_interval = bool(parsed.interval and ("< 0" in parsed.interval or "negative" in parsed.interval or "-oo" in parsed.interval))
+
         # Domain restrictions: singularities where a(t) = 0 or denominators vanish
         domain_restrictions: list[str] = []
         try:
             a_zeros = sp.solve(sp.Eq(a, 0), var)
             if a_zeros:
                 zeros_str = ", ".join(str(z) for z in a_zeros)
-                domain_restrictions.append(f"Điểm kỳ dị của hệ số dẫn a({var}): {var} in {{{zeros_str}}}.")
+                domain_restrictions.append(f"Điểm kỳ dị của hệ số dẫn a({var}): {var} in {{{zeros_str}}}. Nghiệm không liên tục qua các điểm kỳ dị này.")
         except Exception:
             pass
+
+        try:
+            y1_zeros = sp.solve(sp.Eq(y1, 0), var)
+            if y1_zeros:
+                y1_zeros_str = ", ".join(str(z) for z in y1_zeros)
+                domain_restrictions.append(f"Điểm triệt tiêu của nghiệm đã biết y1({var}): {var} in {{{y1_zeros_str}}}. Công thức hạ bậc yêu cầu y1 != 0.")
+        except Exception:
+            pass
+
+        if is_neg_interval:
+            domain_restrictions.append(f"Khoảng xác định nghiệm được chọn: {var} < 0.")
+        elif parsed.interval:
+            domain_restrictions.append(f"Khoảng xác định nghiệm được chọn: {parsed.interval}.")
+
+        # Validate Cauchy IVP conditions
+        has_y_ic = parsed.initial_condition is not None
+        has_yp_ic = parsed.initial_derivative is not None
+
+        if (has_y_ic and not has_yp_ic) or (not has_y_ic and has_yp_ic):
+            raise InvalidInputError(
+                "Bài toán Cauchy (IVP) cấp hai nhận được điều kiện ban đầu không hoàn chỉnh. "
+                "Cần cung cấp đầy đủ cả hai điều kiện: y(t0) = y0 và y'(t0) = v0 để xác định nghiệm riêng duy nhất "
+                "(Incomplete Cauchy initial data)."
+            )
+
+        if has_y_ic and has_yp_ic:
+            t0_cand, y0_cand = parsed.initial_condition  # type: ignore[misc]
+            t1_cand, v0_cand = parsed.initial_derivative  # type: ignore[misc]
+            if sp.simplify(t0_cand - t1_cand) != 0:
+                raise InvalidInputError(
+                    f"Bài toán Cauchy (IVP) cấp hai yêu cầu hai điều kiện tại cùng một điểm ban đầu t0: "
+                    f"y({t0_cand}) và y'({t1_cand}) không cùng điểm khởi đầu (Base point mismatch)."
+                )
+
+            # Validate that t0, y0, v0 evaluate to finite real numbers
+            for val_name, val_expr in (("t0", t0_cand), ("y0", y0_cand), ("v0", v0_cand)):
+                if val_expr.has(sp.zoo, sp.nan, sp.oo, -sp.oo) or val_expr.is_finite is False:
+                    raise InvalidInputError(
+                        f"Giá trị điều kiện ban đầu {val_name} = {val_expr} không phải là số thực hữu hạn "
+                        "(Finite real numbers required for Cauchy initial conditions)."
+                    )
+                if val_expr.is_real is False or (val_expr.has(sp.I) and not sp.simplify(val_expr).is_real):
+                    raise InvalidInputError(
+                        f"Giá trị điều kiện ban đầu {val_name} = {val_expr} chứa phần ảo hoặc không phải là số thực "
+                        "(Real numbers required for Cauchy initial conditions)."
+                    )
+
+            # Check original unsimplified denominators and leading coefficients
+            is_valid_orig, orig_err = validate_initial_point_in_domain(
+                None,
+                var,
+                dep_var,
+                t0_cand,
+                y0_cand,
+                original_denominators=parsed.original_denominators,
+                leading_coeffs=parsed.leading_coeffs,
+            )
+            if not is_valid_orig:
+                raise InvalidInputError(f"Điều kiện ban đầu t0 = {t0_cand} không hợp lệ: {orig_err}")
+
+            # Distinguish ODE singularity a(t0) = 0 from method limitation y1(t0) = 0
+            if sp.simplify(a.subs(var, t0_cand)) == 0:
+                raise InvalidInputError(
+                    f"Điểm ban đầu là điểm kỳ dị của phương trình vi phân a({t0_cand}) = 0 (ODE singularity). "
+                    "Định lý tồn tại và duy nhất nghiệm Cauchy không áp dụng được tại điểm kỳ dị."
+                )
+            if sp.simplify(y1.subs(var, t0_cand)) == 0:
+                raise InvalidInputError(
+                    f"Phương pháp hạ bậc không thể áp dụng tại t0 = {t0_cand} vì y1({t0_cand}) = 0 "
+                    "(Method limitation: known solution vanishes at initial point). "
+                    "Công thức hạ bậc v' = e^{-int p}/y1^2 bị gián đoạn vô cực tại điểm này."
+                )
 
         steps: list[SolutionStep] = []
         step_num = 1
@@ -114,15 +204,41 @@ class ODEReductionOfOrderSolver(Solver):
         dy1 = sp.diff(y1, var)
         d2y1 = sp.diff(dy1, var)
         r1_val = sp.simplify(a * d2y1 + b * dy1 + c * y1)
-        if r1_val != 0:
-            r1_val = sp.simplify(sp.trigsimp(r1_val))
-        if r1_val != 0:
-            r1_val = sp.simplify(sp.expand(r1_val))
 
-        if r1_val != 0:
+        outcome = check_residual_outcome(
+            r1_val,
+            var,
+            domain_interval=parsed.interval,
+            domain_restrictions=tuple(domain_restrictions),
+        )
+
+        if outcome == ResidualCheckOutcome.PROVED_NONZERO:
             raise InvalidInputError(
                 f"Nghiệm đã cho y1({var}) = {y1} không thỏa mãn phương trình vi phân ban đầu. "
                 f"Biểu thức dư R1({var}) = {r1_val} != 0 (Supplied solution y1 is invalid)."
+            )
+
+        if outcome != ResidualCheckOutcome.PROVED_ZERO:
+            verif_inconclusive = VerificationResult(
+                status=VerificationStatus.UNVERIFIED,
+                method="reduction_of_order_y1_unverified",
+                details=(
+                    f"Không thể chứng minh nghiệm đã biết y1({var}) = {y1} thỏa mãn phương trình vi phân bằng phương pháp ký hiệu "
+                    f"(Biểu thức dư R1({var}) = {r1_val} không rút gọn được về 0, nhưng chưa tìm thấy phản ví dụ số)."
+                ),
+            )
+            elapsed = (time.perf_counter() - t0_start) * 1000.0
+            return SolutionResponse(
+                status=SolutionStatus.CANNOT_SOLVE,
+                verification=verif_inconclusive,
+                raw_input=request.raw_input,
+                canonical_input=parsed.canonical_eq,
+                final_result=f"Cannot verify supplied solution y1({var}) = {y1}",
+                final_latex=f"\\text{{Không thể kiểm chứng nghiệm }} y_1({var}) = {expr_to_latex(y1)}",
+                steps=tuple(steps),
+                domain_restrictions=tuple(domain_restrictions),
+                warnings=("Tính đúng đắn của nghiệm y1 chưa thể chứng minh giải tích.",),
+                execution_time_ms=elapsed,
             )
 
         res1_latex = f"R_1({var}) = {expr_to_latex(a)}\\,({expr_to_latex(d2y1)}) + {expr_to_latex(b)}\\,({expr_to_latex(dy1)}) + {expr_to_latex(c)}\\,({expr_to_latex(y1)}) \\equiv 0"
@@ -232,9 +348,33 @@ class ODEReductionOfOrderSolver(Solver):
         # -------------------------------------------------------------------------
         # Step 6: Solve for u(t) = exp(-int p dt) / y1(t)^2
         # -------------------------------------------------------------------------
-        int_p = sp.integrate(p_expr, var)
-        exp_neg_int_p = sp.simplify(sp.exp(-int_p))
-        u_sol = sp.simplify(exp_neg_int_p / (y1**2))
+        if is_neg_interval:
+            # Negative interval: substitute var = -u_pos (u_pos > 0)
+            u_pos = sp.Symbol("_u_pos", positive=True)
+            p_neg = p_expr.subs(var, -u_pos)
+            int_p_u = sp.integrate(p_neg * (-1), u_pos)
+            exp_neg_int_p = sp.simplify(sp.exp(-int_p_u))
+            y1_neg = y1.subs(var, -u_pos)
+            u_sol_u = sp.simplify(exp_neg_int_p / (y1_neg**2))
+            v_sol_u = sp.integrate(u_sol_u * (-1), u_pos)
+            y2_u = sp.simplify(y1_neg * v_sol_u)
+            y2_simp = sp.simplify(y2_u.subs(u_pos, -var))
+            u_sol = sp.simplify(u_sol_u.subs(u_pos, -var))
+            v_sol_simp = sp.simplify(v_sol_u.subs(u_pos, -var))
+            desc_int = f"Trên khoảng xác định ${var} < 0$, thực hiện đổi biến ${var} = -u$ ($u > 0$): "
+        else:
+            int_p = sp.integrate(p_expr, var)
+            exp_neg_int_p = sp.simplify(sp.exp(-int_p))
+            u_sol = sp.simplify(exp_neg_int_p / (y1**2))
+            v_sol = sp.integrate(u_sol, var)
+            v_sol_simp = sp.simplify(v_sol)
+            if v_sol_simp != 0:
+                v_sol_simp = sp.simplify(sp.trigsimp(v_sol_simp))
+            y2_raw = y1 * v_sol_simp
+            y2_simp = sp.simplify(y2_raw)
+            if y2_simp != 0:
+                y2_simp = sp.simplify(sp.trigsimp(y2_simp))
+            desc_int = ""
 
         u_sol_latex = (
             f"u({var}) = \\frac{{e^{{-\\int p({var})\\,d{var}}}}}{{y_1({var})^2}} = "
@@ -246,7 +386,7 @@ class ODEReductionOfOrderSolver(Solver):
                 rule_name="Giải phương trình cho u",
                 title="Giải phương trình cấp một tìm hàm u(t)",
                 description=(
-                    f"Giải phương trình vi phân tách biến $\\frac{{du}}{{u}} = -\\left(p + 2\\frac{{y_1'}}{{y_1}}\\right)d{var}$: "
+                    f"{desc_int}Giải phương trình vi phân tách biến $\\frac{{du}}{{u}} = -\\left(p + 2\\frac{{y_1'}}{{y_1}}\\right)d{var}$: "
                     f"$u({var}) = \\frac{{e^{{-\\int p\\,d{var}}}}}{{y_1^2}} = {expr_to_latex(u_sol)}$."
                 ),
                 content=ExpressionStepContent(
@@ -263,11 +403,6 @@ class ODEReductionOfOrderSolver(Solver):
         # -------------------------------------------------------------------------
         # Step 7: Integrate u to find v(t) = int u dt
         # -------------------------------------------------------------------------
-        v_sol = sp.integrate(u_sol, var)
-        v_sol_simp = sp.simplify(v_sol)
-        if v_sol_simp != 0:
-            v_sol_simp = sp.simplify(sp.trigsimp(v_sol_simp))
-
         v_sol_latex = f"v({var}) = \\int u({var})\\,d{var} = \\int {expr_to_latex(u_sol)}\\,d{var} = {expr_to_latex(v_sol_simp)}"
         steps.append(
             SolutionStep(
@@ -292,11 +427,6 @@ class ODEReductionOfOrderSolver(Solver):
         # -------------------------------------------------------------------------
         # Step 8: Second Fundamental Solution y2 = v*y1
         # -------------------------------------------------------------------------
-        y2_raw = y1 * v_sol_simp
-        y2_simp = sp.simplify(y2_raw)
-        if y2_simp != 0:
-            y2_simp = sp.simplify(sp.trigsimp(y2_simp))
-
         y2_latex = f"y_2({var}) = v({var})\\,y_1({var}) = ({expr_to_latex(v_sol_simp)})\\left({expr_to_latex(y1)}\\right) = {expr_to_latex(y2_simp)}"
 
         steps.append(
@@ -425,6 +555,9 @@ class ODEReductionOfOrderSolver(Solver):
             a,
             b,
             c,
+            forcing_expr=parsed.rem_expr,
+            domain_interval=parsed.interval,
+            domain_restrictions=tuple(domain_restrictions),
         )
 
         steps.append(

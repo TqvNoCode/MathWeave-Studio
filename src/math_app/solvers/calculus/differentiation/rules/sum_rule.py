@@ -26,16 +26,30 @@ class SumRule(DifferentiationRule):
         engine: Any,
         builder: Any,
     ) -> sp.Expr:
+        is_partial = getattr(engine, "is_partial", False)
         terms = sort_terms_pedagogical(expr.args, var)
-        decomposed_str, aligned_step1 = format_derivative_sum_decomposition(expr, terms, var)
-        combined_raw, aligned_step2, result, term_substeps = format_derivative_term_steps(terms, var)
+        decomposed_str, aligned_step1 = format_derivative_sum_decomposition(
+            expr, terms, var, is_partial=is_partial
+        )
+        combined_raw, aligned_step2, result, term_substeps = format_derivative_term_steps(
+            terms, var, is_partial=is_partial
+        )
 
         # Step 1: Linearity / Sum and Difference Rule
+        step1_rule = "Sum / Difference Rule (Partial Differentiation)" if is_partial else "Sum / Difference Rule"
+        step1_rule_vi = "Quy tắc đạo hàm riêng của tổng và hiệu" if is_partial else "Quy tắc đạo hàm của tổng và hiệu"
+        step1_title = "Áp dụng quy tắc đạo hàm riêng của tổng và hiệu" if is_partial else "Áp dụng quy tắc đạo hàm của tổng và hiệu"
+        step1_desc = (
+            "Đạo hàm riêng của một tổng hoặc hiệu bằng tổng hoặc hiệu đạo hàm riêng của từng số hạng (các biến khác được xem như hằng số):"
+            if is_partial
+            else "Đạo hàm của một tổng hoặc hiệu bằng tổng hoặc hiệu đạo hàm của từng số hạng theo tính chất tuyến tính. Vì vậy:"
+        )
+
         builder.add_step(
-            rule_name="Sum / Difference Rule",
-            rule_name_vi="Quy tắc đạo hàm của tổng và hiệu",
-            title="Áp dụng quy tắc đạo hàm của tổng và hiệu",
-            description="Đạo hàm của một tổng hoặc hiệu bằng tổng hoặc hiệu đạo hàm của từng số hạng theo tính chất tuyến tính. Vì vậy:",
+            rule_name=step1_rule,
+            rule_name_vi=step1_rule_vi,
+            title=step1_title,
+            description=step1_desc,
             before=expr,
             after=decomposed_str,
             equation_latex=aligned_step1,
@@ -45,7 +59,7 @@ class SumRule(DifferentiationRule):
 
         # Step 2: Term-by-term Differentiation
         builder.add_step(
-            rule_name="Power Rule",
+            rule_name="Term-by-term Differentiation",
             rule_name_vi="Áp dụng các quy tắc đạo hàm cho từng số hạng",
             title="Áp dụng các quy tắc đạo hàm cho từng số hạng",
             description="Tính đạo hàm cho từng số hạng độc lập và kết hợp các kết quả:",

@@ -1,6 +1,7 @@
 """Application layer."""
 
 from math_app.application.dtos import (
+    BranchSolution,
     ProblemRequest,
     SolutionResponse,
     SolutionStep,
@@ -13,6 +14,7 @@ from math_app.application.registry import DefaultSolverRegistry
 from math_app.application.use_cases.solve_problem import SolveProblemUseCase
 
 __all__ = [
+    "BranchSolution",
     "DefaultSolverRegistry",
     "ProblemRequest",
     "SolutionResponse",

@@ -27,16 +27,20 @@ class PowerRule(DifferentiationRule):
         engine: Any,
         builder: Any,
     ) -> sp.Expr:
+        is_partial = getattr(engine, "is_partial", False)
+        diff_op = rf"\frac{{\partial}}{{\partial {var.name}}}" if is_partial else rf"\frac{{d}}{{d{var.name}}}"
+        lhs_op = rf"\frac{{\partial f}}{{\partial {var.name}}}" if is_partial else rf"f'({var.name})"
+
         if expr == var:
             result = sp.Integer(1)
             builder.add_step(
                 rule_name="Identity Variable Rule",
                 rule_name_vi="Quy tắc đạo hàm của hàm đồng nhất",
                 title="Áp dụng quy tắc đạo hàm của biến số đồng nhất",
-                description=f"Đạo hàm của biến số ${var.name}$ theo chính nó bằng $1$: $\\frac{{d}}{{d{var.name}}}({var.name}) = 1$.",
+                description=f"Đạo hàm của biến số ${var.name}$ theo chính nó bằng $1$: ${diff_op}({var.name}) = 1$.",
                 before=expr,
                 after=result,
-                equation_latex=f"f'({var.name}) = \\frac{{d}}{{d{var.name}}}({var.name}) = 1",
+                equation_latex=f"{lhs_op} = {diff_op}({var.name}) = 1",
             )
             return result
 
@@ -53,6 +57,6 @@ class PowerRule(DifferentiationRule):
             before=expr,
             after=result,
             notes=f"Số mũ $n = {expr_to_latex(exp)}$",
-            equation_latex=f"f'({var.name}) = \\frac{{d}}{{d{var.name}}}\\left({expr_to_latex(expr)}\\right) = {exp}{var.name}^{{{exp}-1}} = {expr_to_latex(result)}",
+            equation_latex=f"{lhs_op} = {diff_op}\\left({expr_to_latex(expr)}\\right) = {exp}{var.name}^{{{exp}-1}} = {expr_to_latex(result)}",
         )
         return result

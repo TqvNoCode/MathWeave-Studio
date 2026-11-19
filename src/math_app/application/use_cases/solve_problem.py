@@ -43,7 +43,7 @@ def _execute_in_isolated_process(
     p = ctx.Process(
         target=_worker_solve_entrypoint,
         args=(solver, request, child_conn),
-        daemon=True,
+        daemon=False,
     )
     t0 = time.perf_counter()
     p.start()
@@ -63,6 +63,10 @@ def _execute_in_isolated_process(
             pass
         finally:
             parent_conn.close()
+            try:
+                p.close()
+            except Exception:
+                pass
 
         elapsed = (time.perf_counter() - t0) * 1000.0
         return SolutionResponse(
@@ -101,6 +105,7 @@ def _execute_in_isolated_process(
                         domain_restrictions=resp.domain_restrictions,
                         warnings=resp.warnings,
                         execution_time_ms=elapsed,
+                        branch_solutions=resp.branch_solutions,
                     )
                 return resp
             elif status_tag == "invalid_input":
@@ -151,6 +156,10 @@ def _execute_in_isolated_process(
             )
     finally:
         parent_conn.close()
+        try:
+            p.close()
+        except Exception:
+            pass
 
 
 class SolveProblemUseCase:
@@ -281,6 +290,7 @@ class SolveProblemUseCase:
                     domain_restrictions=response.domain_restrictions,
                     warnings=response.warnings,
                     execution_time_ms=elapsed,
+                    branch_solutions=response.branch_solutions,
                 )
             return response
         except InvalidInputError as exc:

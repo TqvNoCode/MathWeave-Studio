@@ -5,7 +5,12 @@ from __future__ import annotations
 import time
 import sympy as sp
 
-from math_app.application.dtos import ProblemRequest, SolutionResponse, SolutionStep
+from math_app.application.dtos import (
+    ProblemRequest,
+    SolutionResponse,
+    SolutionStep,
+    VerificationResult,
+)
 from math_app.application.ports.solver import Solver
 from math_app.domain.exceptions import InvalidInputError
 from math_app.domain.models import ProblemType, SolutionStatus
@@ -146,36 +151,22 @@ class ArcLengthSolver(Solver):
             )
             step_idx += 1
 
-            # Step 4: Integration
-            try:
-                final_val = sp.integrate(integrand, (t, a_bound, b_bound))
-                final_val = sp.simplify(final_val)
-            except Exception as exc:
-                raise InvalidInputError(f"Không thể tính tích phân độ dài cung: {exc}") from exc
-
-            int_ltx = (
-                rf"L = \int_{{{expr_to_latex(a_bound)}}}^{{{expr_to_latex(b_bound)}}} {expr_to_latex(integrand)}\,d{t.name} = "
-                rf"{expr_to_latex(final_val)}"
-            )
-
-            steps.append(
-                SolutionStep(
-                    step_number=step_idx,
-                    rule_name="Tính tích phân xác định tìm độ dài cung",
-                    description="Thực hiện tích phân cận từ t_min đến t_max để ra kết quả độ dài cung L:",
-                    content=ExpressionStepContent(
-                        expression_before=f"integrate({integrand}, ({t}, {a_bound}, {b_bound}))",
-                        expression_after=str(final_val),
-                        latex_before=rf"\int_{{{expr_to_latex(a_bound)}}}^{{{expr_to_latex(b_bound)}}} {expr_to_latex(integrand)}\,d{t.name}",
-                        latex_after=expr_to_latex(final_val),
-                    ),
-                    equation_latex=int_ltx,
+            # Step 4: Mathematical Analysis and Integration
+            funcs_to_check = [xt, yt] if zt == 0 else [xt, yt, zt]
+            derivs_to_check = [dxt, dyt] if zt == 0 and dzt == 0 else [dxt, dyt, dzt]
+            status, final_val, final_latex, int_step, solver_warns, verification = (
+                self._analyze_and_integrate(
+                    funcs=funcs_to_check,
+                    derivs=derivs_to_check,
+                    integrand=integrand,
+                    var=t,
+                    a_bound=a_bound,
+                    b_bound=b_bound,
+                    step_idx=step_idx,
                 )
             )
-
-            verification = self._verifier.verify_arc_length(
-                final_val, integrand, t, a_bound, b_bound
-            )
+            steps.append(int_step)
+            warnings.extend(solver_warns)
 
         else:
             # Explicit Cartesian curve: y = f(x)
@@ -255,47 +246,275 @@ class ArcLengthSolver(Solver):
             )
             step_idx += 1
 
-            # Step 4: Definite integration
-            try:
-                final_val = sp.integrate(integrand, (x, a_bound, b_bound))
-                final_val = sp.simplify(final_val)
-            except Exception as exc:
-                raise InvalidInputError(f"Không thể tính tích phân độ dài cung: {exc}") from exc
-
-            int_ltx = (
-                rf"L = \int_{{{expr_to_latex(a_bound)}}}^{{{expr_to_latex(b_bound)}}} {expr_to_latex(integrand)}\,d{x.name} = "
-                rf"{expr_to_latex(final_val)}"
-            )
-            steps.append(
-                SolutionStep(
-                    step_number=step_idx,
-                    rule_name="Tính tích phân xác định tìm độ dài cung",
-                    description="Tính tích phân xác định để tìm độ dài cung cong L:",
-                    content=ExpressionStepContent(
-                        expression_before=f"integrate({integrand}, ({x}, {a_bound}, {b_bound}))",
-                        expression_after=str(final_val),
-                        latex_before=rf"\int_{{{expr_to_latex(a_bound)}}}^{{{expr_to_latex(b_bound)}}} {expr_to_latex(integrand)}\,d{x.name}",
-                        latex_after=expr_to_latex(final_val),
-                    ),
-                    equation_latex=int_ltx,
+            # Step 4: Mathematical Analysis and Integration
+            status, final_val, final_latex, int_step, solver_warns, verification = (
+                self._analyze_and_integrate(
+                    funcs=[fx],
+                    derivs=[dfx],
+                    integrand=integrand,
+                    var=x,
+                    a_bound=a_bound,
+                    b_bound=b_bound,
+                    step_idx=step_idx,
                 )
             )
-
-            verification = self._verifier.verify_arc_length(
-                final_val, integrand, x, a_bound, b_bound
-            )
+            steps.append(int_step)
+            warnings.extend(solver_warns)
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
         return SolutionResponse(
-            status=SolutionStatus.SUCCESS,
+            status=status,
             verification=verification,
             raw_input=request.raw_input,
             canonical_input=request.raw_input,
             final_result=str(final_val),
-            final_latex=expr_to_latex(final_val),
+            final_latex=final_latex,
             steps=tuple(steps),
             domain_restrictions=(),
             warnings=tuple(warnings),
             execution_time_ms=elapsed_ms,
         )
+
+    def _analyze_and_integrate(
+        self,
+        funcs: list[sp.Expr],
+        derivs: list[sp.Expr],
+        integrand: sp.Expr,
+        var: sp.Symbol,
+        a_bound: sp.Expr,
+        b_bound: sp.Expr,
+        step_idx: int,
+    ) -> tuple[SolutionStatus, sp.Expr, str, SolutionStep, list[str], VerificationResult]:
+        """Analyze curve domain, detect singularities/poles, verify convergence, and integrate."""
+        a_f = float(a_bound.evalf())
+        b_f = float(b_bound.evalf())
+        if b_f <= a_f:
+            raise InvalidInputError("Cận trên phải lớn hơn cận dưới.")
+
+        interval = sp.Interval(a_bound, b_bound)
+        singular_candidates: set[sp.Expr] = set()
+
+        # 1. Structural singularity detection
+        for expr in funcs + derivs + [integrand]:
+            for node in sp.preorder_traversal(expr):
+                if node.is_Pow and node.exp.is_negative:
+                    denom = node.base
+                    try:
+                        sols = sp.solveset(denom, var, domain=interval)
+                        for s in sols:
+                            singular_candidates.add(s)
+                    except Exception:
+                        pass
+                elif isinstance(node, (sp.tan, sp.sec)):
+                    arg = node.args[0]
+                    try:
+                        sols = sp.solveset(sp.cos(arg), var, domain=interval)
+                        for s in sols:
+                            singular_candidates.add(s)
+                    except Exception:
+                        pass
+                elif isinstance(node, (sp.cot, sp.csc)):
+                    arg = node.args[0]
+                    try:
+                        sols = sp.solveset(sp.sin(arg), var, domain=interval)
+                        for s in sols:
+                            singular_candidates.add(s)
+                    except Exception:
+                        pass
+
+        convergent_pts: list[sp.Expr] = []
+        divergent_pt: sp.Expr | None = None
+
+        # Sort candidate points within [a, b]
+        valid_candidates = []
+        for pt in singular_candidates:
+            try:
+                pt_val = float(pt.evalf())
+                if (a_f - 1e-8) <= pt_val <= (b_f + 1e-8):
+                    valid_candidates.append((pt, pt_val))
+            except Exception:
+                pass
+        valid_candidates.sort(key=lambda item: item[1])
+
+        # 2. Mathematical convergence classification
+        for pt, pt_f in valid_candidates:
+            is_left_end = abs(pt_f - a_f) < 1e-8
+            is_right_end = abs(pt_f - b_f) < 1e-8
+            is_interior = not is_left_end and not is_right_end
+
+            # A. Check if the original function has an infinite pole
+            has_pole = False
+            for f in funcs:
+                try:
+                    if is_interior:
+                        l_left = sp.limit(f, var, pt, dir="-")
+                        l_right = sp.limit(f, var, pt, dir="+")
+                        if (
+                            l_left in (sp.oo, -sp.oo)
+                            or l_left.has(sp.zoo)
+                            or l_right in (sp.oo, -sp.oo)
+                            or l_right.has(sp.zoo)
+                        ):
+                            has_pole = True
+                            break
+                    elif is_left_end:
+                        l_right = sp.limit(f, var, pt, dir="+")
+                        if l_right in (sp.oo, -sp.oo) or l_right.has(sp.zoo):
+                            has_pole = True
+                            break
+                    elif is_right_end:
+                        l_left = sp.limit(f, var, pt, dir="-")
+                        if l_left in (sp.oo, -sp.oo) or l_left.has(sp.zoo):
+                            has_pole = True
+                            break
+                except Exception:
+                    pass
+
+            if has_pole:
+                divergent_pt = pt
+                break
+
+            # B. Check integrand divergence via order test (p >= 1)
+            is_div = False
+            try:
+                if is_interior:
+                    lim_p_left = sp.limit((pt - var) * integrand, var, pt, dir="-")
+                    lim_p_right = sp.limit((var - pt) * integrand, var, pt, dir="+")
+                    if lim_p_left != 0 or lim_p_right != 0:
+                        is_div = True
+                elif is_left_end:
+                    lim_p = sp.limit((var - pt) * integrand, var, pt, dir="+")
+                    if lim_p != 0:
+                        is_div = True
+                elif is_right_end:
+                    lim_p = sp.limit((pt - var) * integrand, var, pt, dir="-")
+                    if lim_p != 0:
+                        is_div = True
+            except Exception:
+                pass
+
+            if is_div:
+                divergent_pt = pt
+                break
+            else:
+                convergent_pts.append(pt)
+
+        # 3. Outcome handling: Divergent
+        if divergent_pt is not None:
+            sing_ltx = expr_to_latex(divergent_pt)
+            status = SolutionStatus.DIVERGENT
+            final_val = sp.oo
+            final_latex = r"+\infty"
+            warning_msg = (
+                f"Không tồn tại độ dài cung hữu hạn trên đoạn đã chọn. "
+                f"Hàm số không xác định tại {var.name} = {sing_ltx}, thuộc đoạn [{expr_to_latex(a_bound)}, {expr_to_latex(b_bound)}]. "
+                f"Tích phân độ dài cung phân kỳ tại điểm này."
+            )
+            step = SolutionStep(
+                step_number=step_idx,
+                rule_name="Singularity & Divergence Analysis",
+                rule_name_vi="Phân tích điểm kỳ dị và kết luận phân kỳ",
+                title=f"Phân tích điểm kỳ dị tại {var.name} = {sing_ltx}",
+                description=warning_msg,
+                content=ExpressionStepContent(
+                    expression_before=f"integrate({integrand}, ({var.name}, {a_bound}, {b_bound}))",
+                    expression_after="oo",
+                    latex_before=rf"\int_{{{expr_to_latex(a_bound)}}}^{{{expr_to_latex(b_bound)}}} {expr_to_latex(integrand)}\,d{var.name}",
+                    latex_after=r"+\infty",
+                ),
+                equation_latex=rf"L = \int_{{{expr_to_latex(a_bound)}}}^{{{expr_to_latex(b_bound)}}} {expr_to_latex(integrand)}\,d{var.name} = +\infty \quad (\text{{phân kỳ tại }} {var.name} = {sing_ltx})",
+            )
+            verification = self._verifier.verify_arc_length(
+                sp.oo, integrand, var, a_bound, b_bound, is_divergent=True
+            )
+            return status, final_val, final_latex, step, [warning_msg], verification
+
+        # 4. Outcome handling: Regular or Convergent
+        # First attempt exact symbolic integration with a 1.0-second soft budget via portable process timeout
+        from math_app.application.process_guard import run_with_process_timeout
+
+        sym_val = None
+        try:
+            res_exec = run_with_process_timeout(
+                sp.integrate,
+                args=(integrand, (var, a_bound, b_bound)),
+                timeout_seconds=1.0,
+            )
+            if res_exec.status == "ok":
+                sym_res = res_exec.value
+                if (
+                    sym_res is not None
+                    and not isinstance(sym_res, sp.Integral)
+                    and not sym_res.has(sp.oo, -sp.oo, sp.zoo)
+                ):
+                    sym_val = sp.simplify(sym_res)
+        except Exception:
+            sym_val = None
+
+        if sym_val is not None:
+            status = SolutionStatus.SUCCESS
+            final_val = sym_val
+            final_latex = expr_to_latex(final_val)
+            step = SolutionStep(
+                step_number=step_idx,
+                rule_name="Tính tích phân xác định tìm độ dài cung",
+                rule_name_vi="Tính tích phân xác định độ dài cung",
+                title="Tính tích phân xác định tìm độ dài cung",
+                description="Tính tích phân xác định để tìm độ dài cung cong L (kết quả giải tích chính xác):",
+                content=ExpressionStepContent(
+                    expression_before=f"integrate({integrand}, ({var.name}, {a_bound}, {b_bound}))",
+                    expression_after=str(final_val),
+                    latex_before=rf"\int_{{{expr_to_latex(a_bound)}}}^{{{expr_to_latex(b_bound)}}} {expr_to_latex(integrand)}\,d{var.name}",
+                    latex_after=final_latex,
+                ),
+                equation_latex=rf"L = \int_{{{expr_to_latex(a_bound)}}}^{{{expr_to_latex(b_bound)}}} {expr_to_latex(integrand)}\,d{var.name} = {final_latex}",
+            )
+            verification = self._verifier.verify_arc_length(
+                final_val, integrand, var, a_bound, b_bound
+            )
+            return status, final_val, final_latex, step, [], verification
+
+        # Adaptive numerical quadrature via mpmath tanh-sinh
+        import mpmath
+
+        subdivision = [a_f]
+        for pt in convergent_pts:
+            try:
+                p_val = float(pt.evalf())
+                if a_f < p_val < b_f:
+                    subdivision.append(p_val)
+            except Exception:
+                pass
+        subdivision.append(b_f)
+        subdivision = sorted(list(set(subdivision)))
+
+        f_num = sp.lambdify(var, integrand, modules=["mpmath"])
+        val_f, err_f = mpmath.quad(f_num, subdivision, error=True, method="tanh-sinh")
+        val_float = float(val_f)
+        err_float = float(err_f)
+        final_val = sp.Float(val_float, 12)
+        final_latex = rf"\approx {val_float:.8g}"
+        status = SolutionStatus.SUCCESS
+        warn_msg = (
+            f"Tích phân không có dạng nguyên hàm sơ cấp đóng; đã tính chính xác bằng phương pháp cầu phương "
+            f"thích ứng tanh-sinh với sai số ước tính ±{err_float:.2e}."
+        )
+        step = SolutionStep(
+            step_number=step_idx,
+            rule_name="Cầu phương số học thích ứng",
+            rule_name_vi="Tính toán độ dài cung bằng số học thích ứng",
+            title="Tính độ dài cung bằng cầu phương số học thích ứng",
+            description=f"Tính độ dài cung bằng phương pháp cầu phương thích ứng tanh-sinh (ước lượng sai số $\\pm {err_float:.2e}$):",
+            content=ExpressionStepContent(
+                expression_before=f"quad({integrand}, ({var.name}, {a_bound}, {b_bound}))",
+                expression_after=str(final_val),
+                latex_before=rf"\int_{{{expr_to_latex(a_bound)}}}^{{{expr_to_latex(b_bound)}}} {expr_to_latex(integrand)}\,d{var.name}",
+                latex_after=final_latex,
+            ),
+            equation_latex=rf"L = \int_{{{expr_to_latex(a_bound)}}}^{{{expr_to_latex(b_bound)}}} {expr_to_latex(integrand)}\,d{var.name} \approx {val_float:.8g}",
+        )
+        verification = self._verifier.verify_arc_length(
+            final_val, integrand, var, a_bound, b_bound
+        )
+        return status, final_val, final_latex, step, [warn_msg], verification

@@ -120,6 +120,44 @@ class ODESecondOrderConstantCoeffSolver(Solver):
         if sp.simplify(parsed.a_coeff) == 0:
             raise InvalidInputError("Hệ số của y'' bằng 0; không phải phương trình vi phân cấp 2 (a != 0).")
 
+        # Validate Cauchy IVP conditions based on problem mode
+        has_y_ic = parsed.initial_condition is not None
+        has_yp_ic = parsed.initial_derivative is not None
+
+        if request.problem_type == ProblemType.ODE_SECOND_ORDER_IVP:
+            if not has_y_ic and not has_yp_ic:
+                raise InvalidInputError(
+                    "Bài toán Cauchy (IVP) cấp hai yêu cầu cung cấp đầy đủ hai điều kiện ban đầu: "
+                    "y(t0) = y0 và y'(t0) = v0."
+                )
+            if not has_y_ic or not has_yp_ic:
+                raise InvalidInputError(
+                    "Bài toán Cauchy (IVP) cấp hai thiếu điều kiện ban đầu. "
+                    "Cần cung cấp đầy đủ cả hai điều kiện: y(t0) = y0 và y'(t0) = v0 để xác định nghiệm duy nhất."
+                )
+        else:
+            if (has_y_ic and not has_yp_ic) or (not has_y_ic and has_yp_ic):
+                raise InvalidInputError(
+                    "Phương trình vi phân cấp hai nhận được điều kiện ban đầu không hoàn chỉnh. "
+                    "Vui lòng cung cấp đầy đủ cả hai điều kiện: y(t0) = y0 và y'(t0) = v0 để giải bài toán Cauchy, "
+                    "hoặc không cung cấp điều kiện nào để tìm nghiệm tổng quát."
+                )
+
+        if has_y_ic and has_yp_ic:
+            t0_cand, y0_cand = parsed.initial_condition  # type: ignore[misc]
+            t1_cand, v0_cand = parsed.initial_derivative  # type: ignore[misc]
+            if sp.simplify(t0_cand - t1_cand) != 0:
+                raise InvalidInputError(
+                    f"Bài toán Cauchy (IVP) cấp hai yêu cầu hai điều kiện tại cùng một điểm ban đầu t0: "
+                    f"y({t0_cand}) và y'({t1_cand}) không cùng điểm khởi đầu."
+                )
+            for val_name, val_expr in (("t0", t0_cand), ("y0", y0_cand), ("v0", v0_cand)):
+                if val_expr.has(sp.zoo, sp.nan, sp.oo, -sp.oo) or val_expr.has(sp.I):
+                    raise InvalidInputError(
+                        f"Giá trị điều kiện ban đầu {val_name} = {val_expr} không phải là số thực hữu hạn "
+                        "(Finite real numbers required for Cauchy initial conditions)."
+                    )
+
         # Validate homogeneity
         if not parsed.is_homogeneous:
             return SolutionResponse(
@@ -980,7 +1018,7 @@ class ODESecondOrderConstantCoeffSolver(Solver):
             details=v_details,
         )
 
-        status_ode_text = "Thỏa mãn (R ≡ 0)" if is_ode_verified else "Chưa xác nhận"
+        status_ode_text = "Thỏa mãn (R ≡ 0) — Thỏa mãn đồng nhất" if is_ode_verified else "Chưa xác nhận"
         step8_desc_lines = [
             "Bước này không tìm nghiệm mới. Ta thay nghiệm vừa tìm được "
             "trở lại phương trình vi phân ban đầu và kiểm tra các điều kiện ban đầu để xác nhận rằng nghiệm thực sự đúng.\n",
@@ -991,12 +1029,12 @@ class ODESecondOrderConstantCoeffSolver(Solver):
             f"- Đạo hàm cấp một: $y'({var}) = {expr_to_latex(dy)}$",
             f"- Đạo hàm cấp hai: $y''({var}) = {expr_to_latex(d2y)}$",
             "Rút gọn biểu thức thu được:",
-            f"$$R({var}) = {expr_to_latex(residual)}" + (r" \equiv 0 \quad \text{(Thỏa mãn đồng nhất)}" if is_ode_verified else r" \neq 0 \quad \text{(Sai lệch)}") + "$$",
+            f"$$R({var}) = {expr_to_latex(residual)}" + (r" \equiv 0" if is_ode_verified else r" \neq 0") + "$$",
         ]
 
         if has_ivp and val_y0_check is not None and val_v0_check is not None:
-            y0_comp_ltx = f"y({expr_to_latex(t0)}) = {expr_to_latex(val_y0_check)}" + (f" = {expr_to_latex(y0)} \\quad \\text{{(Thỏa mãn)}}" if is_y0_verified else f" \\neq {expr_to_latex(y0)} \\quad \\text{{(Sai lệch)}}")
-            v0_comp_ltx = f"y'({expr_to_latex(t0)}) = {expr_to_latex(val_v0_check)}" + (f" = {expr_to_latex(v0)} \\quad \\text{{(Thỏa mãn)}}" if is_v0_verified else f" \\neq {expr_to_latex(v0)} \\quad \\text{{(Sai lệch)}}")
+            y0_comp_ltx = f"y({expr_to_latex(t0)}) = {expr_to_latex(val_y0_check)}" + (f" = {expr_to_latex(y0)}" if is_y0_verified else f" \\neq {expr_to_latex(y0)}")
+            v0_comp_ltx = f"y'({expr_to_latex(t0)}) = {expr_to_latex(val_v0_check)}" + (f" = {expr_to_latex(v0)}" if is_v0_verified else f" \\neq {expr_to_latex(v0)}")
             status_y0_text = f"Thỏa mãn ({expr_to_latex(val_y0_check)} = {expr_to_latex(y0)})" if is_y0_verified else "Sai lệch"
             status_v0_text = f"Thỏa mãn ({expr_to_latex(val_v0_check)} = {expr_to_latex(v0)})" if is_v0_verified else "Sai lệch"
             step8_desc_lines.extend([
@@ -1022,15 +1060,15 @@ class ODESecondOrderConstantCoeffSolver(Solver):
             if v_status == VerificationStatus.VERIFIED:
                 eq8_latex = (
                     f"\\begin{{aligned}} "
-                    f"\\text{{A. Kiểm chứng phương trình: }} & R({var}) = {ode_lhs_latex} \\equiv 0 \\\\ "
-                    f"\\text{{B. Kiểm chứng điều kiện: }} & y({expr_to_latex(t0)}) = {expr_to_latex(y0)}, \\quad y'({expr_to_latex(t0)}) = {expr_to_latex(v0)} "
+                    f"R({var}) &= {ode_lhs_latex} \\equiv 0 \\\\ "
+                    f"y({expr_to_latex(t0)}) &= {expr_to_latex(y0)}, \\quad y'({expr_to_latex(t0)}) = {expr_to_latex(v0)} "
                     f"\\end{{aligned}}"
                 )
             else:
                 eq8_latex = (
                     f"\\begin{{aligned}} "
-                    f"\\text{{A. Kiểm chứng phương trình: }} & R({var}) = {expr_to_latex(residual)} \\\\ "
-                    f"\\text{{B. Kiểm chứng điều kiện: }} & y({expr_to_latex(t0)}) = {expr_to_latex(val_y0_check)}, \\quad y'({expr_to_latex(t0)}) = {expr_to_latex(val_v0_check)} "
+                    f"R({var}) &= {expr_to_latex(residual)} \\\\ "
+                    f"y({expr_to_latex(t0)}) &= {expr_to_latex(val_y0_check)}, \\quad y'({expr_to_latex(t0)}) = {expr_to_latex(val_v0_check)} "
                     f"\\end{{aligned}}"
                 )
             step8_substeps = (

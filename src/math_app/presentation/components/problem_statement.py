@@ -84,9 +84,9 @@ def format_problem_statement_latex(
             expr_ltx = expr_to_latex(expr)
             free_symbols = sorted(list(expr.free_symbols), key=lambda s: s.name)
             vars_str = ", ".join(s.name for s in free_symbols) if free_symbols else clean_var
-            return f"f({vars_str}) = {expr_ltx} \\quad \\left(\\text{{tính }} \\frac{{\\partial f}}{{\\partial {clean_var}}}\\right)"
+            return f"\\frac{{\\partial f}}{{\\partial {clean_var}}}, \\quad f({vars_str}) = {expr_ltx}"
         except Exception:
-            return f"f({clean_var}) = {raw_input} \\quad \\left(\\text{{tính }} \\frac{{\\partial f}}{{\\partial {clean_var}}}\\right)"
+            return f"\\frac{{\\partial f}}{{\\partial {clean_var}}}, \\quad f({clean_var}) = {raw_input}"
 
     # 3. Indefinite Integral
     if op_type in (ProblemType.INDEFINITE_INTEGRAL, ProblemType.INTEGRAL):
@@ -127,7 +127,7 @@ def format_problem_statement_latex(
             curve_parts.append(expr_to_latex(zt))
         curve_desc = rf"\mathbf{{r}}({param_var}) = \left({', '.join(curve_parts)}\right), \; {param_var} \in [{t_min}, {t_max}]"
         if is_reverse:
-            curve_desc += r" \text{ (chiều nghịch)}"
+            curve_desc += r" \quad (-C)"
 
         if mode == "vector" or ("," in raw_input and mode != "scalar"):
             return rf"\int_C \mathbf{{F}}\cdot d\mathbf{{r}} \quad \left( \mathbf{{F}} = ({raw_input}), \; C: {curve_desc} \right)"
@@ -160,7 +160,7 @@ def format_problem_statement_latex(
             surf_desc = rf"S: z = {expr_to_latex(surf_expr)}, \; {u_var}\in[{u_min},{u_max}], \; {v_var}\in[{v_min},{v_max}]"
 
         if mode in ("vector", "flux") or ("," in raw_input and mode != "scalar"):
-            orient_txt = r", \mathbf{n} \text{ hướng xuống}" if orientation in ("downward", "down", "negative", "-") else r", \mathbf{n} \text{ hướng lên}"
+            orient_txt = r", \; \mathbf{n} = -\mathbf{k}" if orientation in ("downward", "down", "negative", "-") else r", \; \mathbf{n} = \mathbf{k}"
             return rf"\iint_S \mathbf{{F}}\cdot\mathbf{{n}}\,dS \quad \left( \mathbf{{F}} = ({raw_input}), \; {surf_desc}{orient_txt} \right)"
         try:
             f_expr, _ = parse_mathematical_input(raw_input, u_var)
@@ -230,7 +230,7 @@ def format_problem_statement_latex(
         axis_str = "Ox" if axis == "x" else "Oy"
         a = expr_to_latex(p.get("lower_bound", "0"))
         b = expr_to_latex(p.get("upper_bound", "1"))
-        return rf"y = {raw_input}, \quad {clean_var} \in [{a}, {b}] \quad \left(\text{{quay quanh }} {axis_str}\right)"
+        return rf"y = {raw_input}, \quad {clean_var} \in [{a}, {b}], \quad (\text{{trục }} {axis_str})"
 
     # Green's Theorem
     if op_type == ProblemType.GREENS_THEOREM:
@@ -380,7 +380,7 @@ def format_problem_statement_latex(
                 A = parse_matrix_input(parts[0].strip())
                 b = parse_matrix_input(parts[1].strip())
                 return f"{expr_to_latex(A)} \\cdot x = {expr_to_latex(b)}"
-            return f"A \\cdot x = b \\quad \\text{{với }} {raw_input}"
+            return f"A \\cdot x = b, \\quad A = {raw_input}"
     except Exception:
         pass
 

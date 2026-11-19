@@ -139,7 +139,7 @@ class WronskianSolver(Solver):
                 "Cần xác định phương trình vi phân liên kết có hệ số liên tục để áp dụng định lý Abel. "
                 "Kết luận: Chưa đủ điều kiện kết luận (Inconclusive / Unverified)."
             )
-            independence_latex = f"W(y_1, y_2)({var}) \\equiv 0 \\implies \\text{{Chưa đủ điều kiện kết luận (Inconclusive)}}"
+            independence_latex = f"W(y_1, y_2)({var}) \\equiv 0"
             warnings.append(
                 "Định thức Wronskian đồng nhất bằng 0. Đối với hai hàm khả vi bất kỳ, W(y1, y2) ≡ 0 không đảm bảo tính phụ thuộc tuyến tính "
                 "nếu chưa kiểm chứng chúng là nghiệm của cùng một phương trình vi phân tuyến tính cấp 2 thuần nhất có hệ số liên tục "
@@ -151,7 +151,7 @@ class WronskianSolver(Solver):
                 f"Vì $W(y_1, y_2) \\ne 0$ tại ít nhất một điểm trên miền xác định, theo định lý Wronski, "
                 f"hai hàm số $y_1$ và $y_2$ độc lập tuyến tính (Linearly independent)."
             )
-            independence_latex = f"W(y_1, y_2)({var}) = {expr_to_latex(w_simp)} \\not\\equiv 0 \\implies \\text{{Độc lập tuyến tính}}"
+            independence_latex = f"W(y_1, y_2)({var}) = {expr_to_latex(w_simp)} \\not\\equiv 0"
 
         # Check for isolated zeros or singularities
         if not is_identically_zero:
@@ -188,7 +188,7 @@ class WronskianSolver(Solver):
                     expression_before=f"W({var}) = {w_simp}",
                     expression_after="Verified" if verif_result.status == VerificationStatus.VERIFIED else "Inconclusive",
                     latex_before=f"W(y_1, y_2) = {expr_to_latex(w_simp)}",
-                    latex_after="\\text{Xác nhận độc lập tuyến tính}" if not is_identically_zero else "\\text{Chưa đủ điều kiện kết luận}",
+                    latex_after=f"W(y_1, y_2) = {expr_to_latex(w_simp)}" + (" \\not\\equiv 0" if not is_identically_zero else " \\equiv 0"),
                 ),
                 notes=verif_result.details,
             )

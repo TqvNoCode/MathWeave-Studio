@@ -175,3 +175,65 @@ def test_exact_ode_rejects_missing_derivative(exact_solver: ODEExactSolver):
     """Missing y' or dy in equation should fail with InvalidInputError."""
     with pytest.raises(InvalidInputError, match="không chứa đạo hàm cấp 1"):
         exact_solver.solve(ProblemRequest("2*x*y + 3 = 0", ProblemType.ODE_EXACT, target_variable="x"))
+
+
+# =========================================================================
+# Phase 3 — Multi-branch, Real branches & Equilibrium Solutions
+# =========================================================================
+
+def test_separable_multi_branch_square_derivative(sep_solver: ODESeparableSolver):
+    """Case 1: (y')^2 = x produces both branches y = ±(2/3*x^(3/2) + C) and domain x >= 0."""
+    req = ProblemRequest(raw_input="(y')^2 = x", problem_type=ProblemType.ODE_SEPARABLE, target_variable="x")
+    res = sep_solver.solve(req)
+
+    assert res.status == SolutionStatus.SUCCESS
+    assert "x**(3/2)" in res.final_result or "x^(3/2)" in res.final_latex
+    assert "hoặc" in res.final_result
+    assert any("x >= 0" in r for r in res.domain_restrictions)
+    assert res.verification.status == VerificationStatus.VERIFIED
+
+
+def test_separable_rejects_purely_imaginary_derivative_branch(sep_solver: ODESeparableSolver):
+    """Case 2: (y')^2 + 1 = 0 has no real derivative branches; must return CANNOT_SOLVE, not an imaginary solution."""
+    req = ProblemRequest(raw_input="(y')^2 + 1 = 0", problem_type=ProblemType.ODE_SEPARABLE, target_variable="x")
+    res = sep_solver.solve(req)
+
+    assert res.status == SolutionStatus.CANNOT_SOLVE
+    assert "không có nghiệm thực" in res.final_result.lower()
+    assert res.verification.status == VerificationStatus.NOT_APPLICABLE
+    assert any("không có nghiệm thực" in w.lower() for w in res.warnings)
+
+
+def test_separable_multi_branch_exponential_and_equilibrium(sep_solver: ODESeparableSolver):
+    """Case 4: (y')^2 = y^2 produces both branches y = exp(±x + C) and equilibrium y = 0."""
+    req = ProblemRequest(raw_input="(y')^2 = y^2", problem_type=ProblemType.ODE_SEPARABLE, target_variable="x")
+    res = sep_solver.solve(req)
+
+    assert res.status == SolutionStatus.SUCCESS
+    assert "exp" in res.final_result
+    assert "hoặc" in res.final_result
+    assert "y = 0" in res.final_result  # equilibrium preserved
+    assert res.verification.status == VerificationStatus.VERIFIED
+
+
+def test_separable_logistic_preserves_both_equilibria(sep_solver: ODESeparableSolver):
+    """Case 3: y' = y*(1 - y) preserves both equilibrium solutions y = 0 and y = 1 in final result."""
+    req = ProblemRequest(raw_input="y' = y*(1 - y)", problem_type=ProblemType.ODE_SEPARABLE, target_variable="x")
+    res = sep_solver.solve(req)
+
+    assert res.status == SolutionStatus.SUCCESS
+    assert "0" in res.final_result and "1" in res.final_result
+    assert "cân bằng" in res.final_result.lower()
+    assert res.verification.status == VerificationStatus.VERIFIED
+
+
+def test_separable_transcendental_sine_ode(sep_solver: ODESeparableSolver):
+    """Case 5: y' = sin(y) parses safely and solves as non-polynomial separable ODE."""
+    req = ProblemRequest(raw_input="y' = sin(y)", problem_type=ProblemType.ODE_SEPARABLE, target_variable="x")
+    res = sep_solver.solve(req)
+
+    assert res.status == SolutionStatus.SUCCESS
+    assert "y = 0" in res.final_result or "sin" in res.final_result
+    assert res.verification.status == VerificationStatus.VERIFIED
+
+

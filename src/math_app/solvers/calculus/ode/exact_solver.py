@@ -17,7 +17,10 @@ from math_app.domain.models import ProblemType, SolutionStatus, VerificationStat
 from math_app.domain.step_content import ExpressionStepContent
 from math_app.input.ode_parser import ParsedODE, parse_ode_input
 from math_app.rendering.latex.formatter import expr_to_latex
-from math_app.verification.calculus.ode_verifier import ODEVerifier
+from math_app.verification.calculus.ode_verifier import (
+    ODEVerifier,
+    validate_initial_point_in_domain,
+)
 
 
 class ODEExactSolver(Solver):
@@ -73,6 +76,89 @@ class ODEExactSolver(Solver):
         M_expr = sp.simplify(M_cand)
         N_expr = sp.simplify(N_cand)
 
+        # Validate initial point in domain before proceeding
+        if parsed.initial_condition is not None:
+            x0, y0 = parsed.initial_condition
+
+            # First, check original unsimplified denominators and leading coefficients
+            is_valid_orig, orig_err = validate_initial_point_in_domain(
+                None,
+                x_var,
+                y_var,
+                x0,
+                y0,
+                original_denominators=parsed.original_denominators,
+                leading_coeffs=parsed.leading_coeffs,
+            )
+            if not is_valid_orig:
+                elapsed = (time.perf_counter() - t0_start) * 1000.0
+                return SolutionResponse(
+                    status=SolutionStatus.INVALID_INPUT,
+                    verification=VerificationResult(
+                        status=VerificationStatus.NOT_APPLICABLE,
+                        method="initial_point_domain_validation",
+                        details=f"Điểm ban đầu ({x0}, {y0}) vi phạm điều kiện xác định ban đầu: {orig_err}",
+                    ),
+                    raw_input=request.raw_input,
+                    canonical_input=parsed.canonical_eq,
+                    final_result="",
+                    final_latex="",
+                    warnings=(f"Điều kiện ban đầu ({x0}, {y0}) không hợp lệ: {orig_err}.",),
+                    execution_time_ms=elapsed,
+                )
+
+            is_valid_m, m_err = validate_initial_point_in_domain(
+                M_expr,
+                x_var,
+                y_var,
+                x0,
+                y0,
+                original_denominators=parsed.original_denominators,
+                leading_coeffs=parsed.leading_coeffs,
+            )
+            if not is_valid_m:
+                elapsed = (time.perf_counter() - t0_start) * 1000.0
+                return SolutionResponse(
+                    status=SolutionStatus.INVALID_INPUT,
+                    verification=VerificationResult(
+                        status=VerificationStatus.NOT_APPLICABLE,
+                        method="initial_point_domain_validation",
+                        details=f"Điểm ban đầu ({x0}, {y0}) không thuộc miền xác định của M({x_var}, {y_var}): {m_err}",
+                    ),
+                    raw_input=request.raw_input,
+                    canonical_input=parsed.canonical_eq,
+                    final_result="",
+                    final_latex="",
+                    warnings=(f"Điều kiện ban đầu ({x0}, {y0}) không hợp lệ đối với M({x_var}, {y_var}): {m_err}.",),
+                    execution_time_ms=elapsed,
+                )
+
+            is_valid_n, n_err = validate_initial_point_in_domain(
+                N_expr,
+                x_var,
+                y_var,
+                x0,
+                y0,
+                original_denominators=parsed.original_denominators,
+                leading_coeffs=parsed.leading_coeffs,
+            )
+            if not is_valid_n:
+                elapsed = (time.perf_counter() - t0_start) * 1000.0
+                return SolutionResponse(
+                    status=SolutionStatus.INVALID_INPUT,
+                    verification=VerificationResult(
+                        status=VerificationStatus.NOT_APPLICABLE,
+                        method="initial_point_domain_validation",
+                        details=f"Điểm ban đầu ({x0}, {y0}) không thuộc miền xác định của N({x_var}, {y_var}): {n_err}",
+                    ),
+                    raw_input=request.raw_input,
+                    canonical_input=parsed.canonical_eq,
+                    final_result="",
+                    final_latex="",
+                    warnings=(f"Điều kiện ban đầu ({x0}, {y0}) không hợp lệ đối với N({x_var}, {y_var}): {n_err}.",),
+                    execution_time_ms=elapsed,
+                )
+
         steps: list[SolutionStep] = []
         step_num = 1
         domain_restrictions: list[str] = []
@@ -127,9 +213,10 @@ class ODEExactSolver(Solver):
                 rule_name="Kiểm tra tính vi phân toàn phần",
                 title="Kiểm tra điều kiện vi phân toàn phần (Exactness Condition)",
                 description=(
-                    f"Xác định M({x_var}, {y_var}) = {M_expr} và N({x_var}, {y_var}) = {N_expr}. "
-                    f"Tính các đạo hàm riêng: dM/d{y_var} = {dM_dy} và dN/d{x_var} = {dN_dx}. "
-                    f"Vì dM/d{y_var} = dN/d{x_var}, phương trình là vi phân toàn phần."
+                    f"Xác định $M({x_var}, {y_var}) = {expr_to_latex(M_expr)}$ và $N({x_var}, {y_var}) = {expr_to_latex(N_expr)}$. "
+                    f"Tính các đạo hàm riêng: $\\frac{{\\partial M}}{{\\partial {y_var}}} = {expr_to_latex(dM_dy)}$ "
+                    f"và $\\frac{{\\partial N}}{{\\partial {x_var}}} = {expr_to_latex(dN_dx)}$. "
+                    f"Vì $\\frac{{\\partial M}}{{\\partial {y_var}}} = \\frac{{\\partial N}}{{\\partial {x_var}}}$, phương trình là vi phân toàn phần."
                 ),
                 content=ExpressionStepContent(
                     expression_before=f"M = {M_expr}, N = {N_expr}",
@@ -149,10 +236,10 @@ class ODEExactSolver(Solver):
             SolutionStep(
                 step_number=step_num,
                 rule_name="Tích phân hai vế",
-                title=f"Tích phân hàm M({x_var}, {y_var}) theo biến {x_var}",
+                title=f"Tích phân hàm $M({x_var}, {y_var})$ theo biến ${x_var}$",
                 description=(
-                    f"Lấy nguyên hàm của M theo biến {x_var} (coi {y_var} là hằng số): "
-                    f"Psi({x_var}, {y_var}) = int({M_expr}) d{x_var} = {psi_expr} + h({y_var})."
+                    f"Lấy nguyên hàm của $M({x_var}, {y_var})$ theo biến ${x_var}$ (coi ${y_var}$ là hằng số): "
+                    f"$\\Psi({x_var}, {y_var}) = \\int \\left( {expr_to_latex(M_expr)} \\right)\\,d{x_var} = {expr_to_latex(psi_expr)} + h({y_var})$."
                 ),
                 content=ExpressionStepContent(
                     expression_before=f"int({M_expr}) d{x_var}",
@@ -193,11 +280,11 @@ class ODEExactSolver(Solver):
             SolutionStep(
                 step_number=step_num,
                 rule_name="Xác định hệ số",
-                title=f"Xác định hàm số phụ h({y_var})",
+                title=f"Xác định hàm số phụ $h({y_var})$",
                 description=(
-                    f"Đạo hàm riêng theo {y_var}: dPsi/d{y_var} = {dpsi_dy}. "
-                    f"So sánh với N({x_var}, {y_var}) ta có: h'({y_var}) = N - dPsi/d{y_var} = {h_prime}. "
-                    f"Tích phân theo {y_var} suy ra: h({y_var}) = {h_expr}."
+                    f"Đạo hàm riêng theo ${y_var}$: $\\frac{{\\partial \\Psi}}{{\\partial {y_var}}} = {expr_to_latex(dpsi_dy)}$. "
+                    f"So sánh với $N({x_var}, {y_var})$ ta có: $h'({y_var}) = N - \\frac{{\\partial \\Psi}}{{\\partial {y_var}}} = {expr_to_latex(h_prime)}$. "
+                    f"Tích phân theo ${y_var}$ suy ra: $h({y_var}) = {expr_to_latex(h_expr)}$."
                 ),
                 content=ExpressionStepContent(
                     expression_before=f"h'({y_var}) = {N_expr} - ({dpsi_dy})",
@@ -217,10 +304,10 @@ class ODEExactSolver(Solver):
             SolutionStep(
                 step_number=step_num,
                 rule_name="Xây dựng hàm thế",
-                title="Xây dựng hàm thế vi phân toàn phần F(x, y)",
+                title=f"Xây dựng hàm thế vi phân toàn phần $F({x_var}, {y_var})$",
                 description=(
-                    f"Hàm thế vi phân toàn phần là F({x_var}, {y_var}) = Psi({x_var}, {y_var}) + h({y_var}) = {potential_F}. "
-                    f"Nghiệm tổng quát của phương trình là F({x_var}, {y_var}) = C."
+                    f"Hàm thế vi phân toàn phần là $F({x_var}, {y_var}) = \\Psi({x_var}, {y_var}) + h({y_var}) = {expr_to_latex(potential_F)}$. "
+                    f"Nghiệm tổng quát của phương trình là $F({x_var}, {y_var}) = C$, tức ${expr_to_latex(potential_F)} = C$."
                 ),
                 content=ExpressionStepContent(
                     expression_before=f"F = ({psi_expr}) + ({h_expr})",
@@ -247,8 +334,9 @@ class ODEExactSolver(Solver):
                     rule_name="Áp dụng điều kiện ban đầu",
                     title="Xác định hằng số C từ điều kiện ban đầu",
                     description=(
-                        f"Thay {x_var} = {x0} và {y_var} = {y0} vào hàm thế: "
-                        f"C = F({x0}, {y0}) = {c_val} => Nghiệm riêng: {potential_F} = {c_val}."
+                        f"Thay ${x_var} = {expr_to_latex(x0)}$ và ${y_var} = {expr_to_latex(y0)}$ vào hàm thế để xác định hằng số $C$: "
+                        f"$C = F({expr_to_latex(x0)}, {expr_to_latex(y0)}) = {expr_to_latex(c_val)}$. "
+                        f"Nghiệm riêng của bài toán là ${part_latex}$."
                     ),
                     content=ExpressionStepContent(
                         expression_before=f"C = F({x0}, {y0})",

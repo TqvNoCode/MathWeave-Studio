@@ -7,6 +7,7 @@ import os
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 
 class StartupMode(enum.Enum):
@@ -145,6 +146,11 @@ def validate_and_prepare_native_backend(
         if icon_path is not None and Path(icon_path).is_file():
             app.native.start_args["icon"] = str(icon_path)
 
+        # Apply pywebview Qt patches to remediate WebChannel & WebEnginePage shutdown warnings
+        patch_pywebview_qt()
+        server_args = app.native.start_args.setdefault("server_args", {})
+        server_args["_native_hook"] = _NativeProcessHook()
+
     elif platform == "win32":
         # On Windows, pywebview uses WinForms + EdgeChromium (WebView2).
         try:
@@ -191,3 +197,118 @@ def validate_and_prepare_native_backend(
         from nicegui import app
 
         app.native.window_args["resizable"] = True
+
+
+def patch_pywebview_qt() -> None:
+    """Remediate pywebview Qt backend warnings for WebChannel and WebEnginePage cleanup."""
+    try:
+        import webview.platforms.qt as qt_mod
+    except ImportError:
+        return
+
+    if getattr(qt_mod, "_mathweave_qt_patched", False):
+        return
+
+    orig_init = qt_mod.BrowserView.__init__
+    orig_set_js_api = qt_mod.BrowserView._set_js_api
+
+    def patched_init(self: Any, window: Any) -> None:
+        orig_init(self, window)
+        # Fix Issue C: Pre-register 'external' on channel before page finishes loading
+        if getattr(self, "channel", None) is not None and getattr(self, "js_bridge", None) is not None:
+            try:
+                registered = self.channel.registeredObjects()
+                if "external" not in registered:
+                    self.channel.registerObject("external", self.js_bridge)
+            except Exception:
+                pass
+
+    def patched_set_js_api(self: Any) -> None:
+        # Fix Issue C: Prevent duplicate post-initialization registration warning
+        if getattr(qt_mod, "is_webengine", False):
+            from PyQt6 import QtCore
+
+            qwebchannel_js = QtCore.QFile("://qtwebchannel/qwebchannel.js")
+            if qwebchannel_js.open(QtCore.QFile.ReadOnly):
+                source = bytes(qwebchannel_js.readAll()).decode("utf-8")
+                self.webview.page().runJavaScript(source)
+                try:
+                    registered = self.channel.registeredObjects()
+                    if "external" not in registered:
+                        self.channel.registerObject("external", self.js_bridge)
+                except Exception:
+                    pass
+                qwebchannel_js.close()
+            qt_mod.inject_pywebview(qt_mod.renderer, self.js_bridge.window)
+        else:
+            orig_set_js_api(self)
+
+    def patched_close_event(self: Any, event: Any) -> None:
+        # Fix Issue D: Properly detach page, trigger deferred delete, and flush events before Qt exit
+        should_cancel = self.pywebview_window.events.closing.set()
+        if should_cancel:
+            event.ignore()
+            return
+
+        if self.pywebview_window.confirm_close:
+            reply = qt_mod.QMessageBox.question(
+                self,
+                self.title,
+                self.localization["global.quitConfirmation"],
+                qt_mod.QMessageBox.Yes,
+                qt_mod.QMessageBox.No,
+            )
+            if reply == qt_mod.QMessageBox.No:
+                event.ignore()
+                return
+
+        event.accept()
+
+        if self.uid in qt_mod.BrowserView.instances:
+            del qt_mod.BrowserView.instances[self.uid]
+        self.close()
+
+        if self.pywebview_window in qt_mod.windows:
+            qt_mod.windows.remove(self.pywebview_window)
+
+        self.pywebview_window.events.closed.set()
+
+        # Detach page from webview and schedule deferred deletion
+        try:
+            page = self.webview.page()
+            if page:
+                self.webview.setPage(None)
+                page.deleteLater()
+        except Exception:
+            pass
+
+        if len(qt_mod.BrowserView.instances) == 0:
+            self.hide()
+            try:
+                from PyQt6.QtCore import QCoreApplication, QEvent
+
+                QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+                QCoreApplication.processEvents()
+            except Exception:
+                pass
+            if hasattr(qt_mod, "_app") and qt_mod._app is not None:
+                qt_mod._app.exit()
+
+    qt_mod.BrowserView.__init__ = patched_init
+    qt_mod.BrowserView._set_js_api = patched_set_js_api
+    qt_mod.BrowserView.closeEvent = patched_close_event
+    qt_mod._mathweave_qt_patched = True
+
+
+class _NativeProcessHook:
+    """Hook invoked in the child native window process during unpickling to patch pywebview."""
+
+    def __reduce__(self) -> tuple[Any, tuple[()]]:
+        return (_execute_native_patch_in_child, ())
+
+
+def _execute_native_patch_in_child() -> _NativeProcessHook:
+    """Execute pywebview Qt patching inside spawned child native process."""
+    patch_pywebview_qt()
+    return _NativeProcessHook()
+

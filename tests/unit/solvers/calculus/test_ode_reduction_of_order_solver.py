@@ -221,3 +221,41 @@ def test_euler_cauchy_negative_interval_domain_regression():
     a_coeff = 2 * t_pos**2
     assert a_coeff.subs(t_pos, 0) == 0
 
+
+def test_reduction_of_order_rejects_nonhomogeneous_equation(solver: ODEReductionOfOrderSolver):
+    """Case 13: Nonhomogeneous equation y'' + y = 1, y1 = cos(t) must be rejected."""
+    req = ProblemRequest(
+        raw_input="y'' + y = 1, y1 = cos(t)",
+        problem_type=ProblemType.ODE_REDUCTION_OF_ORDER,
+        target_variable="t",
+    )
+    with pytest.raises(InvalidInputError, match="thuần nhất"):
+        solver.solve(req)
+
+
+def test_euler_cauchy_positive_interval_solver(solver: ODEReductionOfOrderSolver):
+    """Case 15: Euler-Cauchy on t > 0 yields second independent solution proportional to sqrt(t)."""
+    req = ProblemRequest(
+        raw_input="2*t^2*y'' + 3*t*y' - y = 0, y1 = 1/t, t > 0",
+        problem_type=ProblemType.ODE_REDUCTION_OF_ORDER,
+        target_variable="t",
+    )
+    res = solver.solve(req)
+    assert res.status == SolutionStatus.SUCCESS
+    assert res.verification.status == VerificationStatus.VERIFIED
+    assert "sqrt(t)" in res.final_result or "t**(1/2)" in res.final_result
+
+
+def test_euler_cauchy_negative_interval_solver(solver: ODEReductionOfOrderSolver):
+    """Case 16: Euler-Cauchy on t < 0 yields real second independent solution proportional to sqrt(-t)."""
+    req = ProblemRequest(
+        raw_input="2*t^2*y'' + 3*t*y' - y = 0, y1 = 1/t, t < 0",
+        problem_type=ProblemType.ODE_REDUCTION_OF_ORDER,
+        target_variable="t",
+    )
+    res = solver.solve(req)
+    assert res.status == SolutionStatus.SUCCESS
+    assert res.verification.status == VerificationStatus.VERIFIED
+    assert "sqrt(-t)" in res.final_result or "(-t)**(1/2)" in res.final_result
+
+

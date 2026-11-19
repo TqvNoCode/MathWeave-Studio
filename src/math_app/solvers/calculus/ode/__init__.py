@@ -1,5 +1,6 @@
 """Differential equation solvers package."""
 
+from math_app.solvers.calculus.ode.classical_homogeneous_solver import ODEClassicalHomogeneousSolver
 from math_app.solvers.calculus.ode.exact_solver import ODEExactSolver
 from math_app.solvers.calculus.ode.integrating_factor_solver import ODEIntegratingFactorSolver
 from math_app.solvers.calculus.ode.linear_solver import ODELinearSolver
@@ -10,6 +11,7 @@ from math_app.solvers.calculus.ode.wronskian_solver import WronskianSolver
 
 __all__ = [
     "ODELinearSolver",
+    "ODEClassicalHomogeneousSolver",
     "ODESeparableSolver",
     "ODEExactSolver",
     "ODEIntegratingFactorSolver",

@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Portable Cross-Platform Computation Timeout**:
+  - Implemented `process_guard.py` (`run_with_process_timeout`) providing robust, process-based execution timeouts compatible with Windows multiprocessing `spawn` and Linux.
+  - Eliminated Unix-only `signal.setitimer` and `SIGALRM` across solvers and verifiers, ensuring reliable timeout behavior in multithreaded environments and on Windows.
+  - Added explicit two-phase process handshake separating interpreter initialization latency from pure mathematical computation budgets.
+  - Added `SolutionStatus.INCONCLUSIVE` to domain models for mathematical outcomes where convergence or divergence cannot be proven.
+
+### Fixed
+- **Arc Length Numerical Benchmark & Verification Hardening**:
+  - Verified and documented true numerical arc length benchmark for $f(x) = \cos(x) - \tan(x)$ on $[0, 1]$ ($L \approx 2.280484110764684$).
+  - Hardened unit tests with explicit tolerance assertions (`math.isclose`), covering regular lines, nonlinear curves, convergent endpoint singularities, divergent singularities, and parametric curves.
+  - Updated `SolveProblemUseCase` to use `daemon=False` and clean up OS process handles (`p.close()`), preventing handle leaks on Windows.
+
 ## [0.1.1] - 2026-11-15
 
 ### Added

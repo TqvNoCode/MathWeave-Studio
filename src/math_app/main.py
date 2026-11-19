@@ -28,6 +28,7 @@ from math_app.solvers.calculus.integration.line_integral_solver import LineInteg
 from math_app.solvers.calculus.integration.surface_integral_solver import SurfaceIntegralSolver
 from math_app.solvers.calculus.integration.triple_integral_solver import TripleIntegralSolver
 from math_app.solvers.calculus.limit.solver import LimitSolver
+from math_app.solvers.calculus.ode.classical_homogeneous_solver import ODEClassicalHomogeneousSolver
 from math_app.solvers.calculus.ode.exact_solver import ODEExactSolver
 from math_app.solvers.calculus.ode.integrating_factor_solver import ODEIntegratingFactorSolver
 from math_app.solvers.calculus.ode.linear_solver import ODELinearSolver
@@ -110,6 +111,9 @@ def build_application() -> SolveProblemUseCase:
     # Differential Equations solvers
     ode_linear_solver = ODELinearSolver()
     registry.register(ProblemType.ODE_FIRST_ORDER_LINEAR, ode_linear_solver)
+
+    ode_classical_homog_solver = ODEClassicalHomogeneousSolver()
+    registry.register(ProblemType.ODE_FIRST_ORDER_HOMOGENEOUS, ode_classical_homog_solver)
 
     ode_separable_solver = ODESeparableSolver()
     registry.register(ProblemType.ODE_SEPARABLE, ode_separable_solver)

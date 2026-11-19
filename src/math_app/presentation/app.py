@@ -63,7 +63,13 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                     window.katex.render(tex, el, {
                         displayMode: isBlock,
                         throwOnError: false,
-                        output: 'htmlAndMathml'
+                        output: 'htmlAndMathml',
+                        strict: function(errorCode, errorMsg, token) {
+                            if (errorCode === 'unknownSymbol' || errorCode === 'unicodeTextInMathMode') {
+                                return 'ignore';
+                            }
+                            return 'warn';
+                        }
                     });
                     el.setAttribute('data-rendered', 'true');
                 } catch (e) {
@@ -356,8 +362,10 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                 is_matrix_op = current_op.is_matrix
 
                 with ui.column().classes("w-full gap-5"):
-                    # Navigation Bar with Shared High-Contrast Back Button
-                    with ui.row().classes("w-full items-center justify-between bg-white p-3 rounded-xl border border-slate-200 shadow-xs"):
+                    # Navigation Bar with Shared High-Contrast Back Button (Sticky on scroll)
+                    with ui.row().classes(
+                        "w-full items-center justify-between bg-white p-3 rounded-xl border border-slate-200 shadow-sm sticky top-0 z-30 transition-all"
+                    ):
                         with ui.row().classes("items-center gap-3"):
                             render_back_button(on_click=switch_to_catalog)
                             ui.separator().props("vertical")

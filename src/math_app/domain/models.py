@@ -21,6 +21,7 @@ class ProblemType(str, Enum):
 
     # Differential Equations
     ODE_FIRST_ORDER_LINEAR = "ode_first_order_linear"
+    ODE_FIRST_ORDER_HOMOGENEOUS = "ode_first_order_homogeneous"
     ODE_SEPARABLE = "ode_separable"
     ODE_EXACT = "ode_exact"
     ODE_INTEGRATING_FACTOR = "ode_integrating_factor"
@@ -86,6 +87,7 @@ _MATRIX_PROBLEM_TYPES: frozenset[ProblemType] = frozenset({
 
 _ODE_PROBLEM_TYPES: frozenset[ProblemType] = frozenset({
     ProblemType.ODE_FIRST_ORDER_LINEAR,
+    ProblemType.ODE_FIRST_ORDER_HOMOGENEOUS,
     ProblemType.ODE_SEPARABLE,
     ProblemType.ODE_EXACT,
     ProblemType.ODE_INTEGRATING_FACTOR,
@@ -100,6 +102,7 @@ class ODEType(str, Enum):
     """Classification of ordinary differential equations."""
 
     FIRST_ORDER_LINEAR = "first_order_linear"
+    CLASSICAL_HOMOGENEOUS = "classical_homogeneous"
     SEPARABLE = "separable"
     EXACT = "exact"
     INTEGRATING_FACTOR = "integrating_factor"
@@ -124,6 +127,14 @@ class ODEProblemDefinition:
     is_autonomous: bool = False
 
 
+class EquilibriumUniqueness(str, Enum):
+    """Assessment of equilibrium solution uniqueness under Cauchy initial conditions."""
+
+    UNIQUE_PROVEN = "unique_proven"
+    NONUNIQUE_PROVEN = "nonunique_proven"
+    UNIQUENESS_NOT_ESTABLISHED = "uniqueness_not_established"
+
+
 class SolutionStatus(str, Enum):
     """Overall outcome for a problem resolution attempt."""
 
@@ -135,6 +146,8 @@ class SolutionStatus(str, Enum):
     DISCREPANCY_DETECTED = "discrepancy"
     ERROR = "error"
     UNVERIFIED = "unverified"
+    DIVERGENT = "divergent"
+    INCONCLUSIVE = "inconclusive"
 
 
 class VerificationStatus(str, Enum):

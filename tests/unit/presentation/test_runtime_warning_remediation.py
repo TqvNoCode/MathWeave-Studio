@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pickle
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -174,7 +175,14 @@ def test_execute_native_patch_in_child():
 
 def test_validate_and_prepare_native_backend_configures_server_args():
     """Verify validate_and_prepare_native_backend registers _NativeProcessHook in server_args."""
-    with patch("PyQt6.QtCore.QObject"), patch("PyQt6.QtWebEngineWidgets.QWebEngineView"):
+    import PyQt6
+
+    mock_webengine = MagicMock()
+    mock_webengine.QWebEngineView = MagicMock()
+
+    with patch.object(PyQt6, "QtWebEngineWidgets", mock_webengine, create=True), patch.dict(
+        sys.modules, {"PyQt6.QtWebEngineWidgets": mock_webengine}
+    ):
         from nicegui import app
 
         validate_and_prepare_native_backend(platform="linux")

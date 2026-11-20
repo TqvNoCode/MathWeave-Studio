@@ -60,17 +60,18 @@ Trình cài đặt Windows được hiện thực hóa thông qua kịch bản I
   *Mã GUID này được sinh một lần duy nhất và cố định qua mọi bản phát hành trong tương lai để bảo đảm khả năng nâng cấp (upgrade) đồng nhất.*
 
 ### 2.2. Hành vi cài đặt (Installation Behavior)
-- **Hỗ trợ 64-bit:** `ArchitecturesAllowed=x64compatible x64`, `ArchitecturesInstallIn64BitMode=x64compatible x64`.
+- **Hỗ trợ 64-bit:** `ArchitecturesAllowed=x64compatible`, `ArchitecturesInstallIn64BitMode=x64compatible` (tương thích tối ưu cho hệ điều hành Windows x64 và Windows 11 ARM64 có lớp giả lập x64).
 - **Thư mục cài đặt mặc định:** `{autopf}\MathWeave Studio` (thường là `C:\Program Files\MathWeave Studio` khi có quyền quản trị, hoặc thư mục tương đương cho người dùng hiện tại).
 - **Phím tắt (Shortcuts):**
-  - Tự động tạo thư mục Start Menu: `{autoprograms}\MathWeave Studio\MathWeave Studio.lnk` đi kèm biểu tượng chính thức.
+  - Tự động tạo thư mục Start Menu: `{autoprograms}\MathWeave Studio\MathWeave Studio.lnk` đi kèm biểu tượng nhúng từ tệp thực thi.
   - Tùy chọn biểu tượng ngoài màn hình nền (Desktop shortcut): `{autodesktop}\MathWeave Studio.lnk`, được tích chọn mặc định (`Tasks: desktopicon`).
+  - Biểu tượng shortcut sử dụng trực tiếp tài nguyên nhúng sẵn trong `mathweave-studio.exe`, không phụ thuộc đường dẫn ngoài.
 - **Thuật toán nén:** `Compression=lzma2/max`, `SolidCompression=yes`, tối ưu hóa kích thước tải về.
 
 ### 2.3. Hành vi nâng cấp (Upgrade Behavior)
 - Khi người dùng chạy bộ cài đặt mới hơn đè lên bản cũ:
   - Inno Setup phát hiện bản cài đặt cũ thông qua `AppId`.
-  - Thuộc tính `CloseApplications=yes` và `CloseApplicationsTimeout=30` tự động kiểm tra xem MathWeave Studio có đang chạy không; nếu có, trình cài đặt hiển thị thông báo yêu cầu đóng ứng dụng hoặc gửi tín hiệu đóng nhẹ nhàng trước khi ghi đè tệp nhị phân, tránh lỗi xung đột tệp đang mở.
+  - Thuộc tính `CloseApplications=yes` tích hợp cơ chế Windows Restart Manager để tự động phát hiện ứng dụng MathWeave Studio đang chạy; nếu có, hiển thị thông báo yêu cầu đóng ứng dụng trước khi ghi đè tệp nhị phân, tránh xung đột tệp đang mở mà không cưỡng chế tắt tiến trình.
   - Dữ liệu và thiết lập người dùng được bảo toàn nguyên vẹn.
 
 ### 2.4. Hành vi gỡ cài đặt (Uninstall Behavior)
@@ -185,13 +186,42 @@ Workflow được bổ sung bước `Generate GitHub Actions Job Summary` (chạ
 
 ---
 
-## 7. Kết Luận Nghiệm Thu (Deliverables Acceptance)
+## 7. Khắc Phục Sự Cố Biên Dịch Inno Setup & Gia Cố Quy Trình CI (Inno Setup Compilation Fix & Hardening)
+
+### 7.1. Chẩn đoán lỗi thực tế từ GitHub Actions Run `44748458106`
+Trong lần chạy workflow đầu tiên tại commit `696bf12`, bước `Compile Inno Setup Windows Installer from Onedir Intermediate` thất bại trên runner Windows Server 2022 (Inno Setup 6.7.1) với thông báo lỗi biên dịch trực tiếp:
+```text
+Error on line 60 in installer/MathWeave-Studio.iss:
+Unrecognized [Setup] section directive "CloseApplicationsTimeout"
+
+Compile aborted.
+```
+
+### 7.2. Nguyên nhân gốc rễ & Biện pháp khắc phục
+1. **Lược bỏ chỉ thị không hợp lệ:** Inno Setup 6 không hỗ trợ `CloseApplicationsTimeout` trong phần `[Setup]`. Đã xóa bỏ chỉ thị này, bảo lưu chỉ thị chính thống `CloseApplications=yes` để kích hoạt tích hợp Windows Restart Manager tự nhiên và an toàn.
+2. **Chuẩn hóa kiến trúc mục tiêu:** Đổi từ cấu hình lặp `x64compatible x64` thành cấu hình đơn chuẩn tắc:
+   ```ini
+   ArchitecturesAllowed=x64compatible
+   ArchitecturesInstallIn64BitMode=x64compatible
+   ```
+   Bảo đảm trình cài đặt chạy được trên cả kiến trúc x64 bản địa và Windows 11 ARM64 có tầng giả lập x64.
+3. **Chuẩn hóa phím tắt:** Bỏ tham số `IconFilename: "{app}\assets\icon.ico"` trong phần `[Icons]` do PyInstaller Onedir lưu trữ tài nguyên tại thư mục con `_internal\assets\`, và tệp thực thi `mathweave-studio.exe` đã được nhúng sẵn icon PE chính thức nên Windows tự động hiển thị biểu tượng chuẩn.
+4. **Gia cố bước thực thi CI trên GitHub Actions:**
+   - Dùng `Resolve-Path` để giải quyết đường dẫn tuyệt đối cho tệp `.iss`.
+   - Kiểm tra xác thực tệp `.iss` tồn tại trước khi gọi trình biên dịch.
+   - Sử dụng `Get-Command "ISCC.exe"` để xác định vị trí thực thi và trích xuất phiên bản Inno Setup thực tế (`VersionInfo.ProductVersion`).
+   - Kiểm tra lập tức `$LASTEXITCODE` sau khi gọi ISCC và dừng tiến trình với mã lỗi chính xác nếu biên dịch không thành công.
+   - Xác thực tệp nhị phân đầu ra `dist/MathWeave-Studio-Setup-*.exe` tồn tại và có kích thước lớn hơn 0 bytes.
+
+---
+
+## 8. Kết Luận Nghiệm Thu (Deliverables Acceptance)
 
 1. ✅ Hoàn thành đơn giản hóa phân phối: Chính xác 2 tệp đầu ra (Portable & Installer).
 2. ✅ Đã loại bỏ hoàn toàn tệp phân phối Onedir ZIP cồng kềnh.
-3. ✅ Hoàn thành kịch bản Inno Setup chuẩn tại `installer/MathWeave-Studio.iss` với AppId ổn định.
+3. ✅ Hoàn thành kịch bản Inno Setup chuẩn tại `installer/MathWeave-Studio.iss` với AppId ổn định, sửa triệt để lỗi biên dịch `CloseApplicationsTimeout`.
 4. ✅ Khắc phục triệt để hiện tượng khóa tệp Portable sau khi đóng cửa sổ (`reports/WINDOWS_SHUTDOWN_DIAGNOSTICS.md`).
 5. ✅ Nâng cấp toàn diện GitHub Actions sang môi trường Node.js 24 với commit SHA bất biến (`checkout@v7`, `upload-artifact@v6`, `setup-uv@v10`).
 6. ✅ Chuẩn hóa cảnh báo Unsigned-Dev thành single notice, tích hợp `$GITHUB_STEP_SUMMARY` trực quan, bảo lưu nguyên vẹn ranh giới nghiêm ngặt của `require_signing=true`.
 7. ✅ Tự động hóa kiểm thử nghiệm thu cài đặt/gỡ cài đặt và kiểm tra giải phóng khóa tệp trong CI.
-8. ✅ Đảm bảo 100% các bài kiểm tra unit & acceptance test vượt qua thành công (653 tests pass).
+8. ✅ Đảm bảo 100% các bài kiểm tra unit & acceptance test vượt qua thành công (654 tests pass).

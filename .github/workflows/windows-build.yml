@@ -137,19 +137,56 @@ jobs:
           $ver = uv run python -c "from build_tools.generate_version_info import get_project_version; print(get_project_version())"
           $author = uv run python -c "from build_tools.generate_version_info import get_project_author; print(get_project_author())"
 
+          # 1 & 2: Resolve script to absolute path and verify existence
+          $issRelativePath = "installer/MathWeave-Studio.iss"
+          if (-not (Test-Path $issRelativePath)) {
+            Write-Error "CRITICAL: Inno Setup script not found at $issRelativePath"
+            exit 1
+          }
+          $issPath = (Resolve-Path $issRelativePath).Path
+          Write-Host "Resolved installer script path: $issPath"
+
+          # 3 & 4: Resolve ISCC.exe and log detected version
+          $isccCommand = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
+          if (-not $isccCommand) {
+            Write-Error "CRITICAL: ISCC.exe not found in PATH."
+            exit 1
+          }
+          $isccPath = $isccCommand.Source
+          Write-Host "Found Inno Setup compiler at: $isccPath"
+          try {
+            $isccVersion = (Get-Item $isccPath).VersionInfo.ProductVersion
+            Write-Host "Detected Inno Setup version: $isccVersion"
+          } catch {
+            Write-Host "Could not query Inno Setup ProductVersion."
+          }
+
+          # 5 & 6: Invoke compiler with correctly quoted arguments
           Write-Host "Compiling Inno Setup installer for version $ver (OutputBaseFilename: $installerBaseName)..."
-          & ISCC.exe `
+          & $isccPath `
             "/DMyAppVersion=$ver" `
             "/DMyAppPublisher=$author" `
             "/DMyOutputBaseFilename=$installerBaseName" `
-            "installer/MathWeave-Studio.iss"
+            "$issPath"
 
+          # 7 & 8: Immediately check $LASTEXITCODE and fail with diagnostics
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            Write-Error "CRITICAL: ISCC.exe compiler failed with exit code $exitCode."
+            exit $exitCode
+          }
+
+          # 9: Verify expected installer output exists and is non-empty
           $installerPath = "dist/$installerBaseName.exe"
           if (-not (Test-Path $installerPath)) {
             Write-Error "CRITICAL: Expected installer output missing at $installerPath."
             exit 1
           }
           $item = Get-Item $installerPath
+          if ($item.Length -le 0) {
+            Write-Error "CRITICAL: Compiled installer at $installerPath is empty ($($item.Length) bytes)."
+            exit 1
+          }
           Write-Host "Successfully compiled installer: $installerPath ($($item.Length) bytes)."
 
       - name: Sign Windows Installer Executable (Authenticode SHA-256)

@@ -150,14 +150,22 @@ def test_inno_setup_installer_script_configuration() -> None:
     assert "AppId={{780F209D-79B0-498A-84EB-77A1ED4765E4}" in content
     assert 'MyAppPublisher "TqvNoCode"' in content
     assert 'MyAppName "MathWeave Studio"' in content
-    assert "ArchitecturesAllowed=x64compatible x64" in content
-    assert "ArchitecturesInstallIn64BitMode=x64compatible x64" in content
+    assert "ArchitecturesAllowed=x64compatible\n" in content
+    assert "ArchitecturesAllowed=x64compatible x64" not in content
+    assert "ArchitecturesInstallIn64BitMode=x64compatible\n" in content
+    assert "ArchitecturesInstallIn64BitMode=x64compatible x64" not in content
     assert "CloseApplications=yes" in content
-    assert "CloseApplicationsTimeout=30" in content
+    assert "CloseApplicationsTimeout" not in content
     assert "Compression=lzma2/max" in content
     assert "SolidCompression=yes" in content
     assert r"SetupIconFile=..\assets\icon.ico" in content
     assert r"DefaultDirName={autopf}\{#MyAppName}" in content
+
+    # Verify redundant shortcut IconFilename is removed
+    assert 'IconFilename: "{app}\\assets\\icon.ico"' not in content
+    assert 'Name: "{autoprograms}\\{#MyAppName}\\{#MyAppName}"; Filename: "{app}\\{#MyAppExeName}"\n' in content
+    assert 'Name: "{autodesktop}\\{#MyAppName}"; Filename: "{app}\\{#MyAppExeName}"; Tasks: desktopicon\n' in content
+
 
 
 def test_signing_script_handles_installer_exe() -> None:
@@ -238,3 +246,26 @@ def test_github_actions_workflow_notices_and_job_summary() -> None:
     assert "**Smart App Control (SAC)**" in content
     assert "**$sacStatus**" in content
     assert "Node 24 (actions/checkout@v7, actions/upload-artifact@v6, astral-sh/setup-uv@v10)" in content
+
+
+def test_github_actions_workflow_inno_setup_compilation_hardening() -> None:
+    workflow_path = ROOT_DIR / ".github" / "workflows" / "windows-build.yml"
+    assert workflow_path.is_file()
+
+    content = workflow_path.read_text(encoding="utf-8")
+
+    # Hardening: Resolve script to absolute path & verify existence
+    assert "(Resolve-Path $issRelativePath).Path" in content
+    assert 'Test-Path $issRelativePath' in content
+
+    # Hardening: Resolve ISCC compiler via Get-Command and log version
+    assert 'Get-Command "ISCC.exe"' in content
+    assert "(Get-Item $isccPath).VersionInfo.ProductVersion" in content
+
+    # Hardening: Immediately check $LASTEXITCODE and fail on error
+    assert "$exitCode = $LASTEXITCODE" in content
+    assert "if ($exitCode -ne 0) {" in content
+    assert "exit $exitCode" in content
+
+    # Hardening: Verify non-empty compiled binary
+    assert "$item.Length -le 0" in content

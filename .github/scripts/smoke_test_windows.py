@@ -10,6 +10,7 @@ Validates that both the onedir and portable (onefile) Windows distributions:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import secrets
 import subprocess
@@ -25,9 +26,24 @@ def log(msg: str) -> None:
     print(f"[SMOKE-TEST] {msg}", flush=True)
 
 
+def compute_sha256(file_path: Path) -> str:
+    """Compute and return hexadecimal SHA-256 hash of file."""
+    hasher = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
 def check_native_backend_environment() -> None:
-    """Validate that Windows native dependencies (pythonnet, WebView2) are functional."""
+    """Validate that Windows native dependencies (pythonnet, WebView2) and NiceGUI APIs are functional."""
     log("Validating Windows native environment dependencies...")
+    try:
+        from nicegui import app, ui  # noqa: F401
+        log("NiceGUI core APIs (app, ui) verified successfully.")
+    except ImportError as exc:
+        raise RuntimeError(f"CRITICAL: NiceGUI core API import failed: {exc}") from exc
+
     try:
         import pythonnet  # noqa: F401
         import clr_loader  # noqa: F401
@@ -61,7 +77,7 @@ def validate_onedir_structure(onedir_path: Path) -> None:
         raise FileNotFoundError(f"Main executable not found in {onedir_path}. Looked for: {exe_candidates}")
 
     exe_size = main_exe.stat().st_size
-    log(f"Found onedir executable: {main_exe.name} ({exe_size:,} bytes)")
+    log(f"Found onedir executable: {main_exe.name} ({exe_size:,} bytes, SHA-256: {compute_sha256(main_exe)})")
     if exe_size < 50_000:
         raise ValueError(f"Executable file {main_exe} is suspiciously small: {exe_size} bytes")
 
@@ -212,7 +228,7 @@ def validate_portable_executable(portable_path: Path) -> None:
         raise FileNotFoundError(f"Portable executable not found: {portable_path}")
 
     size = portable_path.stat().st_size
-    log(f"Found portable executable: {portable_path.name} ({size:,} bytes)")
+    log(f"Found portable executable: {portable_path.name} ({size:,} bytes, SHA-256: {compute_sha256(portable_path)})")
     # Standalone bundle packaging Python + SymPy + NumPy + NiceGUI + assets must be > 15MB
     if size < 15_000_000:
         raise ValueError(f"Portable executable suspiciously small ({size:,} bytes). Expected > 15MB.")
@@ -300,8 +316,11 @@ def run_startup_smoke_test(
     if shutdown_token:
         env["MATHWEAVE_TEST_SHUTDOWN_TOKEN"] = shutdown_token
 
-    # Use --no-show to prevent NiceGUI from attempting to open a web browser in headless CI
-    cmd = [str(exe_path), "--browser", "--port", str(port), "--no-show"]
+    # On Windows, launch in genuine Native desktop mode (without --browser) matching production shortcut behavior.
+    # On non-Windows platforms (e.g. Linux unit testing without DISPLAY), retain --browser fallback.
+    cmd = [str(exe_path), "--port", str(port), "--no-show"]
+    if sys.platform != "win32":
+        cmd.insert(1, "--browser")
     log(f"Executing: {' '.join(cmd)}")
 
     # Use file-based redirection to avoid Windows pipe buffer deadlock on high output
@@ -367,6 +386,15 @@ def run_startup_smoke_test(
             font_bytes = resp.read()
             log(f"Verified DejaVu Math font HTTP 200 ({len(font_bytes):,} bytes).")
 
+        # Verify from process execution log that genuine Native desktop mode executed on Windows
+        if sys.platform == "win32" and log_file_path.is_file():
+            log_file.flush()
+            log_content = log_file_path.read_text(encoding="utf-8", errors="replace")
+            if "[STARTUP] Resolved startup mode: NATIVE" in log_content:
+                log("Verified genuine Native desktop startup mode (StartupMode.NATIVE) in process execution log.")
+            elif "[STARTUP] Resolved startup mode:" in log_content:
+                log(f"Process startup log mode line: {[line for line in log_content.splitlines() if '[STARTUP]' in line]}")
+
         log(f"RUNTIME SMOKE TEST PASSED for {label}!")
 
     finally:
@@ -420,7 +448,9 @@ def run_portable_shutdown_and_file_lock_test(
         env["MATHWEAVE_PORT"] = str(iter_port)
         env["MATHWEAVE_TEST_SHUTDOWN_TOKEN"] = iter_shutdown_token
 
-        cmd = [str(portable_exe), "--browser", "--port", str(iter_port), "--no-show"]
+        cmd = [str(portable_exe), "--port", str(iter_port), "--no-show"]
+        if sys.platform != "win32":
+            cmd.insert(1, "--browser")
         log_file_path = Path(f"smoke_portable_shutdown_iter{i}.log")
         log_file = open(log_file_path, "w", encoding="utf-8", errors="replace")
 
@@ -521,7 +551,7 @@ def validate_and_test_installer(
         raise FileNotFoundError(f"Installer executable not found: {installer_path}")
 
     size = installer_path.stat().st_size
-    log(f"Found installer executable: {installer_path.name} ({size:,} bytes)")
+    log(f"Found installer executable: {installer_path.name} ({size:,} bytes, SHA-256: {compute_sha256(installer_path)})")
     if size < 15_000_000:
         raise ValueError(f"Installer executable is suspiciously small: {size:,} bytes")
 
@@ -577,7 +607,7 @@ def validate_and_test_installer(
     installed_exe = test_install_dir / "mathweave-studio.exe"
     if not installed_exe.is_file():
         raise FileNotFoundError(f"Installed application executable not found at: {installed_exe}")
-    log(f"Verified installed executable: {installed_exe.name} ({installed_exe.stat().st_size:,} bytes)")
+    log(f"Verified installed executable: {installed_exe.name} ({installed_exe.stat().st_size:,} bytes, SHA-256: {compute_sha256(installed_exe)})")
 
     uninstaller = test_install_dir / "unins000.exe"
     if not uninstaller.is_file():

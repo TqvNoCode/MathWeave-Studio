@@ -174,6 +174,34 @@ Nhằm bảo đảm tính xác định (deterministic), không phụ thuộc và
 
 ---
 
+### 4.4. Chuẩn hóa API NiceGUI & Khắc phục lỗi `ImportError: cannot import name 'Server' from 'nicegui'`
+
+Trong quá trình khởi chạy thực tế trên Windows (ngoài môi trường kiểm thử truyền cờ `--browser`), ứng dụng gặp ngoại lệ:
+```text
+ImportError: cannot import name 'Server' from 'nicegui'
+  File "math_app/main.py", line 351, in main
+```
+
+#### 1. Nguyên nhân kỹ thuật:
+- Lớp `Server` trong NiceGUI (phiên bản `3.18.0` theo `uv.lock`) được định nghĩa trong submodule `nicegui.server`, hoàn toàn **không** được re-export ở cấp độ namespace gốc của gói `nicegui` (`nicegui/__init__.py`).
+- Cú pháp `from nicegui import app, Server` tại nhánh `if use_native:` dẫn đến lỗi `ImportError` ngay khi khởi tạo ứng dụng ở chế độ native window.
+- Lỗi này từng bị ẩn trên CI do kịch bản `smoke_test_windows.py` truyền cờ `--browser`, khiến nhánh `if use_native:` bị bỏ qua.
+
+#### 2. Giải pháp kỹ thuật chuẩn hóa theo Public API của NiceGUI:
+- NiceGUI cung cấp API chính thức `app.shutdown()` cho việc điều phối tắt ứng dụng. Hàm này đã đóng gói sẵn việc hủy cửa sổ `native.main_window.destroy()` và gán cờ `Server.instance.should_exit = True`.
+- Tại [src/math_app/main.py](file:///home/tqv/Desktop/CODE/Python/math_app/src/math_app/main.py):
+  1. Loại bỏ hoàn toàn câu lệnh nhập lỗi `from nicegui import app, Server` ở đầu khối `if use_native:`.
+  2. Tại cả hai hàm điều phối tắt (`_on_native_window_closed` và `_execute_graceful_shutdown`), ưu tiên gọi API công khai được hỗ trợ:
+     ```python
+     try:
+         app.shutdown()
+     except Exception:
+         pass
+     ```
+  3. Duy trì bước phòng thủ thứ cấp với `from nicegui.server import Server` nằm an toàn bên trong khối `try...except Exception: pass`, đảm bảo không bao giờ làm gián đoạn chu trình khởi động của ứng dụng ngay cả khi có thay đổi nội bộ trong các phiên bản NiceGUI tương lai.
+
+---
+
 ## 5. Giới Hạn Còn Lại Của Môi Trường Windows (Remaining Limitations)
 
 1. **Trình quét Antivirus / EDR bên thứ ba:**

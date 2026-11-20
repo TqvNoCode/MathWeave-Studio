@@ -181,6 +181,59 @@ def get_available_port(host: str = DEFAULT_HOST, default_port: int = DEFAULT_POR
         return s.getsockname()[1]
 
 
+_shutdown_initiated = False
+
+
+def _coordinate_graceful_shutdown(reason: str = "general") -> None:
+    """Idempotent graceful shutdown coordinator.
+
+    1. Executes NiceGUI's supported public API `app.shutdown()`.
+    2. If app.shutdown() raises an unexpected exception (e.g. if the native window
+       was already disposed and method_queue cannot receive commands), catches it,
+       logs a safe diagnostic notice, and invokes Server.instance.should_exit = True
+       as an emergency fallback to stop the Uvicorn ASGI event loop.
+    """
+    global _shutdown_initiated
+    if _shutdown_initiated:
+        return
+    _shutdown_initiated = True
+
+    try:
+        app.shutdown()
+        return
+    except Exception as exc:
+        import sys
+
+        if sys.stderr is not None:
+            try:
+                sys.stderr.write(
+                    f"[SHUTDOWN-RECOVERY] app.shutdown() encountered exception ({reason}): {exc}. "
+                    "Activating Server.instance emergency fallback.\n"
+                )
+                sys.stderr.flush()
+            except Exception:
+                pass
+
+    # Targeted emergency fallback: directly signal Uvicorn ASGI event loop to stop
+    # in the event that app.shutdown() failed during native window teardown.
+    try:
+        from nicegui.server import Server
+
+        if hasattr(Server, "instance") and Server.instance is not None:
+            Server.instance.should_exit = True
+    except Exception as fallback_exc:
+        import sys
+
+        if sys.stderr is not None:
+            try:
+                sys.stderr.write(
+                    f"[SHUTDOWN-ERROR] Emergency Server.instance fallback failed: {fallback_exc}\n"
+                )
+                sys.stderr.flush()
+            except Exception:
+                pass
+
+
 def _setup_test_shutdown_endpoint(host: str) -> bool:
     """Configure an authenticated loopback-only shutdown endpoint for automated CI testing.
 
@@ -226,17 +279,7 @@ def _setup_test_shutdown_endpoint(host: str) -> bool:
             import asyncio
 
             await asyncio.sleep(0.05)
-            try:
-                from nicegui.server import Server
-
-                if hasattr(Server, "instance") and Server.instance is not None:
-                    Server.instance.should_exit = True
-            except Exception:
-                pass
-            try:
-                app.shutdown()
-            except Exception:
-                pass
+            _coordinate_graceful_shutdown(reason="authenticated_test_endpoint")
 
         background_tasks.add_task(_execute_graceful_shutdown)
 
@@ -318,6 +361,15 @@ def main() -> None:
 
     use_native = startup_mode.is_native
 
+    if sys.stdout is not None:
+        try:
+            sys.stdout.write(
+                f"[STARTUP] Resolved startup mode: {startup_mode.value.upper()} (native={use_native})\n"
+            )
+            sys.stdout.flush()
+        except Exception:
+            pass
+
     ico_path = get_resource_path("assets/icon.ico")
     png_path = get_resource_path("assets/icon.png")
     favicon_path: str | None = None
@@ -348,19 +400,9 @@ def main() -> None:
     _setup_test_shutdown_endpoint(DEFAULT_HOST)
 
     if use_native:
-        from nicegui import app, Server
-
         def _on_native_window_closed(*_args: Any, **_kwargs: Any) -> None:
             """Proactive graceful shutdown coordinator when desktop window closes."""
-            try:
-                if hasattr(Server, "instance") and Server.instance is not None:
-                    Server.instance.should_exit = True
-            except Exception:
-                pass
-            try:
-                app.shutdown()
-            except Exception:
-                pass
+            _coordinate_graceful_shutdown(reason="native_window_closed")
 
         try:
             app.native.on("closed", _on_native_window_closed)

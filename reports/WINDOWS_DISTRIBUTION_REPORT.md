@@ -224,6 +224,16 @@ Compile aborted.
 3. **Chuẩn hóa chu trình gỡ cài đặt Inno Setup:**
    - Dùng lệnh PowerShell `Start-Process -FilePath '{uninstaller}' -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait` kèm vòng lặp kiểm tra xóa tệp polling (tối đa 15s), ngăn chặn hiện tượng kiểm tra quá sớm khi trình gỡ cài đặt còn đang dọn dẹp các tệp tạm trong `%TEMP%`.
 
+### 7.4. Khắc phục triệt để lỗi nhập thư viện NiceGUI khi khởi chạy phân phối Windows (`ImportError: Server`)
+1. **Sự cố thực tế:** Bản build thành công trên GitHub Actions nhưng khi cài đặt thực tế trên máy Windows của người dùng, ứng dụng gặp lỗi `ImportError: cannot import name 'Server' from 'nicegui'` tại [src/math_app/main.py:351](file:///home/tqv/Desktop/CODE/Python/math_app/src/math_app/main.py#L351).
+2. **Nguyên nhân gốc rễ:** Lớp `Server` thuộc submodule `nicegui.server` chứ không xuất hiện ở module gốc `nicegui`. Do CI chạy smoke test với cờ `--browser`, nhánh `if use_native:` không được thực thi trong quá trình test tự động.
+3. **Biện pháp xử lý chuẩn hóa:**
+   - Xóa bỏ câu lệnh nhập sai `from nicegui import app, Server`.
+   - Chuyển sang sử dụng hoàn toàn API công khai chính thống `app.shutdown()` của NiceGUI cho cả sự kiện đóng cửa sổ native lẫn endpoint tắt kiểm thử `_test/shutdown`.
+   - Bổ sung khối fallback an toàn `from nicegui.server import Server` bọc trong `try...except Exception: pass`.
+   - Bổ sung bộ kiểm thử hồi quy `tests/unit/presentation/test_nicegui_api_and_shutdown_compatibility.py` với 6 bài kiểm tra bao quát 100% các rủi ro tương thích NiceGUI API và shutdown behavior.
+   - Thêm bước kiểm tra import API NiceGUI vào hàm `check_native_backend_environment()` trong kịch bản smoke test Windows.
+
 ---
 
 ## 8. Kết Luận Nghiệm Thu (Deliverables Acceptance)

@@ -15,6 +15,7 @@ block_cipher = None
 project_dir = SPECPATH
 assets_dir = os.path.join(project_dir, "assets")
 icon_path = os.path.join(assets_dir, "icon.ico")
+version_file = os.path.join(project_dir, "build_tools", "version_info_portable.txt")
 
 datas = []
 binaries = []
@@ -99,6 +100,25 @@ a = Analysis(
     noarchive=False,
 )
 
+# Prioritize using signed native binaries from existing onedir distribution
+# to ensure embedded dependencies inside Portable Onefile are individually signed
+onedir_base = os.path.join(project_dir, "dist", "mathweave-studio")
+onedir_internal = os.path.join(onedir_base, "_internal")
+if os.path.isdir(onedir_internal) or os.path.isdir(onedir_base):
+    staged_binaries = []
+    for item in a.binaries:
+        dest_name, src_path, btype = item[0], item[1], item[2]
+        base_name = os.path.basename(dest_name)
+        cand_internal = os.path.join(onedir_internal, base_name)
+        cand_root = os.path.join(onedir_base, base_name)
+        if os.path.isfile(cand_internal):
+            staged_binaries.append((dest_name, cand_internal, btype))
+        elif os.path.isfile(cand_root):
+            staged_binaries.append((dest_name, cand_root, btype))
+        else:
+            staged_binaries.append(item)
+    a.binaries = staged_binaries
+
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(
@@ -112,7 +132,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -122,4 +142,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=icon_path,
+    version=version_file if os.path.exists(version_file) else None,
 )

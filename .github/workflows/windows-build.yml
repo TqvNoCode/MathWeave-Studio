@@ -4,6 +4,12 @@ run-name: "Windows Build - ${{ github.ref_name }}@${{ github.sha }}"
 
 'on':
   workflow_dispatch:
+    inputs:
+      require_signing:
+        description: "Fail if production code signing credentials are not configured"
+        required: false
+        default: false
+        type: boolean
   push:
     branches: [test]
 
@@ -44,17 +50,103 @@ jobs:
           uv run python -c "import pythonnet, webview; print(f'pythonnet: {pythonnet.__version__}'); print(f'pywebview: {webview.__version__}')"
           uv run python -c "from webview.platforms.winforms import _is_chromium; print(f'WebView2 Runtime Available: {_is_chromium()}')"
 
+      - name: Inspect Code Signing Configuration
+        id: signing_config
+        shell: pwsh
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          REQUIRE_SIGNING: ${{ inputs.require_signing || 'false' }}
+        run: |
+          Write-Host "=== Inspecting Code Signing Environment ==="
+          $hasCert = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERT_BASE64)
+          $requireSigning = [bool]::Parse($env:REQUIRE_SIGNING)
+
+          if ($hasCert) {
+            Write-Host "Externally trusted production code-signing certificate secret detected."
+            "has_signing=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "artifact_suffix=Signed" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            if ($requireSigning) {
+              Write-Error "CRITICAL: require_signing was set to true, but WINDOWS_CERT_BASE64 secret is not configured in repository."
+              exit 1
+            }
+            Write-Host "::warning::WINDOWS_CERT_BASE64 secret is NOT configured in repository."
+            Write-Host "::warning::Release signing is DISABLED. Producing clearly labeled Unsigned Development Build."
+            Write-Host "::warning::Self-signed fallback is strictly prohibited on release artifacts."
+            "has_signing=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "artifact_suffix=Unsigned-Dev" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+
+      - name: Generate Windows Version Info Resources
+        run: uv run python build_tools/generate_version_info.py
+
       - name: Build Standard Windows Distribution (Onedir)
         run: uv run pyinstaller --noconfirm --clean mathweave-studio.spec
+
+      - name: Sign Onedir Native Binaries (Authenticode SHA-256)
+        if: steps.signing_config.outputs.has_signing == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          uv run python .github/scripts/sign_windows_binaries.py `
+            --onedir-dir dist/mathweave-studio `
+            --mode production `
+            --require-signing
 
       - name: Build Portable Windows Distribution (Onefile)
         run: uv run pyinstaller --noconfirm --clean mathweave-studio-onefile.spec
 
-      - name: Package Onedir into ZIP Archive
+      - name: Sign Portable Onefile Executable & Verify Embedded Binaries
+        if: steps.signing_config.outputs.has_signing == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          uv run python .github/scripts/sign_windows_binaries.py `
+            --portable-exe dist/MathWeave-Studio-Portable.exe `
+            --mode production `
+            --require-signing `
+            --verify-embedded
+
+      - name: Verify Signatures and Version Metadata on Built Binaries
+        if: steps.signing_config.outputs.has_signing == 'true'
         shell: pwsh
         run: |
+          Write-Host "=== VERIFYING PRODUCTION AUTHENTICODE SIGNATURES ==="
+          $onedirExe = "dist/mathweave-studio/mathweave-studio.exe"
+          $portableExe = "dist/MathWeave-Studio-Portable.exe"
+          $libcrypto = Get-ChildItem -Path "dist/mathweave-studio" -Filter "libcrypto-3-x64.dll" -Recurse | Select-Object -First 1
+
+          $filesToVerify = @($onedirExe, $portableExe)
+          if ($libcrypto) { $filesToVerify += $libcrypto.FullName }
+
+          foreach ($f in $filesToVerify) {
+            if (-not (Test-Path $f)) {
+              Write-Error "Verification target missing: $f"
+              exit 1
+            }
+            $sig = Get-AuthenticodeSignature -FilePath $f
+            Write-Host "`nTarget: $f"
+            Write-Host "  Status       : $($sig.Status)"
+            Write-Host "  Signer       : $($sig.SignerCertificate.Subject)"
+            Write-Host "  Algorithm    : $($sig.SignerCertificate.SignatureAlgorithm.FriendlyName)"
+            Write-Host "  TimeStamper  : $($sig.TimeStamperCertificate.Subject)"
+            if ($sig.Status -ne "Valid") {
+              Write-Error "Production signature validation failed for $f: $($sig.StatusMessage)"
+              exit 1
+            }
+          }
+          Write-Host "`nAll core binaries verified with Valid Authenticode signatures."
+
+      - name: Package Distributions into Delivery Archives
+        shell: pwsh
+        run: |
+          $suffix = "${{ steps.signing_config.outputs.artifact_suffix }}"
           $onedirDir = "dist/mathweave-studio"
-          $zipOutput = "dist/MathWeave-Studio-Windows-Onedir.zip"
+          $zipOutput = "dist/MathWeave-Studio-Windows-Onedir-$suffix.zip"
           if (-not (Test-Path $onedirDir)) {
             Write-Error "CRITICAL: Onedir build directory $onedirDir was not found."
             exit 1
@@ -64,13 +156,50 @@ jobs:
           $zipItem = Get-Item $zipOutput
           Write-Host "Successfully packaged $zipOutput ($($zipItem.Length) bytes)."
 
+          # Prepare portable delivery copy
+          $portableSrc = "dist/MathWeave-Studio-Portable.exe"
+          $portableDest = "dist/MathWeave-Studio-Portable-$suffix.exe"
+          Copy-Item -Path $portableSrc -Destination $portableDest -Force
+          Write-Host "Created delivery executable: $portableDest."
+
+      - name: Verify Signatures Survive Packaging & Extraction
+        if: steps.signing_config.outputs.has_signing == 'true'
+        shell: pwsh
+        run: |
+          $suffix = "${{ steps.signing_config.outputs.artifact_suffix }}"
+          $testExtractDir = "dist/test_extract"
+          $zipPath = "dist/MathWeave-Studio-Windows-Onedir-$suffix.zip"
+          Write-Host "Extracting $zipPath to $testExtractDir..."
+          Expand-Archive -Path $zipPath -DestinationPath $testExtractDir -Force
+
+          $extractedExe = "$testExtractDir/mathweave-studio.exe"
+          $sig = Get-AuthenticodeSignature -FilePath $extractedExe
+          Write-Host "Extracted Exe Authenticode Status: $($sig.Status)"
+          if ($sig.Status -ne "Valid") {
+            Write-Error "Signature invalid after ZIP archive extraction!"
+            exit 1
+          }
+
+          $extractedCrypto = Get-ChildItem -Path $testExtractDir -Filter "libcrypto-3-x64.dll" -Recurse | Select-Object -First 1
+          if ($extractedCrypto) {
+            $cryptoSig = Get-AuthenticodeSignature -FilePath $extractedCrypto.FullName
+            Write-Host "Extracted libcrypto Authenticode Status: $($cryptoSig.Status)"
+            if ($cryptoSig.Status -ne "Valid") {
+              Write-Error "libcrypto signature invalid after extraction!"
+              exit 1
+            }
+          }
+          Remove-Item -Recurse -Force $testExtractDir
+          Write-Host "Packaging and extraction signature verification PASSED."
+
       - name: Validate Artifact Existence and Size Bounds
         shell: pwsh
         run: |
+          $suffix = "${{ steps.signing_config.outputs.artifact_suffix }}"
           $validationFailed = $false
 
           # 1. Validate Onedir ZIP
-          $onedirZip = "dist/MathWeave-Studio-Windows-Onedir.zip"
+          $onedirZip = "dist/MathWeave-Studio-Windows-Onedir-$suffix.zip"
           if (-not (Test-Path $onedirZip)) {
             Write-Error "Missing expected onedir artifact: $onedirZip"
             $validationFailed = $true
@@ -85,7 +214,7 @@ jobs:
           }
 
           # 2. Validate Portable Onefile EXE
-          $portableExe = "dist/MathWeave-Studio-Portable.exe"
+          $portableExe = "dist/MathWeave-Studio-Portable-$suffix.exe"
           if (-not (Test-Path $portableExe)) {
             Write-Error "Missing expected portable artifact: $portableExe"
             $validationFailed = $true
@@ -108,9 +237,18 @@ jobs:
       - name: Run Runtime Smoke Tests and Asset Integrity Checks
         shell: pwsh
         run: |
+          $hasSigning = "${{ steps.signing_config.outputs.has_signing }}" -eq "true"
+          $extraArgs = @()
+          if ($hasSigning) {
+            $extraArgs += "--verify-signatures"
+          }
+
           Write-Host "Executing smoke tests and runtime verification script..."
           try {
-            uv run python .github/scripts/smoke_test_windows.py --onedir-dir dist/mathweave-studio --portable-exe dist/MathWeave-Studio-Portable.exe
+            uv run python .github/scripts/smoke_test_windows.py `
+              --onedir-dir dist/mathweave-studio `
+              --portable-exe dist/MathWeave-Studio-Portable.exe `
+              @extraArgs
           } catch {
             Write-Host "=== SMOKE TEST FAILURE DIAGNOSTICS ==="
             Get-ChildItem -Path . -Filter "smoke_*.log" | ForEach-Object {
@@ -123,15 +261,15 @@ jobs:
       - name: Upload Standard Windows (Onedir ZIP) Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MathWeave-Studio-Windows-Onedir
-          path: dist/MathWeave-Studio-Windows-Onedir.zip
+          name: MathWeave-Studio-Windows-Onedir-${{ steps.signing_config.outputs.artifact_suffix }}
+          path: dist/MathWeave-Studio-Windows-Onedir-${{ steps.signing_config.outputs.artifact_suffix }}.zip
           retention-days: 14
           if-no-files-found: error
 
       - name: Upload Portable Windows (Onefile EXE) Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MathWeave-Studio-Windows-Portable
-          path: dist/MathWeave-Studio-Portable.exe
+          name: MathWeave-Studio-Windows-Portable-${{ steps.signing_config.outputs.artifact_suffix }}
+          path: dist/MathWeave-Studio-Portable-${{ steps.signing_config.outputs.artifact_suffix }}.exe
           retention-days: 14
           if-no-files-found: error

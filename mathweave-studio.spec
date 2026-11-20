@@ -15,6 +15,7 @@ block_cipher = None
 project_dir = SPECPATH
 assets_dir = os.path.join(project_dir, "assets")
 icon_path = os.path.join(assets_dir, "icon.ico")
+version_file = os.path.join(project_dir, "build_tools", "version_info_onedir.txt")
 
 datas = []
 binaries = []
@@ -103,9 +104,10 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,
     icon=icon_path,
+    version=version_file if os.path.exists(version_file) else None,
 )
 
 coll = COLLECT(
@@ -114,7 +116,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name="mathweave-studio",
 )

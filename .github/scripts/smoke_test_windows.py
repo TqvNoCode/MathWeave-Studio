@@ -86,7 +86,113 @@ def validate_onedir_structure(onedir_path: Path) -> None:
             raise FileNotFoundError(f"Required bundled asset missing: {req}")
         log(f"  Verified asset: {req.relative_to(onedir_path)} ({req.stat().st_size:,} bytes)")
 
+    # Check for critical native DLLs (e.g. libcrypto)
+    crypto_dlls = list(onedir_path.rglob("libcrypto-3-x64.dll"))
+    if crypto_dlls:
+        log(f"  Verified native crypto DLL: {crypto_dlls[0].relative_to(onedir_path)} ({crypto_dlls[0].stat().st_size:,} bytes)")
+    else:
+        log("  Note: libcrypto-3-x64.dll not detected in bundle directory (expected on Windows).")
+
     log("Onedir directory structure and asset verification PASSED.")
+
+
+def validate_pe_metadata_and_signatures(
+    onedir_path: Path,
+    portable_path: Path,
+    verify_signatures: bool = False,
+) -> None:
+    """Validate PE version info metadata and Authenticode signatures."""
+    log("\n" + "=" * 60)
+    log("VALIDATING PE FILE METADATA AND AUTHENTICODE SIGNATURES")
+    log("=" * 60)
+
+    if sys.platform != "win32":
+        log("Notice: Non-Windows environment detected; skipping live Authenticode and PE resource checks.")
+        return
+
+    import json
+
+    targets: list[tuple[str, Path, bool]] = []
+    # (Label, Path, is_exe)
+    main_onedir_exe = onedir_path / "mathweave-studio.exe"
+    if main_onedir_exe.is_file():
+        targets.append(("Onedir Main Executable", main_onedir_exe, True))
+
+    for libcrypto in onedir_path.rglob("libcrypto-3-x64.dll"):
+        targets.append(("Onedir OpenSSL Native DLL", libcrypto, False))
+
+    if portable_path.is_file():
+        targets.append(("Portable Onefile Executable", portable_path, True))
+
+    for label, target_path, is_exe in targets:
+        log(f"\nChecking target: {label} -> {target_path.name}")
+
+        # Check metadata
+        if is_exe:
+            pwsh_meta_cmd = [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                f"""
+                $vi = (Get-Item -FilePath '{target_path}').VersionInfo
+                @{{
+                    FileVersion = $vi.FileVersion
+                    ProductVersion = $vi.ProductVersion
+                    ProductName = $vi.ProductName
+                    CompanyName = $vi.CompanyName
+                }} | ConvertTo-Json
+                """,
+            ]
+            res = subprocess.run(pwsh_meta_cmd, capture_output=True, text=True)
+            try:
+                meta = json.loads(res.stdout)
+                log(f"  FileVersion   : {meta.get('FileVersion')}")
+                log(f"  ProductVersion: {meta.get('ProductVersion')}")
+                log(f"  ProductName   : {meta.get('ProductName')}")
+                log(f"  CompanyName   : {meta.get('CompanyName')}")
+                if not meta.get("FileVersion"):
+                    raise ValueError(f"Missing FileVersion in PE header: {target_path}")
+            except Exception as exc:
+                log(f"  Metadata check notice: {exc}")
+
+        # Check Authenticode signature
+        pwsh_sig_cmd = [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            f"""
+            $sig = Get-AuthenticodeSignature -FilePath '{target_path}'
+            $isTrustedRoot = $false
+            if ($sig.Status -eq 'Valid' -and $sig.SignerCertificate) {{
+                $chain = New-Object -TypeName System.Security.Cryptography.X509Certificates.X509Chain
+                $isTrustedRoot = $chain.Build($sig.SignerCertificate)
+            }}
+            @{{
+                Status = $sig.Status.ToString()
+                StatusMessage = $sig.StatusMessage
+                IsTrustedRoot = $isTrustedRoot
+                Signer = if ($sig.SignerCertificate) {{ $sig.SignerCertificate.Subject }} else {{ "None" }}
+            }} | ConvertTo-Json
+            """,
+        ]
+        sig_res = subprocess.run(pwsh_sig_cmd, capture_output=True, text=True)
+        try:
+            sig_data = json.loads(sig_res.stdout)
+            status = sig_data.get("Status", "Unknown")
+            signer = sig_data.get("Signer", "None")
+            is_trusted_root = sig_data.get("IsTrustedRoot", False)
+            log(f"  Authenticode Status : {status} (Signer: {signer})")
+            log(f"  Trusted Root Chain  : {is_trusted_root}")
+            if verify_signatures and status != "Valid":
+                raise RuntimeError(f"Authenticode signature is NOT valid for {target_path.name} (Status: {status})")
+            if status == "Valid" and not is_trusted_root:
+                log(f"  [SECURITY WARNING] {target_path.name} signed with certificate not chained to a public trusted root CA!")
+        except Exception as exc:
+            if verify_signatures:
+                raise RuntimeError(f"Failed to verify Authenticode signature on {target_path.name}: {exc}") from exc
+            log(f"  Signature check notice: {exc}")
+
+    log("PE metadata and Authenticode signature validation completed.")
 
 
 def validate_portable_executable(portable_path: Path) -> None:
@@ -222,6 +328,11 @@ def main() -> int:
         action="store_true",
         help="Only validate files without executing startup smoke tests",
     )
+    parser.add_argument(
+        "--verify-signatures",
+        action="store_true",
+        help="Enforce strict Authenticode signature validity on Windows PE files",
+    )
     args = parser.parse_args()
 
     log("=" * 60)
@@ -245,6 +356,13 @@ def main() -> int:
             portable_target = no_ext
 
     validate_portable_executable(portable_target)
+
+    # 3. Validate PE Metadata and Signatures
+    validate_pe_metadata_and_signatures(
+        args.onedir_dir,
+        portable_target,
+        verify_signatures=args.verify_signatures,
+    )
 
     # 3. Startup Smoke Tests
     if not args.skip_smoke:

@@ -213,6 +213,17 @@ Compile aborted.
    - Kiểm tra lập tức `$LASTEXITCODE` sau khi gọi ISCC và dừng tiến trình với mã lỗi chính xác nếu biên dịch không thành công.
    - Xác thực tệp nhị phân đầu ra `dist/MathWeave-Studio-Setup-*.exe` tồn tại và có kích thước lớn hơn 0 bytes.
 
+### 7.3. Gia cố chẩn đoán CI và cơ chế kiểm thử tắt ứng dụng GUI (CI Diagnostics & Shutdown Hardening)
+1. **Khắc phục lỗi trích xuất phiên bản `pythonnet` & `pywebview`:**
+   - Trong bước chẩn đoán môi trường Windows runner, lệnh trích xuất phiên bản thông qua `pythonnet.__version__` và `webview.__version__` gây lỗi `AttributeError` do các thư viện này trên Python 3.14 không khai báo trực tiếp thuộc tính trên module gốc.
+   - Đã thay thế bằng hàm chuẩn của thư viện chuẩn: `from importlib.metadata import version; print(f'pythonnet: {version("pythonnet")}'); print(f'pywebview: {version("pywebview")}')`.
+2. **Khắc phục sự cố chuyển phát tín hiệu tắt ứng dụng GUI trên CI:**
+   - Khi chạy ở chế độ Portable windowed (`console=False`), tiến trình thuộc `IMAGE_SUBSYSTEM_WINDOWS_GUI` không có console window gắn kèm nên hàm `GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT)` bị chặn hoàn toàn bởi hệ điều hành Windows, gây trễ vượt ngưỡng 6.0s.
+   - Thiết lập endpoint loopback an toàn `POST /_test/shutdown` trong [src/math_app/main.py](file:///home/tqv/Desktop/CODE/Python/math_app/src/math_app/main.py), được kích hoạt duy nhất khi có biến môi trường `MATHWEAVE_TEST_SHUTDOWN_TOKEN`, giới hạn trên loopback (`127.0.0.1`, `localhost`, `::1`), xác thực constant-time bằng `hmac.compare_digest` và phản hồi HTTP 200 trước khi kích hoạt `app.shutdown()` cùng `Server.instance.should_exit = True`.
+   - Kịch bản [.github/scripts/smoke_test_windows.py](file:///home/tqv/Desktop/CODE/Python/math_app/.github/scripts/smoke_test_windows.py) sinh token ngẫu nhiên mật mã 32 ký tự theo từng vòng lặp, gửi lệnh tắt tuần tự qua HTTP, đo đạc thời gian với thời hạn tối đa 15.0s, đồng thời hỗ trợ trích xuất cây tiến trình WMI `get_windows_process_tree` và đuôi nhật ký nếu xảy ra sự cố.
+3. **Chuẩn hóa chu trình gỡ cài đặt Inno Setup:**
+   - Dùng lệnh PowerShell `Start-Process -FilePath '{uninstaller}' -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait` kèm vòng lặp kiểm tra xóa tệp polling (tối đa 15s), ngăn chặn hiện tượng kiểm tra quá sớm khi trình gỡ cài đặt còn đang dọn dẹp các tệp tạm trong `%TEMP%`.
+
 ---
 
 ## 8. Kết Luận Nghiệm Thu (Deliverables Acceptance)
@@ -223,5 +234,5 @@ Compile aborted.
 4. ✅ Khắc phục triệt để hiện tượng khóa tệp Portable sau khi đóng cửa sổ (`reports/WINDOWS_SHUTDOWN_DIAGNOSTICS.md`).
 5. ✅ Nâng cấp toàn diện GitHub Actions sang môi trường Node.js 24 với commit SHA bất biến (`checkout@v7`, `upload-artifact@v6`, `setup-uv@v10`).
 6. ✅ Chuẩn hóa cảnh báo Unsigned-Dev thành single notice, tích hợp `$GITHUB_STEP_SUMMARY` trực quan, bảo lưu nguyên vẹn ranh giới nghiêm ngặt của `require_signing=true`.
-7. ✅ Tự động hóa kiểm thử nghiệm thu cài đặt/gỡ cài đặt và kiểm tra giải phóng khóa tệp trong CI.
-8. ✅ Đảm bảo 100% các bài kiểm tra unit & acceptance test vượt qua thành công (654 tests pass).
+7. ✅ Tự động hóa kiểm thử nghiệm thu cài đặt/gỡ cài đặt và kiểm tra giải phóng khóa tệp trong CI, khắc phục triệt để lỗi chuyển phát tín hiệu ngắt GUI bằng endpoint loopback có xác thực mã hóa.
+8. ✅ Đảm bảo 100% các bài kiểm tra unit & acceptance test vượt qua thành công.

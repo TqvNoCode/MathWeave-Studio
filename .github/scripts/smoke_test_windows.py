@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import secrets
 import subprocess
 import sys
 import time
@@ -131,6 +132,7 @@ def validate_pe_metadata_and_signatures(
 
     for label, target_path, is_exe in targets:
         log(f"\nChecking target: {label} -> {target_path.name}")
+        resolved_str = str(target_path.resolve())
 
         # Check metadata
         if is_exe:
@@ -139,7 +141,7 @@ def validate_pe_metadata_and_signatures(
                 "-NoProfile",
                 "-Command",
                 f"""
-                $vi = (Get-Item -FilePath '{target_path}').VersionInfo
+                $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo('{resolved_str}')
                 @{{
                     FileVersion = $vi.FileVersion
                     ProductVersion = $vi.ProductVersion
@@ -166,7 +168,7 @@ def validate_pe_metadata_and_signatures(
             "-NoProfile",
             "-Command",
             f"""
-            $sig = Get-AuthenticodeSignature -FilePath '{target_path}'
+            $sig = Get-AuthenticodeSignature -FilePath '{resolved_str}'
             $isTrustedRoot = $false
             if ($sig.Status -eq 'Valid' -and $sig.SignerCertificate) {{
                 $chain = New-Object -TypeName System.Security.Cryptography.X509Certificates.X509Chain
@@ -186,8 +188,11 @@ def validate_pe_metadata_and_signatures(
             status = sig_data.get("Status", "Unknown")
             signer = sig_data.get("Signer", "None")
             is_trusted_root = sig_data.get("IsTrustedRoot", False)
-            log(f"  Authenticode Status : {status} (Signer: {signer})")
-            log(f"  Trusted Root Chain  : {is_trusted_root}")
+            if status == "NotSigned":
+                log("  Authenticode Status : Unsigned (Development build without certificate)")
+            else:
+                log(f"  Authenticode Status : {status} (Signer: {signer})")
+                log(f"  Trusted Root Chain  : {is_trusted_root}")
             if verify_signatures and status != "Valid":
                 raise RuntimeError(f"Authenticode signature is NOT valid for {target_path.name} (Status: {status})")
             if status == "Valid" and not is_trusted_root:
@@ -215,7 +220,73 @@ def validate_portable_executable(portable_path: Path) -> None:
     log("Portable executable file verification PASSED.")
 
 
-def run_startup_smoke_test(exe_path: Path, port: int, label: str, timeout_seconds: float = 75.0) -> None:
+def get_windows_process_tree(parent_pid: int) -> list[dict[str, Any]]:
+    """Inspect and return child processes under parent_pid on Windows using PowerShell/WMI."""
+    if sys.platform != "win32":
+        return []
+    import json
+    pwsh_cmd = [
+        "powershell",
+        "-NoProfile",
+        "-Command",
+        f"""
+        $procs = Get-CimInstance Win32_Process | Where-Object {{ $_.ParentProcessId -eq {parent_pid} -or $_.ProcessId -eq {parent_pid} }}
+        $list = @($procs | ForEach-Object {{
+            @{{
+                ProcessId = $_.ProcessId
+                ParentProcessId = $_.ParentProcessId
+                Name = $_.Name
+                CommandLine = $_.CommandLine
+            }}
+        }})
+        $list | ConvertTo-Json
+        """,
+    ]
+    try:
+        res = subprocess.run(pwsh_cmd, capture_output=True, text=True, timeout=10)
+        data = json.loads(res.stdout) if res.stdout.strip() else []
+        if isinstance(data, dict):
+            return [data]
+        return data if isinstance(data, list) else []
+    except Exception as exc:
+        log(f"Note: Error querying process tree for PID {parent_pid}: {exc}")
+        return []
+
+
+def request_test_shutdown(port: int, token: str, timeout_seconds: float = 5.0) -> bool:
+    """Send authenticated shutdown request to the test endpoint POST /_test/shutdown."""
+    url = f"http://127.0.0.1:{port}/_test/shutdown"
+    req = urllib.request.Request(
+        url,
+        data=b"",
+        headers={
+            "X-Shutdown-Token": token,
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
+            if resp.status == 200:
+                log(f"Graceful shutdown request accepted by endpoint {url} (HTTP 200).")
+                return True
+            log(f"Warning: Shutdown endpoint returned unexpected status: {resp.status}")
+            return False
+    except urllib.error.HTTPError as exc:
+        log(f"Shutdown endpoint returned HTTP {exc.code}: {exc.reason}")
+        return False
+    except Exception as exc:
+        log(f"Shutdown request failed: {exc}")
+        return False
+
+
+def run_startup_smoke_test(
+    exe_path: Path,
+    port: int,
+    label: str,
+    timeout_seconds: float = 75.0,
+    shutdown_token: str | None = None,
+) -> None:
     """Launch executable with --browser on specified port, test HTTP response, and terminate."""
     log("\n==================================================")
     log(f"STARTING RUNTIME SMOKE TEST: {label}")
@@ -226,6 +297,8 @@ def run_startup_smoke_test(exe_path: Path, port: int, label: str, timeout_second
 
     env = os.environ.copy()
     env["MATHWEAVE_PORT"] = str(port)
+    if shutdown_token:
+        env["MATHWEAVE_TEST_SHUTDOWN_TOKEN"] = shutdown_token
 
     # Use --no-show to prevent NiceGUI from attempting to open a web browser in headless CI
     cmd = [str(exe_path), "--browser", "--port", str(port), "--no-show"]
@@ -297,16 +370,29 @@ def run_startup_smoke_test(exe_path: Path, port: int, label: str, timeout_second
         log(f"RUNTIME SMOKE TEST PASSED for {label}!")
 
     finally:
-        log(f"Terminating {label} process (PID: {proc.pid})...")
-        proc.terminate()
-        try:
-            proc.wait(timeout=6.0)
-            log("Process terminated cleanly.")
-        except subprocess.TimeoutExpired:
-            log(f"Process did not terminate within timeout; killing PID: {proc.pid}...")
-            proc.kill()
-            proc.wait(timeout=5.0)
-            log("Process killed.")
+        log(f"Cleaning up {label} process (PID: {proc.pid})...")
+        shutdown_success = False
+        if shutdown_token:
+            log("Attempting graceful shutdown via test endpoint...")
+            if request_test_shutdown(port, shutdown_token, timeout_seconds=5.0):
+                try:
+                    proc.wait(timeout=10.0)
+                    log(f"Process {label} exited cleanly via shutdown endpoint.")
+                    shutdown_success = True
+                except subprocess.TimeoutExpired:
+                    log(f"Process {label} did not exit within 10.0s after test shutdown request.")
+
+        if not shutdown_success and proc.poll() is None:
+            log(f"Forced smoke-test cleanup (PID: {proc.pid})...")
+            proc.terminate()
+            try:
+                proc.wait(timeout=6.0)
+                log("Process terminated cleanly.")
+            except subprocess.TimeoutExpired:
+                log(f"Process did not terminate within timeout; killing PID: {proc.pid}...")
+                proc.kill()
+                proc.wait(timeout=5.0)
+                log("Process killed.")
 
         try:
             log_file.close()
@@ -328,8 +414,11 @@ def run_portable_shutdown_and_file_lock_test(
     for i in range(1, iterations + 1):
         iter_port = port + (i - 1) * 2
         log(f"\n--- [Iteration {i}/{iterations}] Testing Portable Shutdown & Unlock on Port {iter_port} ---")
+        iter_shutdown_token = secrets.token_urlsafe(32)
+
         env = os.environ.copy()
         env["MATHWEAVE_PORT"] = str(iter_port)
+        env["MATHWEAVE_TEST_SHUTDOWN_TOKEN"] = iter_shutdown_token
 
         cmd = [str(portable_exe), "--browser", "--port", str(iter_port), "--no-show"]
         log_file_path = Path(f"smoke_portable_shutdown_iter{i}.log")
@@ -360,27 +449,38 @@ def run_portable_shutdown_and_file_lock_test(
             if not server_ready:
                 raise TimeoutError(f"Application did not respond on {url_root} within {timeout_seconds}s")
 
-            log("Server healthy and responding to HTTP requests. Initiating graceful shutdown...")
+            log("Server healthy and responding to HTTP requests. Initiating graceful shutdown via authenticated endpoint...")
             shutdown_start = time.perf_counter()
 
-            # Request graceful shutdown using appropriate signal
-            import signal
-            shutdown_signal = (
-                getattr(signal, "CTRL_BREAK_EVENT", signal.SIGINT)
-                if sys.platform == "win32"
-                else signal.SIGINT
-            )
-            proc.send_signal(shutdown_signal)
+            # Request graceful shutdown via authenticated loopback test endpoint
+            shutdown_dispatched = request_test_shutdown(iter_port, iter_shutdown_token, timeout_seconds=5.0)
+            if not shutdown_dispatched:
+                log("Warning: HTTP shutdown request not acknowledged; falling back to process termination signal.")
+                import signal
+                shutdown_signal = (
+                    getattr(signal, "CTRL_BREAK_EVENT", signal.SIGINT)
+                    if sys.platform == "win32"
+                    else signal.SIGINT
+                )
+                proc.send_signal(shutdown_signal)
 
+            SHUTDOWN_DEADLINE_SECONDS = 15.0
             try:
-                proc.wait(timeout=6.0)
+                proc.wait(timeout=SHUTDOWN_DEADLINE_SECONDS)
                 shutdown_duration = time.perf_counter() - shutdown_start
                 log(f"Process exited cleanly in {shutdown_duration:.2f}s (Returncode: {proc.returncode}).")
             except subprocess.TimeoutExpired:
-                log(f"Process failed to exit within 6.0s timeout; killing PID: {proc.pid}...")
+                p_tree = get_windows_process_tree(proc.pid)
+                log(f"Process failed to exit within {SHUTDOWN_DEADLINE_SECONDS}s deadline.")
+                if p_tree:
+                    log(f"Active process tree for PID {proc.pid}: {p_tree}")
+                log_file.flush()
+                log_tail = log_file_path.read_text(encoding="utf-8", errors="replace")[-2000:] if log_file_path.is_file() else ""
+                log(f"Process log tail:\n{log_tail}")
+                log(f"Killing parent PID {proc.pid}...")
                 proc.kill()
                 proc.wait(timeout=5.0)
-                raise TimeoutError(f"Portable application shutdown exceeded 6.0s deadline (PID: {proc.pid})")
+                raise TimeoutError(f"Portable application shutdown exceeded {SHUTDOWN_DEADLINE_SECONDS}s deadline (PID: {proc.pid})")
 
         finally:
             if proc.poll() is None:
@@ -494,20 +594,32 @@ def validate_and_test_installer(
     log("Verified required assets exist in installed package.")
 
     # Run runtime smoke test on installed executable
-    run_startup_smoke_test(installed_exe, port=port, label="Installed Application Package", timeout_seconds=timeout_seconds)
+    installed_token = secrets.token_urlsafe(32)
+    run_startup_smoke_test(
+        installed_exe,
+        port=port,
+        label="Installed Application Package",
+        timeout_seconds=timeout_seconds,
+        shutdown_token=installed_token,
+    )
 
     # Silent Uninstallation
     log(f"Executing silent uninstallation via: {uninstaller}")
     uninstall_cmd = [
-        str(uninstaller),
-        "/VERYSILENT",
-        "/SUPPRESSMSGBOXES",
-        "/NORESTART",
+        "powershell",
+        "-NoProfile",
+        "-Command",
+        f"Start-Process -FilePath '{uninstaller}' -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait",
     ]
     subprocess.run(uninstall_cmd, check=True, timeout=60)
 
-    # Wait briefly for uninstaller process cleanup
-    time.sleep(3.0)
+    # Wait with polling (up to 15s) for uninstaller process cleanup and file deletion
+    uninstall_deadline = time.time() + 15.0
+    while time.time() < uninstall_deadline:
+        if not installed_exe.exists():
+            break
+        time.sleep(1.0)
+
     if installed_exe.exists():
         raise RuntimeError(f"Uninstallation failed: {installed_exe} still exists after uninstallation.")
     log("Verified installed application binaries removed by uninstaller.")
@@ -588,7 +700,13 @@ def main() -> int:
         if not onedir_exe.exists():
             onedir_exe = args.onedir_dir / "mathweave-studio"
 
-        run_startup_smoke_test(onedir_exe, port=8091, label="Standard Onedir Distribution")
+        onedir_token = secrets.token_urlsafe(32)
+        run_startup_smoke_test(
+            onedir_exe,
+            port=8091,
+            label="Standard Onedir Distribution",
+            shutdown_token=onedir_token,
+        )
 
         # Rigorous Portable Shutdown Timing and File Lock Verification
         run_portable_shutdown_and_file_lock_test(portable_target, port=8092, iterations=2)

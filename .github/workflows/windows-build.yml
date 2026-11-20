@@ -61,7 +61,7 @@ jobs:
           Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion, OsArchitecture
           uv run python -c "import sys, platform; print(f'Python: {sys.version} ({platform.architecture()[0]})')"
           Write-Host "`n=== Native Window Backend Diagnostics ==="
-          uv run python -c "import pythonnet, webview; print(f'pythonnet: {pythonnet.__version__}'); print(f'pywebview: {webview.__version__}')"
+          uv run python -c "from importlib.metadata import version; print(f'pythonnet: {version(\"pythonnet\")}'); print(f'pywebview: {version(\"pywebview\")}')"
           uv run python -c "from webview.platforms.winforms import _is_chromium; print(f'WebView2 Runtime Available: {_is_chromium()}')"
 
       - name: Inspect Code Signing Configuration

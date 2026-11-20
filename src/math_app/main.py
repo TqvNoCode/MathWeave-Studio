@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import hmac
 import os
 from pathlib import Path
 from typing import Any
 
-from nicegui import ui
+from fastapi import BackgroundTasks, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
+from nicegui import app, ui
 
 from math_app import __title__
 
@@ -178,6 +181,75 @@ def get_available_port(host: str = DEFAULT_HOST, default_port: int = DEFAULT_POR
         return s.getsockname()[1]
 
 
+def _setup_test_shutdown_endpoint(host: str) -> bool:
+    """Configure an authenticated loopback-only shutdown endpoint for automated CI testing.
+
+    Security specifications:
+    1. Enabled strictly and exclusively when MATHWEAVE_TEST_SHUTDOWN_TOKEN is present and non-empty in os.environ.
+    2. Server must be bound to loopback ('127.0.0.1', 'localhost', '::1'). If not, registration is aborted.
+    3. Validates incoming X-Shutdown-Token header using constant-time comparison (hmac.compare_digest).
+    4. Token is never logged or exposed.
+    5. Requests from non-loopback clients are rejected with HTTP 403.
+    6. Unauthenticated or invalid token requests are rejected with HTTP 401.
+    7. HTTP 200 response is dispatched before graceful application shutdown begins.
+    8. Triggers supported NiceGUI app.shutdown() and Server.instance.should_exit = True.
+    """
+    token = os.environ.get("MATHWEAVE_TEST_SHUTDOWN_TOKEN")
+    if not token or not token.strip():
+        return False
+
+    # Loopback safety assertion
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        return False
+
+    expected_token = token.strip()
+
+    @app.post("/_test/shutdown")
+    async def _test_shutdown_endpoint(
+        request: Request,
+        background_tasks: BackgroundTasks,
+        x_shutdown_token: str | None = Header(default=None, alias="X-Shutdown-Token"),
+    ) -> JSONResponse:
+        # 1. Loopback-only caller verification
+        client_host = request.client.host if request.client else ""
+        if client_host not in ("127.0.0.1", "::1", "localhost", "testclient"):
+            raise HTTPException(status_code=403, detail="Forbidden: loopback access only")
+
+        # 2. Constant-time token verification (never log or expose token value)
+        if not x_shutdown_token or not hmac.compare_digest(
+            x_shutdown_token.encode("utf-8"), expected_token.encode("utf-8")
+        ):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+        # 3. Schedule graceful shutdown after response transmission
+        async def _execute_graceful_shutdown() -> None:
+            import asyncio
+
+            await asyncio.sleep(0.05)
+            try:
+                from nicegui.server import Server
+
+                if hasattr(Server, "instance") and Server.instance is not None:
+                    Server.instance.should_exit = True
+            except Exception:
+                pass
+            try:
+                app.shutdown()
+            except Exception:
+                pass
+
+        background_tasks.add_task(_execute_graceful_shutdown)
+
+        return JSONResponse(
+            content={
+                "status": "shutting_down",
+                "message": "Graceful application shutdown initiated.",
+            }
+        )
+
+    return True
+
+
 def _setup_signal_handlers() -> None:
     """Configure robust, bounded signal handling to prevent shutdown deadlocks."""
     import os
@@ -273,6 +345,7 @@ def main() -> None:
     create_app(use_case)
 
     _setup_signal_handlers()
+    _setup_test_shutdown_endpoint(DEFAULT_HOST)
 
     if use_native:
         from nicegui import app, Server

@@ -142,10 +142,35 @@ Tại [src/math_app/main.py](file:///home/tqv/Desktop/CODE/Python/math_app/src/m
 Trong [.github/scripts/smoke_test_windows.py](file:///home/tqv/Desktop/CODE/Python/math_app/.github/scripts/smoke_test_windows.py), chúng tôi triển khai kiểm thử nghiêm ngặt gồm nhiều vòng lặp (`iterations=2`):
 1. Khởi chạy `MathWeave-Studio-Portable.exe` trên cổng kiểm thử HTTP riêng biệt.
 2. Thăm dò HTTP GET tới khi ứng dụng phục vụ trang thành công (HTTP 200 OK).
-3. Phát tín hiệu ngắt an toàn và đo đạc chính xác thời gian thoát tiến trình bằng `time.perf_counter()`.
+3. Gửi yêu cầu tắt tuần tự và đo đạc chính xác thời gian thoát tiến trình bằng `time.perf_counter()`.
 4. **Kiểm tra khóa tệp tức thì:** Đổi tên tệp thực thi `MathWeave-Studio-Portable.exe` thành `MathWeave-Studio-Portable_lock_test_1.exe` rồi đổi tên trở lại.
    - Nếu bất kỳ tiến trình nào (Tầng 1, Tầng 2, Tầng 3 hoặc WebView2) còn giữ file handle, lệnh đổi tên sẽ ném lỗi `PermissionError` (`[WinError 32] The process cannot access the file because it is being used by another process`).
    - Lệnh đổi tên thành công 100% chứng minh tệp đã được mở khóa hoàn toàn trên hệ điều hành.
+
+### 4.3. Chẩn đoán & Xử lý cơ chế ngắt trong môi trường Windows GUI Subsystem (`console=False`)
+
+Tại GitHub Actions Run `44754679019`, bước kiểm thử Portable shutdown gặp lỗi `TimeoutError: Portable application shutdown exceeded 6.0s deadline`.
+
+#### 1. Nguyên nhân kỹ thuật chuyên sâu:
+- Gói Portable được biên dịch với tùy chọn `console=False` (`mathweave-studio-onefile.spec`), đặt subsystem của PE header thành `IMAGE_SUBSYSTEM_WINDOWS_GUI`.
+- Trên hệ điều hành Windows, các tiến trình GUI không sở hữu console window đính kèm (`ATTACH_PARENT_PROCESS` không áp dụng cho ứng dụng windowed không có console). Do đó, hàm hệ thống `GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid)` hoàn toàn không thể chuyển phát tín hiệu ngắt điều khiển console đến tiến trình.
+- Đồng thời, handle `proc` trong Python trỏ vào PyInstaller C-Bootloader (Tầng 1). Bootloader Windows mặc định không forward console control signals tới tiến trình con Python (Tầng 2).
+- Hậu quả: Tiến trình không bao giờ nhận được tín hiệu ngắt `CTRL_BREAK_EVENT`, tiếp tục chạy bình thường tới khi hết hạn 6.0s.
+
+#### 2. Kiến trúc giải pháp: Endpoint điều khiển tắt loopback có xác thực mã hóa (`POST /_test/shutdown`)
+Nhằm bảo đảm tính xác định (deterministic), không phụ thuộc vào console subsystem của Windows, chúng tôi thiết lập cơ chế tắt ứng dụng an toàn chuyên biệt cho kiểm thử tự động:
+- **Khai báo bảo mật tại [src/math_app/main.py](file:///home/tqv/Desktop/CODE/Python/math_app/src/math_app/main.py):**
+  - Hàm `_setup_test_shutdown_endpoint(host: str) -> bool`:
+    1. Chỉ được đăng ký duy nhất khi biến môi trường `MATHWEAVE_TEST_SHUTDOWN_TOKEN` tồn tại và không rỗng trong `os.environ`. Ở môi trường sản xuất của người dùng, biến này không tồn tại và endpoint `/_test/shutdown` **hoàn toàn không được khởi tạo (404 Not Found)**.
+    2. Kiểm tra địa chỉ binding: nếu `host` không thuộc dải loopback (`127.0.0.1`, `localhost`, `::1`), việc đăng ký lập tức bị hủy bỏ.
+    3. Xác thực caller loopback: từ chối mọi yêu cầu có `client.host` không phải loopback với mã `HTTP 403 Forbidden`.
+    4. Xác thực token tiêu đề `X-Shutdown-Token` bằng hàm so sánh thời gian bất biến `hmac.compare_digest` chống tấn công timing side-channel. Trả về `HTTP 401 Unauthorized` nếu sai hoặc thiếu token. Token tuyệt đối không bị ghi vào log.
+    5. Trả về phản hồi `HTTP 200 OK` trước khi kích hoạt tác vụ chạy ngầm (`BackgroundTasks`) gọi `app.shutdown()` và `Server.instance.should_exit = True`.
+- **Cập nhật kịch bản kiểm thử [.github/scripts/smoke_test_windows.py](file:///home/tqv/Desktop/CODE/Python/math_app/.github/scripts/smoke_test_windows.py):**
+  - Sinh token ngẫu nhiên mật mã theo từng vòng lặp: `iter_shutdown_token = secrets.token_urlsafe(32)`.
+  - Hàm `request_test_shutdown(port, token)` gửi HTTP POST tới `/_test/shutdown`.
+  - Mở rộng thời hạn an toàn lên 15.0s (`SHUTDOWN_DEADLINE_SECONDS = 15.0`).
+  - Tích hợp chẩn đoán cây tiến trình con `get_windows_process_tree(parent_pid)` và trích xuất phần đuôi log (`log_tail`) nếu quá hạn trước khi thực hiện dọn dẹp cưỡng bức.
 
 ---
 

@@ -269,3 +269,78 @@ def test_github_actions_workflow_inno_setup_compilation_hardening() -> None:
 
     # Hardening: Verify non-empty compiled binary
     assert "$item.Length -le 0" in content
+
+
+def test_setup_test_shutdown_endpoint_security_and_activation(monkeypatch: pytest.MonkeyPatch) -> None:
+    from math_app.main import _setup_test_shutdown_endpoint
+    from nicegui import app
+    from starlette.testclient import TestClient
+
+    # 1. Disabled when env var is unset
+    monkeypatch.delenv("MATHWEAVE_TEST_SHUTDOWN_TOKEN", raising=False)
+    assert _setup_test_shutdown_endpoint("127.0.0.1") is False
+
+    # 2. Disabled when env var is empty or whitespace
+    monkeypatch.setenv("MATHWEAVE_TEST_SHUTDOWN_TOKEN", "   ")
+    assert _setup_test_shutdown_endpoint("127.0.0.1") is False
+
+    # 3. Disabled when host is not loopback
+    monkeypatch.setenv("MATHWEAVE_TEST_SHUTDOWN_TOKEN", "secure_secret_token_123")
+    assert _setup_test_shutdown_endpoint("0.0.0.0") is False
+    assert _setup_test_shutdown_endpoint("192.168.1.100") is False
+
+    # 4. Enabled on loopback with valid token
+    assert _setup_test_shutdown_endpoint("127.0.0.1") is True
+
+    client = TestClient(app)
+
+    # 5. Missing token header -> 401 Unauthorized
+    resp_missing = client.post("/_test/shutdown")
+    assert resp_missing.status_code == 401
+
+    # 6. Wrong token -> 401 Unauthorized
+    resp_wrong = client.post("/_test/shutdown", headers={"X-Shutdown-Token": "wrong_token"})
+    assert resp_wrong.status_code == 401
+
+    # 7. Valid token -> 200 OK
+    resp_valid = client.post("/_test/shutdown", headers={"X-Shutdown-Token": "secure_secret_token_123"})
+    assert resp_valid.status_code == 200
+    assert resp_valid.json() == {
+        "status": "shutting_down",
+        "message": "Graceful application shutdown initiated.",
+    }
+
+
+def test_github_actions_workflow_version_diagnostics_importlib() -> None:
+    workflow_path = ROOT_DIR / ".github" / "workflows" / "windows-build.yml"
+    assert workflow_path.is_file()
+
+    content = workflow_path.read_text(encoding="utf-8")
+    assert "pythonnet.__version__" not in content
+    assert "webview.__version__" not in content
+    assert "from importlib.metadata import version" in content
+    assert 'print(f\'pythonnet: {version(\\"pythonnet\\")}\')' in content
+    assert 'print(f\'pywebview: {version(\\"pywebview\\")}\')' in content
+
+
+def test_smoke_test_script_process_tree_and_shutdown_integration() -> None:
+    smoke_script = ROOT_DIR / ".github" / "scripts" / "smoke_test_windows.py"
+    assert smoke_script.is_file()
+
+    content = smoke_script.read_text(encoding="utf-8")
+
+    # Process tree query and test shutdown helpers
+    assert "def get_windows_process_tree(parent_pid: int) -> list[dict[str, Any]]:" in content
+    assert "def request_test_shutdown(port: int, token: str, timeout_seconds: float = 5.0) -> bool:" in content
+
+    # Authenticated test shutdown endpoint usage
+    assert "MATHWEAVE_TEST_SHUTDOWN_TOKEN" in content
+    assert "request_test_shutdown" in content
+    assert "SHUTDOWN_DEADLINE_SECONDS = 15.0" in content
+    assert "p_tree = get_windows_process_tree(proc.pid)" in content
+
+    # Diagnostics and uninstaller wait
+    assert "[System.Diagnostics.FileVersionInfo]::GetVersionInfo" in content
+    assert "Unsigned (Development build without certificate)" in content
+    assert "Start-Process -FilePath '{uninstaller}' -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait" in content
+    assert "while time.time() < uninstall_deadline:" in content

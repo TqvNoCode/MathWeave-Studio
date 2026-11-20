@@ -140,3 +140,101 @@ def test_signing_script_handles_test_pipeline_mode() -> None:
 
         result = mod.sign_distributions(onedir, portable_exe, mode="test-pipeline", allow_test_cert=True, dry_run=True)
         assert result is True
+
+
+def test_inno_setup_installer_script_configuration() -> None:
+    iss_path = ROOT_DIR / "installer" / "MathWeave-Studio.iss"
+    assert iss_path.is_file(), f"Missing Inno Setup script at {iss_path}"
+
+    content = iss_path.read_text(encoding="utf-8")
+    assert "AppId={{780F209D-79B0-498A-84EB-77A1ED4765E4}" in content
+    assert 'MyAppPublisher "TqvNoCode"' in content
+    assert 'MyAppName "MathWeave Studio"' in content
+    assert "ArchitecturesAllowed=x64compatible x64" in content
+    assert "ArchitecturesInstallIn64BitMode=x64compatible x64" in content
+    assert "CloseApplications=yes" in content
+    assert "CloseApplicationsTimeout=30" in content
+    assert "Compression=lzma2/max" in content
+    assert "SolidCompression=yes" in content
+    assert r"SetupIconFile=..\assets\icon.ico" in content
+    assert r"DefaultDirName={autopf}\{#MyAppName}" in content
+
+
+def test_signing_script_handles_installer_exe() -> None:
+    mod = load_sign_module()
+    with tempfile.TemporaryDirectory() as tmp_dir_str:
+        tmp_dir = Path(tmp_dir_str)
+        onedir = tmp_dir / "dist" / "mathweave-studio"
+        internal_dir = onedir / "_internal"
+        internal_dir.mkdir(parents=True)
+
+        (onedir / "mathweave-studio.exe").write_bytes(b"MZ" + b"\x00" * 100)
+        (internal_dir / "libcrypto-3-x64.dll").write_bytes(b"MZ" + b"\x00" * 100)
+        portable_exe = tmp_dir / "dist" / "MathWeave-Studio-Portable.exe"
+        portable_exe.write_bytes(b"MZ" + b"\x00" * 100)
+        installer_exe = tmp_dir / "dist" / "MathWeave-Studio-Setup-Unsigned-Dev.exe"
+        installer_exe.write_bytes(b"MZ" + b"\x00" * 100)
+
+        result = mod.sign_distributions(
+            onedir,
+            portable_exe,
+            installer_exe=installer_exe,
+            mode="test-pipeline",
+            allow_test_cert=True,
+            dry_run=True,
+        )
+        assert result is True
+
+
+def test_startup_winforms_patch_safe_import() -> None:
+    from math_app.presentation.startup import (
+        _execute_native_patch_in_child,
+        patch_pywebview_winforms,
+    )
+
+    # Must execute safely without raising exceptions in Linux/headless environment
+    patch_pywebview_winforms()
+    hook = _execute_native_patch_in_child()
+    assert hook is not None
+
+
+def test_github_actions_workflow_node24_pinned_actions() -> None:
+    workflow_path = ROOT_DIR / ".github" / "workflows" / "windows-build.yml"
+    assert workflow_path.is_file()
+
+    content = workflow_path.read_text(encoding="utf-8")
+    assert "actions/checkout@v4" not in content
+    assert "actions/upload-artifact@v4" not in content
+    assert "astral-sh/setup-uv@v5" not in content
+
+    # Node 24 verified full commit SHAs with version comments
+    assert "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)" in content
+    assert "astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3 (node24)" in content
+    assert "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (node24)" in content
+
+
+def test_github_actions_workflow_notices_and_job_summary() -> None:
+    workflow_path = ROOT_DIR / ".github" / "workflows" / "windows-build.yml"
+    assert workflow_path.is_file()
+
+    content = workflow_path.read_text(encoding="utf-8")
+
+    # Ensure no deprecated ::warning:: annotations remain
+    assert "::warning::" not in content
+
+    # Ensure consolidated ::notice:: is present with clear Unsigned-Dev notice
+    assert "::notice::Unsigned Development Build:" in content
+    assert "NOT claimed to be Smart App Control compatible" in content
+    assert "Self-signed certificates are never accepted for production releases" in content
+
+    # Ensure strict require_signing enforcement is preserved
+    assert "if ($requireSigning) {" in content
+    assert 'Write-Error "CRITICAL: require_signing was set to true' in content
+
+    # Ensure GitHub Step Summary generation is present
+    assert "Generate GitHub Actions Job Summary" in content
+    assert "$env:GITHUB_STEP_SUMMARY" in content
+    assert "**Build Mode**" in content
+    assert "**Smart App Control (SAC)**" in content
+    assert "**$sacStatus**" in content
+    assert "Node 24 (actions/checkout@v7, actions/upload-artifact@v6, astral-sh/setup-uv@v10)" in content

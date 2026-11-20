@@ -252,6 +252,11 @@ def validate_and_prepare_native_backend(
 
         app.native.window_args["resizable"] = True
 
+        # Apply pywebview WinForms patches for deterministic shutdown and immediate handle release
+        patch_pywebview_winforms()
+        server_args = app.native.start_args.setdefault("server_args", {})
+        server_args["_native_hook"] = _NativeProcessHook()
+
     else:
         from nicegui import app
 
@@ -359,6 +364,71 @@ def patch_pywebview_qt() -> None:
     qt_mod._mathweave_qt_patched = True
 
 
+def patch_pywebview_winforms() -> None:
+    """Patch pywebview WinForms/EdgeChromium backend on Windows for deterministic graceful shutdown.
+
+    Remediates delayed file locks and lingering processes by:
+    1. Ensuring the underlying EdgeChromium CoreWebView2 control is explicitly disposed on window close.
+    2. Bounded waiting for the WebView2 browser process to exit so no open handles lock DLLs in _MEIPASS.
+    3. Ensuring clean WinForms STA thread termination.
+    """
+    try:
+        import webview.platforms.winforms as wf
+    except ImportError:
+        return
+
+    if getattr(wf, "_mathweave_winforms_patched", False):
+        return
+
+    orig_form_class = getattr(wf.BrowserView, "BrowserForm", None)
+    if orig_form_class is None:
+        return
+
+    orig_on_close = getattr(orig_form_class, "on_close", None)
+    if orig_on_close is None:
+        return
+
+    def patched_on_close(self: Any, *args: Any) -> None:
+        # Pre-cleanup: explicitly dispose WebView2 control and wait for runtime process exit
+        try:
+            browser = getattr(self, "browser", None)
+            if browser is not None:
+                wv = getattr(browser, "webview", None)
+                if wv is not None:
+                    browser_pid: int | None = None
+                    try:
+                        core_wv = getattr(wv, "CoreWebView2", None)
+                        if core_wv is not None:
+                            browser_pid = int(core_wv.BrowserProcessId)
+                    except Exception:
+                        browser_pid = None
+
+                    try:
+                        wv.Dispose()
+                    except Exception:
+                        pass
+
+                    if browser_pid is not None:
+                        try:
+                            from System.Diagnostics import Process
+                            proc = Process.GetProcessById(browser_pid)
+                            if proc and not proc.HasExited:
+                                proc.WaitForExit(1000)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+        # Execute standard pywebview winforms shutdown
+        try:
+            orig_on_close(self, *args)
+        except Exception:
+            pass
+
+    orig_form_class.on_close = patched_on_close
+    wf._mathweave_winforms_patched = True
+
+
 class _NativeProcessHook:
     """Hook invoked in the child native window process during unpickling to patch pywebview."""
 
@@ -367,7 +437,10 @@ class _NativeProcessHook:
 
 
 def _execute_native_patch_in_child() -> _NativeProcessHook:
-    """Execute pywebview Qt patching inside spawned child native process."""
-    patch_pywebview_qt()
+    """Execute pywebview backend patching inside spawned child native process."""
+    if sys.platform.startswith("linux"):
+        patch_pywebview_qt()
+    elif sys.platform == "win32":
+        patch_pywebview_winforms()
     return _NativeProcessHook()
 

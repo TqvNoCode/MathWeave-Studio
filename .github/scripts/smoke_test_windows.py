@@ -17,6 +17,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 
 def log(msg: str) -> None:
@@ -99,6 +100,7 @@ def validate_onedir_structure(onedir_path: Path) -> None:
 def validate_pe_metadata_and_signatures(
     onedir_path: Path,
     portable_path: Path,
+    installer_path: Path | None = None,
     verify_signatures: bool = False,
 ) -> None:
     """Validate PE version info metadata and Authenticode signatures."""
@@ -123,6 +125,9 @@ def validate_pe_metadata_and_signatures(
 
     if portable_path.is_file():
         targets.append(("Portable Onefile Executable", portable_path, True))
+
+    if installer_path and installer_path.is_file():
+        targets.append(("Windows Installer Executable", installer_path, True))
 
     for label, target_path, is_exe in targets:
         log(f"\nChecking target: {label} -> {target_path.name}")
@@ -309,6 +314,211 @@ def run_startup_smoke_test(exe_path: Path, port: int, label: str, timeout_second
             pass
 
 
+def run_portable_shutdown_and_file_lock_test(
+    portable_exe: Path,
+    port: int = 8092,
+    iterations: int = 2,
+    timeout_seconds: float = 75.0,
+) -> None:
+    """Validate graceful shutdown timing and verify immediate file lock release on the Portable EXE."""
+    log("\n" + "=" * 60)
+    log("TESTING PORTABLE SHUTDOWN TIMING & FILE LOCK RELEASE")
+    log("=" * 60)
+
+    for i in range(1, iterations + 1):
+        iter_port = port + (i - 1) * 2
+        log(f"\n--- [Iteration {i}/{iterations}] Testing Portable Shutdown & Unlock on Port {iter_port} ---")
+        env = os.environ.copy()
+        env["MATHWEAVE_PORT"] = str(iter_port)
+
+        cmd = [str(portable_exe), "--browser", "--port", str(iter_port), "--no-show"]
+        log_file_path = Path(f"smoke_portable_shutdown_iter{i}.log")
+        log_file = open(log_file_path, "w", encoding="utf-8", errors="replace")
+
+        popen_kwargs: dict[str, Any] = {"env": env, "stdout": log_file, "stderr": log_file}
+        if sys.platform == "win32":
+            import signal
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+
+        proc = subprocess.Popen(cmd, **popen_kwargs)
+        url_root = f"http://127.0.0.1:{iter_port}/"
+        deadline = time.time() + timeout_seconds
+        server_ready = False
+
+        try:
+            while time.time() < deadline:
+                if proc.poll() is not None:
+                    raise RuntimeError(f"Portable process exited prematurely (code {proc.returncode})")
+                try:
+                    with urllib.request.urlopen(url_root, timeout=2.0) as resp:
+                        if resp.status == 200:
+                            server_ready = True
+                            break
+                except (urllib.error.URLError, ConnectionRefusedError, TimeoutError, OSError):
+                    time.sleep(1.0)
+
+            if not server_ready:
+                raise TimeoutError(f"Application did not respond on {url_root} within {timeout_seconds}s")
+
+            log("Server healthy and responding to HTTP requests. Initiating graceful shutdown...")
+            shutdown_start = time.perf_counter()
+
+            # Request graceful shutdown using appropriate signal
+            import signal
+            shutdown_signal = (
+                getattr(signal, "CTRL_BREAK_EVENT", signal.SIGINT)
+                if sys.platform == "win32"
+                else signal.SIGINT
+            )
+            proc.send_signal(shutdown_signal)
+
+            try:
+                proc.wait(timeout=6.0)
+                shutdown_duration = time.perf_counter() - shutdown_start
+                log(f"Process exited cleanly in {shutdown_duration:.2f}s (Returncode: {proc.returncode}).")
+            except subprocess.TimeoutExpired:
+                log(f"Process failed to exit within 6.0s timeout; killing PID: {proc.pid}...")
+                proc.kill()
+                proc.wait(timeout=5.0)
+                raise TimeoutError(f"Portable application shutdown exceeded 6.0s deadline (PID: {proc.pid})")
+
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            try:
+                log_file.close()
+            except Exception:
+                pass
+
+        # Verify executable file is completely released and can be renamed
+        log("Verifying file lock release on Portable executable...")
+        test_renamed = portable_exe.with_name(f"{portable_exe.stem}_lock_test_{i}{portable_exe.suffix}")
+        try:
+            portable_exe.rename(test_renamed)
+            test_renamed.rename(portable_exe)
+            log(f"Iteration {i} SUCCESS: Executable unlocked immediately, rename test PASSED.")
+        except OSError as exc:
+            raise PermissionError(
+                f"Iteration {i} FAILED: Executable {portable_exe.name} remains locked after shutdown: {exc}"
+            ) from exc
+
+    log("\nAll Portable shutdown and file lock release iterations PASSED.")
+
+
+def validate_and_test_installer(
+    installer_path: Path,
+    port: int = 8094,
+    timeout_seconds: float = 75.0,
+) -> None:
+    """Validate Inno Setup installer file, execute silent install, run smoke test, and uninstall."""
+    log("\n" + "=" * 60)
+    log("VALIDATING INNO SETUP INSTALLER & ACCEPTANCE TESTING")
+    log(f"Installer: {installer_path}")
+    log("=" * 60)
+
+    if not installer_path.is_file():
+        raise FileNotFoundError(f"Installer executable not found: {installer_path}")
+
+    size = installer_path.stat().st_size
+    log(f"Found installer executable: {installer_path.name} ({size:,} bytes)")
+    if size < 15_000_000:
+        raise ValueError(f"Installer executable is suspiciously small: {size:,} bytes")
+
+    if sys.platform != "win32":
+        log("Notice: Non-Windows platform. Verified installer file presence and size; skipping live Windows installation.")
+        return
+
+    # Check PE metadata of installer
+    pwsh_meta_cmd = [
+        "powershell",
+        "-NoProfile",
+        "-Command",
+        f"""
+        $vi = (Get-Item -FilePath '{installer_path}').VersionInfo
+        @{{
+            FileVersion = $vi.FileVersion
+            ProductVersion = $vi.ProductVersion
+            ProductName = $vi.ProductName
+            CompanyName = $vi.CompanyName
+        }} | ConvertTo-Json
+        """,
+    ]
+    meta_res = subprocess.run(pwsh_meta_cmd, capture_output=True, text=True)
+    try:
+        import json
+        meta = json.loads(meta_res.stdout)
+        log(f"  Installer ProductName   : {meta.get('ProductName')}")
+        log(f"  Installer ProductVersion: {meta.get('ProductVersion')}")
+        log(f"  Installer CompanyName   : {meta.get('CompanyName')}")
+        if meta.get("CompanyName") != "TqvNoCode":
+            log(f"  Warning: Unexpected CompanyName in installer: {meta.get('CompanyName')}")
+    except Exception as exc:
+        log(f"  Notice inspecting installer metadata: {exc}")
+
+    # Silent Installation
+    test_install_dir = Path("dist/test_install_target").resolve()
+    if test_install_dir.exists():
+        import shutil
+        shutil.rmtree(test_install_dir, ignore_errors=True)
+
+    install_cmd = [
+        str(installer_path),
+        "/VERYSILENT",
+        "/SUPPRESSMSGBOXES",
+        "/NORESTART",
+        f"/DIR={test_install_dir}",
+    ]
+    log(f"Executing silent installation into: {test_install_dir}")
+    install_res = subprocess.run(install_cmd, capture_output=True, text=True, timeout=120)
+    if install_res.returncode != 0:
+        raise RuntimeError(f"Installer failed with return code {install_res.returncode}. Stderr: {install_res.stderr}")
+
+    installed_exe = test_install_dir / "mathweave-studio.exe"
+    if not installed_exe.is_file():
+        raise FileNotFoundError(f"Installed application executable not found at: {installed_exe}")
+    log(f"Verified installed executable: {installed_exe.name} ({installed_exe.stat().st_size:,} bytes)")
+
+    uninstaller = test_install_dir / "unins000.exe"
+    if not uninstaller.is_file():
+        raise FileNotFoundError(f"Uninstaller not found at: {uninstaller}")
+    log(f"Verified uninstaller executable: {uninstaller.name}")
+
+    # Verify bundled assets in installation
+    possible_assets = [
+        test_install_dir / "assets" / "fonts" / "DejaVuMathTeXGyre.ttf",
+        test_install_dir / "_internal" / "assets" / "fonts" / "DejaVuMathTeXGyre.ttf",
+    ]
+    if not any(p.is_file() for p in possible_assets):
+        raise FileNotFoundError(f"DejaVu Math font asset not found in installation: {possible_assets}")
+    log("Verified required assets exist in installed package.")
+
+    # Run runtime smoke test on installed executable
+    run_startup_smoke_test(installed_exe, port=port, label="Installed Application Package", timeout_seconds=timeout_seconds)
+
+    # Silent Uninstallation
+    log(f"Executing silent uninstallation via: {uninstaller}")
+    uninstall_cmd = [
+        str(uninstaller),
+        "/VERYSILENT",
+        "/SUPPRESSMSGBOXES",
+        "/NORESTART",
+    ]
+    subprocess.run(uninstall_cmd, check=True, timeout=60)
+
+    # Wait briefly for uninstaller process cleanup
+    time.sleep(3.0)
+    if installed_exe.exists():
+        raise RuntimeError(f"Uninstallation failed: {installed_exe} still exists after uninstallation.")
+    log("Verified installed application binaries removed by uninstaller.")
+
+    if test_install_dir.exists():
+        import shutil
+        shutil.rmtree(test_install_dir, ignore_errors=True)
+
+    log("INSTALLER ACCEPTANCE TESTS COMPLETED SUCCESSFULLY.")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="MathWeave Studio Build Smoke Testing")
     parser.add_argument(
@@ -322,6 +532,12 @@ def main() -> int:
         type=Path,
         default=Path("dist/MathWeave-Studio-Portable.exe"),
         help="Path to onefile portable executable",
+    )
+    parser.add_argument(
+        "--installer-exe",
+        type=Path,
+        default=None,
+        help="Path to Windows installer executable",
     )
     parser.add_argument(
         "--skip-smoke",
@@ -361,10 +577,11 @@ def main() -> int:
     validate_pe_metadata_and_signatures(
         args.onedir_dir,
         portable_target,
+        installer_path=args.installer_exe,
         verify_signatures=args.verify_signatures,
     )
 
-    # 3. Startup Smoke Tests
+    # 4. Startup & Acceptance Smoke Tests
     if not args.skip_smoke:
         # Determine executable paths for smoke test
         onedir_exe = args.onedir_dir / "mathweave-studio.exe"
@@ -372,12 +589,19 @@ def main() -> int:
             onedir_exe = args.onedir_dir / "mathweave-studio"
 
         run_startup_smoke_test(onedir_exe, port=8091, label="Standard Onedir Distribution")
-        run_startup_smoke_test(portable_target, port=8092, label="Portable Onefile Distribution")
+
+        # Rigorous Portable Shutdown Timing and File Lock Verification
+        run_portable_shutdown_and_file_lock_test(portable_target, port=8092, iterations=2)
+
+        # Installer Acceptance Test (Silent Install -> Smoke Test -> Silent Uninstall)
+        if args.installer_exe and args.installer_exe.is_file():
+            validate_and_test_installer(args.installer_exe, port=8096)
 
         log("\n" + "=" * 60)
         log("[SMOKE TEST NOTICE]")
         log("Startup smoke testing verified full dependency loading, PyInstaller extraction,")
-        log("Uvicorn ASGI server initialization, NiceGUI routing, and static asset delivery.")
+        log("Uvicorn ASGI server initialization, NiceGUI routing, static asset delivery,")
+        log("bounded graceful shutdown, immediate file lock release, and Inno Setup installer lifecycle.")
         log("Note: Interactive GUI testing (WebView2 desktop window) requires an interactive")
         log("Windows desktop user session and cannot be evaluated in automated headless CI.")
         log("=" * 60 + "\n")

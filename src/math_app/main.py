@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 from nicegui import ui
 
@@ -182,7 +183,6 @@ def _setup_signal_handlers() -> None:
     import os
     import signal
     import sys
-    from typing import Any
 
     is_shutting_down = False
 
@@ -274,6 +274,26 @@ def main() -> None:
 
     _setup_signal_handlers()
 
+    if use_native:
+        from nicegui import app, Server
+
+        def _on_native_window_closed(*_args: Any, **_kwargs: Any) -> None:
+            """Proactive graceful shutdown coordinator when desktop window closes."""
+            try:
+                if hasattr(Server, "instance") and Server.instance is not None:
+                    Server.instance.should_exit = True
+            except Exception:
+                pass
+            try:
+                app.shutdown()
+            except Exception:
+                pass
+
+        try:
+            app.native.on("closed", _on_native_window_closed)
+        except Exception:
+            pass
+
     configured_port = resolve_configured_port(sys.argv, os.environ, DEFAULT_PORT)
     port = get_available_port(DEFAULT_HOST, configured_port)
 
@@ -294,11 +314,30 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        # Deterministic teardown sequence:
+        # 1. Stop NiceGUI thread/process pools
         try:
             from nicegui import run
             run.tear_down()
         except Exception:
             pass
+
+        # 2. Bounded join for multiprocessing child processes (native window process)
+        if use_native:
+            try:
+                import multiprocessing
+                for child in multiprocessing.active_children():
+                    try:
+                        child.join(timeout=2.0)
+                        if child.is_alive():
+                            child.terminate()
+                            child.join(timeout=1.0)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        # 3. Flush standard streams
         if sys.stdout is not None:
             try:
                 sys.stdout.flush()

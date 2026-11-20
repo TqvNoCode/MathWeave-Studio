@@ -375,12 +375,13 @@ def verify_onefile_embedded_binaries(portable_exe: Path) -> list[dict[str, str]]
 def sign_distributions(
     onedir_dir: Path,
     portable_exe: Path,
+    installer_exe: Path | None = None,
     mode: str = "auto",
     allow_test_cert: bool = False,
     require_signing: bool = False,
     dry_run: bool = False,
 ) -> bool:
-    """Sign all PE binaries in onedir and portable distributions."""
+    """Sign all PE binaries in onedir, portable, and installer distributions."""
     log("=" * 65)
     log("MathWeave Studio — Windows Code Signing & Verification Pipeline")
     log("=" * 65)
@@ -440,7 +441,14 @@ def sign_distributions(
                 sign_single_binary(signtool, portable_exe, cert_args, description="MathWeave Studio Portable")
             log(f"Successfully processed portable executable: {portable_exe.name}")
 
-        # 3. Verification Step
+        # 3. Sign Installer Executable (if present)
+        if installer_exe and installer_exe.is_file():
+            log(f"\nSigning Windows Installer Executable: {installer_exe}")
+            if not dry_run:
+                sign_single_binary(signtool, installer_exe, cert_args, description="MathWeave Studio Installer")
+            log(f"Successfully processed installer executable: {installer_exe.name}")
+
+        # 4. Verification Step
         log("\n" + "=" * 65)
         log("VERIFYING AUTHENTICODE SIGNATURES & FILE METADATA")
         log("=" * 65)
@@ -455,6 +463,9 @@ def sign_distributions(
 
         if portable_exe.is_file():
             verification_targets.append(portable_exe)
+
+        if installer_exe and installer_exe.is_file():
+            verification_targets.append(installer_exe)
 
         for target in verification_targets:
             log(f"\nTarget: {target.name}")
@@ -489,6 +500,12 @@ def main() -> int:
         help="Path to portable executable",
     )
     parser.add_argument(
+        "--installer-exe",
+        type=Path,
+        default=None,
+        help="Path to Windows installer executable",
+    )
+    parser.add_argument(
         "--mode",
         choices=["auto", "production", "test-pipeline", "unsigned-dev"],
         default="auto",
@@ -520,6 +537,7 @@ def main() -> int:
         sign_distributions(
             args.onedir_dir,
             args.portable_exe,
+            installer_exe=args.installer_exe,
             mode=args.mode,
             allow_test_cert=args.allow_test_cert,
             require_signing=args.require_signing,

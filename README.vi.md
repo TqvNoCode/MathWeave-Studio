@@ -114,9 +114,10 @@ MathWeave Studio được thiết kế để chạy dưới dạng **ứng dụn
 
 ### Ứng dụng Desktop Độc lập trên Windows
 
-MathWeave Studio cung cấp hai gói phân phối chính thức cho Windows trên GitHub Releases:
-- **Tệp thực thi độc lập Portable (`MathWeave-Studio-Portable.exe`):** Tệp đơn lẻ mở chạy trực tiếp ngay lập tức không cần cài đặt.
-- **Bộ cài đặt Windows (`MathWeave-Studio-Setup.exe`):** Trình cài đặt tiêu chuẩn thiết lập biểu tượng Start Menu và màn hình Desktop kèm tính năng gỡ cài đặt sạch sẽ.
+Tải về các gói phân phối chính thức cho Windows tại **[Bản phát hành MathWeave Studio v0.1.1](https://github.com/TqvNoCode/MathWeave-Studio/releases/tag/v0.1.1)**:
+- **Tệp thực thi độc lập Portable:** [`MathWeave-Studio-Portable-Unsigned-Dev.exe`](https://github.com/TqvNoCode/MathWeave-Studio/releases/download/v0.1.1/MathWeave-Studio-Portable-Unsigned-Dev.exe) — Tệp đơn lẻ mở chạy trực tiếp ngay lập tức không cần cài đặt.
+- **Bộ cài đặt Windows Setup:** [`MathWeave-Studio-Setup-Unsigned-Dev.exe`](https://github.com/TqvNoCode/MathWeave-Studio/releases/download/v0.1.1/MathWeave-Studio-Setup-Unsigned-Dev.exe) — Trình cài đặt tiêu chuẩn thiết lập biểu tượng Start Menu và màn hình Desktop kèm tính năng gỡ cài đặt sạch sẽ.
+- **Mã kiểm tra tính toàn vẹn:** [`SHA256SUMS.txt`](https://github.com/TqvNoCode/MathWeave-Studio/releases/download/v0.1.1/SHA256SUMS.txt)
 
 Nhấp đúp vào tệp để mở MathWeave Studio trực tiếp trong cửa sổ ứng dụng desktop mà không cần cài đặt Python hay uv.
 

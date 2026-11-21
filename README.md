@@ -114,9 +114,10 @@ For complete Arch Linux instructions—including future AUR installation placeho
 
 ### Windows Standalone Desktop Application
 
-MathWeave Studio provides two official Windows distribution packages on GitHub Releases:
-- **Portable Standalone Executable (`MathWeave-Studio-Portable.exe`):** Single-file executable ready to run immediately without installation.
-- **Windows Installer (`MathWeave-Studio-Setup.exe`):** Standard Windows setup wizard configuring Start Menu and optional Desktop shortcuts with full uninstaller support.
+Download the official Windows packages from the **[MathWeave Studio v0.1.1 Release](https://github.com/TqvNoCode/MathWeave-Studio/releases/tag/v0.1.1)**:
+- **Portable Standalone Executable:** [`MathWeave-Studio-Portable-Unsigned-Dev.exe`](https://github.com/TqvNoCode/MathWeave-Studio/releases/download/v0.1.1/MathWeave-Studio-Portable-Unsigned-Dev.exe) — Single-file executable ready to run immediately without installation.
+- **Windows Installer:** [`MathWeave-Studio-Setup-Unsigned-Dev.exe`](https://github.com/TqvNoCode/MathWeave-Studio/releases/download/v0.1.1/MathWeave-Studio-Setup-Unsigned-Dev.exe) — Standard Windows setup wizard configuring Start Menu and optional Desktop shortcuts with full uninstaller support.
+- **Integrity Checksums:** [`SHA256SUMS.txt`](https://github.com/TqvNoCode/MathWeave-Studio/releases/download/v0.1.1/SHA256SUMS.txt)
 
 Double-click either package to launch MathWeave Studio directly in a native desktop window without requiring Python or uv to be installed.
 

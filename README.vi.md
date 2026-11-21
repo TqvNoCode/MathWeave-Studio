@@ -114,8 +114,11 @@ MathWeave Studio được thiết kế để chạy dưới dạng **ứng dụn
 
 ### Ứng dụng Desktop Độc lập trên Windows
 
-Download `MathWeaveStudio-Beta.exe` từ GitHub Releases.
-Nhấp đúp vào tệp EXE để mở MathWeave Studio trực tiếp trong cửa sổ ứng dụng desktop mà không cần cài đặt Python hay uv.
+MathWeave Studio cung cấp hai gói phân phối chính thức cho Windows trên GitHub Releases:
+- **Tệp thực thi độc lập Portable (`MathWeave-Studio-Portable.exe`):** Tệp đơn lẻ mở chạy trực tiếp ngay lập tức không cần cài đặt.
+- **Bộ cài đặt Windows (`MathWeave-Studio-Setup.exe`):** Trình cài đặt tiêu chuẩn thiết lập biểu tượng Start Menu và màn hình Desktop kèm tính năng gỡ cài đặt sạch sẽ.
+
+Nhấp đúp vào tệp để mở MathWeave Studio trực tiếp trong cửa sổ ứng dụng desktop mà không cần cài đặt Python hay uv.
 
 > **Yêu cầu hệ thống cho chế độ Desktop Windows:**
 > MathWeave Studio sử dụng Microsoft Edge WebView2 để tạo cửa sổ ứng dụng native. WebView2 đã được tích hợp sẵn trên Windows 11 và các bản cập nhật Windows 10 tiêu chuẩn. Đối với các phiên bản Windows rút gọn hoặc ngoại tuyến chưa có WebView2, vui lòng cài đặt [Microsoft Edge WebView2 Evergreen Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703), hoặc chạy ứng dụng từ dòng lệnh với tham số `--browser`.
@@ -140,11 +143,11 @@ uv run pyinstaller mathweave-studio-onefile.spec --clean --noconfirm
 MathWeave Studio duy trì bộ kiểm thử tự động toàn diện kiểm soát ranh giới kiến trúc Clean Architecture, tính chính xác của các thuật toán và độ ổn định của giao diện:
 
 ```bash
-# Chạy toàn bộ 229 bài kiểm thử tự động
+# Chạy toàn bộ bài kiểm thử tự động
 uv run pytest
 ```
 
-Toàn bộ 229 bài kiểm thử đều vượt qua với tỷ lệ thành công 100%.
+Toàn bộ bài kiểm thử tự động đều vượt qua với tỷ lệ thành công 100%.
 
 ---
 

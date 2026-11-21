@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from pathlib import Path
 from nicegui import app, ui
 
 from math_app import __title__, __version__
@@ -21,23 +20,14 @@ from math_app.presentation.components.operation_catalog import (
     get_operation_by_type,
 )
 from math_app.presentation.components.solution_view import render_solution_view
+from math_app.presentation.startup import resolve_assets_path
 
 
 def create_app(use_case: SolveProblemUseCase) -> None:
     """Configure the NiceGUI page layout and interaction handlers."""
 
     # Mount static assets for offline OpenType math fonts and local stylesheets
-    import sys
-    if hasattr(sys, "_MEIPASS"):
-        base_assets = Path(sys._MEIPASS) / "assets"
-    else:
-        base_assets = Path(__file__).resolve().parent.parent.parent.parent / "assets"
-
-    if not base_assets.is_dir():
-        alt_assets = Path(__file__).resolve().parent / "assets"
-        if alt_assets.is_dir():
-            base_assets = alt_assets
-
+    base_assets = resolve_assets_path()
     if base_assets.is_dir():
         try:
             app.add_static_files("/assets", str(base_assets))

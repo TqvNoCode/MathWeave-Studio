@@ -114,11 +114,14 @@ For complete Arch Linux instructions—including future AUR installation placeho
 
 ### Windows Standalone Desktop Application
 
-Download `MathWeaveStudio-Beta.exe` from GitHub Releases.
-Double-click the executable to launch MathWeave Studio directly in a native desktop window without installing Python or uv.
+MathWeave Studio provides two official Windows distribution packages on GitHub Releases:
+- **Portable Standalone Executable (`MathWeave-Studio-Portable.exe`):** Single-file executable ready to run immediately without installation.
+- **Windows Installer (`MathWeave-Studio-Setup.exe`):** Standard Windows setup wizard configuring Start Menu and optional Desktop shortcuts with full uninstaller support.
+
+Double-click either package to launch MathWeave Studio directly in a native desktop window without requiring Python or uv to be installed.
 
 > **System Prerequisites for Windows Native Mode:**
-> MathWeave Studio uses Microsoft Edge WebView2 for its native desktop window. WebView2 is pre-installed on Windows 11 and modern Windows 10 versions. If running on a stripped or offline Windows edition without WebView2, install the official [Microsoft Edge WebView2 Evergreen Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703), or launch with `--browser` from the command prompt.
+> MathWeave Studio utilizes Microsoft Edge WebView2 for its native desktop window. WebView2 is pre-installed on Windows 11 and modern Windows 10 versions. If running on a stripped or offline Windows edition without WebView2, install the official [Microsoft Edge WebView2 Evergreen Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703), or launch with `--browser` from the command prompt.
 
 #### Building Standalone EXE on Windows:
 ```powershell
@@ -140,11 +143,11 @@ uv run pyinstaller mathweave-studio-onefile.spec --clean --noconfirm
 MathWeave Studio maintains an automated test suite enforcing Clean Architecture boundary isolation, solver mathematical validity, and UI stability:
 
 ```bash
-# Run all 229 automated tests
+# Run all automated tests
 uv run pytest
 ```
 
-All 229 tests pass with 100% success rate.
+All automated tests pass with 100% success rate.
 
 ---
 

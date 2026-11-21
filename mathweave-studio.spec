@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
+import sys
 from PyInstaller.utils.hooks import (
     collect_all,
     collect_data_files,
@@ -14,6 +15,7 @@ block_cipher = None
 project_dir = SPECPATH
 assets_dir = os.path.join(project_dir, "assets")
 icon_path = os.path.join(assets_dir, "icon.ico")
+version_file = os.path.join(project_dir, "build_tools", "version_info_onedir.txt")
 
 datas = []
 binaries = []
@@ -25,10 +27,17 @@ for pkg in ["nicegui", "plotly", "latex2mathml"]:
 
 hiddenimports += collect_submodules("math_app")
 datas += [(assets_dir, "assets")]
+datas += collect_data_files("math_app")
 
-datas += collect_data_files("webview")
-binaries += collect_dynamic_libs("webview")
-hiddenimports += collect_submodules("webview")
+try:
+    pkg_datas, pkg_binaries, pkg_hidden = collect_all("webview")
+    datas += pkg_datas
+    binaries += pkg_binaries
+    hiddenimports += pkg_hidden
+except Exception:
+    datas += collect_data_files("webview")
+    binaries += collect_dynamic_libs("webview")
+    hiddenimports += collect_submodules("webview")
 
 for pkg in ["pythonnet", "clr_loader"]:
     try:
@@ -39,15 +48,14 @@ for pkg in ["pythonnet", "clr_loader"]:
     except Exception:
         pass
 
-if sys.platform.startswith("linux"):
-    for pkg in ["PyQt6"]:
-        try:
-            pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
-            datas += pkg_datas
-            binaries += pkg_binaries
-            hiddenimports += pkg_hidden
-        except Exception:
-            pass
+for pkg in ["PyQt6"]:
+    try:
+        pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
+        datas += pkg_datas
+        binaries += pkg_binaries
+        hiddenimports += pkg_hidden
+    except Exception:
+        pass
 
 hiddenimports += [
     "uvicorn",
@@ -57,6 +65,8 @@ hiddenimports += [
     "uvicorn.lifespan.on",
     "uvicorn.lifespan.off",
     "wsproto",
+    "engineio.async_drivers.asgi",
+    "socketio.async_drivers.asgi",
     "clr",
     "pythonnet",
     "clr_loader",
@@ -94,9 +104,10 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,
     icon=icon_path,
+    version=version_file if os.path.exists(version_file) else None,
 )
 
 coll = COLLECT(
@@ -105,7 +116,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name="mathweave-studio",
 )

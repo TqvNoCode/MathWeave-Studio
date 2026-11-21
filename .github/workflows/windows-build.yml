@@ -1,0 +1,397 @@
+name: Windows Build
+
+run-name: "Windows Build - ${{ github.ref_name }}@${{ github.sha }}"
+
+'on':
+  workflow_dispatch:
+    inputs:
+      require_signing:
+        description: "Fail if production code signing credentials are not configured"
+        required: false
+        default: false
+        type: boolean
+  push:
+    branches: [test]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    name: Build & Validate Windows Distributions
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3 (node24)
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.14
+        run: uv python install 3.14
+
+      - name: Install locked dependencies
+        run: uv sync --frozen --dev
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          Write-Host "=== Installing Inno Setup via Chocolatey ==="
+          choco install innosetup --no-progress
+          $innoDir = "C:\Program Files (x86)\Inno Setup 6"
+          if (Test-Path $innoDir) {
+            Write-Host "Found Inno Setup at $innoDir; adding to GITHUB_PATH."
+            "$innoDir" | Out-File -FilePath $env:GITHUB_PATH -Append
+          } else {
+            Write-Error "Inno Setup installation directory not found at $innoDir"
+            exit 1
+          }
+
+      - name: Inspect Windows Environment & Dependencies
+        shell: pwsh
+        run: |
+          Write-Host "=== Windows Environment ==="
+          Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion, OsArchitecture
+          uv run python -c "import sys, platform; print(f'Python: {sys.version} ({platform.architecture()[0]})')"
+          Write-Host "`n=== Native Window Backend Diagnostics ==="
+          uv run python -c "from importlib.metadata import version; print(f'pythonnet: {version(\"pythonnet\")}'); print(f'pywebview: {version(\"pywebview\")}')"
+          uv run python -c "from webview.platforms.winforms import _is_chromium; print(f'WebView2 Runtime Available: {_is_chromium()}')"
+
+      - name: Inspect Code Signing Configuration
+        id: signing_config
+        shell: pwsh
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          REQUIRE_SIGNING: ${{ inputs.require_signing || 'false' }}
+        run: |
+          Write-Host "=== Inspecting Code Signing Environment ==="
+          $hasCert = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERT_BASE64)
+          $requireSigning = [bool]::Parse($env:REQUIRE_SIGNING)
+
+          if ($hasCert) {
+            Write-Host "Externally trusted production code-signing certificate secret detected."
+            "has_signing=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "artifact_suffix=Signed" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "portable_filename=MathWeave-Studio-Portable.exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "installer_filename=MathWeave-Studio-Setup.exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            if ($requireSigning) {
+              Write-Error "CRITICAL: require_signing was set to true, but WINDOWS_CERT_BASE64 secret is not configured in repository."
+              exit 1
+            }
+            Write-Host "::notice::Unsigned Development Build: production code signing credentials are not configured. Both artifacts are unsigned and are NOT claimed to be Smart App Control compatible. Configure a trusted production signing certificate to enable signed release artifacts. Self-signed certificates are never accepted for production releases."
+            Write-Host "WINDOWS_CERT_BASE64 secret is not configured in repository."
+            Write-Host "Release signing is DISABLED. Producing clearly labeled Unsigned Development Build."
+            Write-Host "Self-signed fallback is strictly prohibited on release artifacts."
+            "has_signing=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "artifact_suffix=Unsigned-Dev" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "portable_filename=MathWeave-Studio-Portable-Unsigned-Dev.exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "installer_filename=MathWeave-Studio-Setup-Unsigned-Dev.exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+
+      - name: Generate Windows Version Info Resources
+        run: uv run python build_tools/generate_version_info.py
+
+      - name: Build Standard Windows Distribution (Onedir)
+        run: uv run pyinstaller --noconfirm --clean mathweave-studio.spec
+
+      - name: Sign Onedir Native Binaries (Authenticode SHA-256)
+        if: steps.signing_config.outputs.has_signing == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          uv run python .github/scripts/sign_windows_binaries.py `
+            --onedir-dir dist/mathweave-studio `
+            --mode production `
+            --require-signing
+
+      - name: Build Portable Windows Distribution (Onefile)
+        run: uv run pyinstaller --noconfirm --clean mathweave-studio-onefile.spec
+
+      - name: Sign Portable Onefile Executable & Verify Embedded Binaries
+        if: steps.signing_config.outputs.has_signing == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          uv run python .github/scripts/sign_windows_binaries.py `
+            --portable-exe dist/MathWeave-Studio-Portable.exe `
+            --mode production `
+            --require-signing `
+            --verify-embedded
+
+      - name: Compile Inno Setup Windows Installer from Onedir Intermediate
+        shell: pwsh
+        run: |
+          $installerBaseName = [System.IO.Path]::GetFileNameWithoutExtension("${{ steps.signing_config.outputs.installer_filename }}")
+          $ver = uv run python -c "from build_tools.generate_version_info import get_project_version; print(get_project_version())"
+          $author = uv run python -c "from build_tools.generate_version_info import get_project_author; print(get_project_author())"
+
+          # 1 & 2: Resolve script to absolute path and verify existence
+          $issRelativePath = "installer/MathWeave-Studio.iss"
+          if (-not (Test-Path $issRelativePath)) {
+            Write-Error "CRITICAL: Inno Setup script not found at $issRelativePath"
+            exit 1
+          }
+          $issPath = (Resolve-Path $issRelativePath).Path
+          Write-Host "Resolved installer script path: $issPath"
+
+          # 3 & 4: Resolve ISCC.exe and log detected version
+          $isccCommand = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
+          if (-not $isccCommand) {
+            Write-Error "CRITICAL: ISCC.exe not found in PATH."
+            exit 1
+          }
+          $isccPath = $isccCommand.Source
+          Write-Host "Found Inno Setup compiler at: $isccPath"
+          try {
+            $isccVersion = (Get-Item $isccPath).VersionInfo.ProductVersion
+            Write-Host "Detected Inno Setup version: $isccVersion"
+          } catch {
+            Write-Host "Could not query Inno Setup ProductVersion."
+          }
+
+          # 5 & 6: Invoke compiler with correctly quoted arguments
+          Write-Host "Compiling Inno Setup installer for version $ver (OutputBaseFilename: $installerBaseName)..."
+          & $isccPath `
+            "/DMyAppVersion=$ver" `
+            "/DMyAppPublisher=$author" `
+            "/DMyOutputBaseFilename=$installerBaseName" `
+            "$issPath"
+
+          # 7 & 8: Immediately check $LASTEXITCODE and fail with diagnostics
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            Write-Error "CRITICAL: ISCC.exe compiler failed with exit code $exitCode."
+            exit $exitCode
+          }
+
+          # 9: Verify expected installer output exists and is non-empty
+          $installerPath = "dist/$installerBaseName.exe"
+          if (-not (Test-Path $installerPath)) {
+            Write-Error "CRITICAL: Expected installer output missing at $installerPath."
+            exit 1
+          }
+          $item = Get-Item $installerPath
+          if ($item.Length -le 0) {
+            Write-Error "CRITICAL: Compiled installer at $installerPath is empty ($($item.Length) bytes)."
+            exit 1
+          }
+          Write-Host "Successfully compiled installer: $installerPath ($($item.Length) bytes)."
+
+      - name: Sign Windows Installer Executable (Authenticode SHA-256)
+        if: steps.signing_config.outputs.has_signing == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          $installerFile = "dist/${{ steps.signing_config.outputs.installer_filename }}"
+          uv run python .github/scripts/sign_windows_binaries.py `
+            --installer-exe $installerFile `
+            --mode production `
+            --require-signing
+
+      - name: Verify Signatures and Version Metadata on Built Binaries
+        if: steps.signing_config.outputs.has_signing == 'true'
+        shell: pwsh
+        run: |
+          Write-Host "=== VERIFYING PRODUCTION AUTHENTICODE SIGNATURES ==="
+          $onedirExe = "dist/mathweave-studio/mathweave-studio.exe"
+          $portableExe = "dist/MathWeave-Studio-Portable.exe"
+          $installerExe = "dist/${{ steps.signing_config.outputs.installer_filename }}"
+          $libcrypto = Get-ChildItem -Path "dist/mathweave-studio" -Filter "libcrypto-3-x64.dll" -Recurse | Select-Object -First 1
+
+          $filesToVerify = @($onedirExe, $portableExe, $installerExe)
+          if ($libcrypto) { $filesToVerify += $libcrypto.FullName }
+
+          foreach ($f in $filesToVerify) {
+            if (-not (Test-Path $f)) {
+              Write-Error "Verification target missing: $f"
+              exit 1
+            }
+            $sig = Get-AuthenticodeSignature -FilePath $f
+            Write-Host "`nTarget: $f"
+            Write-Host "  Status       : $($sig.Status)"
+            Write-Host "  Signer       : $($sig.SignerCertificate.Subject)"
+            Write-Host "  Algorithm    : $($sig.SignerCertificate.SignatureAlgorithm.FriendlyName)"
+            Write-Host "  TimeStamper  : $($sig.TimeStamperCertificate.Subject)"
+            if ($sig.Status -ne "Valid") {
+              Write-Error "Production signature validation failed for $f: $($sig.StatusMessage)"
+              exit 1
+            }
+          }
+          Write-Host "`nAll core binaries verified with Valid Authenticode signatures."
+
+      - name: Prepare Final Delivery Binaries
+        shell: pwsh
+        run: |
+          $portableTarget = "dist/${{ steps.signing_config.outputs.portable_filename }}"
+          $portableSrc = "dist/MathWeave-Studio-Portable.exe"
+          if ($portableTarget -ne $portableSrc -and (Test-Path $portableSrc)) {
+            Copy-Item -Path $portableSrc -Destination $portableTarget -Force
+            Write-Host "Copied $portableSrc -> $portableTarget"
+          }
+
+          $installerTarget = "dist/${{ steps.signing_config.outputs.installer_filename }}"
+          if (-not (Test-Path $installerTarget)) {
+            Write-Error "Delivery installer binary missing: $installerTarget"
+            exit 1
+          }
+          Write-Host "Final Delivery Portable : $portableTarget ($( (Get-Item $portableTarget).Length ) bytes)"
+          Write-Host "Final Delivery Installer: $installerTarget ($( (Get-Item $installerTarget).Length ) bytes)"
+
+      - name: Validate Artifact Existence and Size Bounds
+        shell: pwsh
+        run: |
+          $portableExe = "dist/${{ steps.signing_config.outputs.portable_filename }}"
+          $installerExe = "dist/${{ steps.signing_config.outputs.installer_filename }}"
+          $validationFailed = $false
+
+          # 1. Validate Portable Onefile EXE
+          if (-not (Test-Path $portableExe)) {
+            Write-Error "Missing expected portable artifact: $portableExe"
+            $validationFailed = $true
+          } else {
+            $exeSize = (Get-Item $portableExe).Length
+            if ($exeSize -lt 15000000) {
+              Write-Error "Portable EXE is suspiciously small ($exeSize bytes)."
+              $validationFailed = $true
+            } else {
+              Write-Host "Portable EXE validated: $portableExe ($exeSize bytes)"
+            }
+          }
+
+          # 2. Validate Windows Setup Installer EXE
+          if (-not (Test-Path $installerExe)) {
+            Write-Error "Missing expected installer artifact: $installerExe"
+            $validationFailed = $true
+          } else {
+            $installerSize = (Get-Item $installerExe).Length
+            if ($installerSize -lt 15000000) {
+              Write-Error "Installer EXE is suspiciously small ($installerSize bytes)."
+              $validationFailed = $true
+            } else {
+              Write-Host "Installer EXE validated: $installerExe ($installerSize bytes)"
+            }
+          }
+
+          if ($validationFailed) {
+            Write-Error "Build artifact validation failed."
+            exit 1
+          }
+          Write-Host "All build artifact files exist and meet size thresholds."
+
+      - name: Run Runtime Smoke Tests and Acceptance Suite
+        shell: pwsh
+        run: |
+          $hasSigning = "${{ steps.signing_config.outputs.has_signing }}" -eq "true"
+          $extraArgs = @()
+          if ($hasSigning) {
+            $extraArgs += "--verify-signatures"
+          }
+
+          $portablePath = "dist/${{ steps.signing_config.outputs.portable_filename }}"
+          $installerPath = "dist/${{ steps.signing_config.outputs.installer_filename }}"
+
+          Write-Host "Executing smoke tests, portable shutdown check, and installer acceptance suite..."
+          try {
+            uv run python .github/scripts/smoke_test_windows.py `
+              --onedir-dir dist/mathweave-studio `
+              --portable-exe $portablePath `
+              --installer-exe $installerPath `
+              @extraArgs
+          } catch {
+            Write-Host "=== SMOKE TEST FAILURE DIAGNOSTICS ==="
+            Get-ChildItem -Path . -Filter "smoke_*.log" | ForEach-Object {
+              Write-Host "`n--- Content of $($_.Name) ---"
+              Get-Content $_.FullName | Select-Object -Last 100
+            }
+            throw
+          }
+
+      - name: Upload Portable Windows (Onefile EXE) Artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (node24)
+        with:
+          name: MathWeave-Studio-Windows-Portable
+          path: dist/${{ steps.signing_config.outputs.portable_filename }}
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload Installer Windows (Setup EXE) Artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (node24)
+        with:
+          name: MathWeave-Studio-Windows-Installer
+          path: dist/${{ steps.signing_config.outputs.installer_filename }}
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Generate GitHub Actions Job Summary
+        if: always()
+        shell: pwsh
+        run: |
+          $hasSigning = "${{ steps.signing_config.outputs.has_signing }}" -eq "true"
+          $buildMode = if ($hasSigning) { "Production Signed" } else { "Unsigned Development" }
+          $portableFile = "${{ steps.signing_config.outputs.portable_filename }}"
+          $installerFile = "${{ steps.signing_config.outputs.installer_filename }}"
+          $signingStatus = if ($hasSigning) { "Valid Authenticode (SHA-256)" } else { "Unsigned (No certificate configured)" }
+          $sacStatus = "NOT VERIFIED"
+
+          $portablePath = "dist/$portableFile"
+          $installerPath = "dist/$installerFile"
+
+          $certPublisher = "N/A (Unsigned Build)"
+          $certTimestamp = "N/A"
+
+          if ($hasSigning -and (Test-Path $installerPath)) {
+            try {
+              $sig = Get-AuthenticodeSignature -FilePath $installerPath
+              if ($sig.SignerCertificate) {
+                $certPublisher = $sig.SignerCertificate.Subject
+              }
+              if ($sig.TimeStamperCertificate) {
+                $certTimestamp = "$($sig.TimeStamperCertificate.Subject)"
+              }
+            } catch {
+              Write-Host "Warning: Could not extract detailed signature properties: $_"
+            }
+          }
+
+          $portableSize = if (Test-Path $portablePath) { "$([math]::Round((Get-Item $portablePath).Length / 1MB, 2)) MB" } else { "Not found" }
+          $installerSize = if (Test-Path $installerPath) { "$([math]::Round((Get-Item $installerPath).Length / 1MB, 2)) MB" } else { "Not found" }
+
+          $lines = @(
+            "# MathWeave Studio — Windows Distribution Build Summary",
+            "",
+            "| Property | Value |",
+            "| :--- | :--- |",
+            "| **Build Mode** | $buildMode |",
+            "| **Portable Executable** | ``$portableFile`` ($portableSize) |",
+            "| **Installer Executable** | ``$installerFile`` ($installerSize) |",
+            "| **Code Signing Status** | $signingStatus |",
+            "| **Certificate Publisher** | $certPublisher |",
+            "| **Signature Timestamp** | $certTimestamp |",
+            "| **Smart App Control (SAC)** | **$sacStatus** (Untrusted on SAC-enforced environments without production reputation) |",
+            "| **Node.js Actions Runtime** | Node 24 (actions/checkout@v7, actions/upload-artifact@v6, astral-sh/setup-uv@v10) |"
+          )
+
+          if (-not $hasSigning) {
+            $lines += @(
+              "",
+              "> [!NOTE]",
+              "> **Unsigned Development Build Notice:**",
+              "> Production code signing credentials are not configured. Both artifacts are unsigned and are **NOT** claimed to be Smart App Control compatible. Configure a trusted production signing certificate to enable signed release artifacts. Self-signed certificates are never accepted for production releases."
+            )
+          }
+
+          $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8

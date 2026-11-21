@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
+import sys
 from PyInstaller.utils.hooks import (
     collect_all,
     collect_data_files,
@@ -14,6 +15,7 @@ block_cipher = None
 project_dir = SPECPATH
 assets_dir = os.path.join(project_dir, "assets")
 icon_path = os.path.join(assets_dir, "icon.ico")
+version_file = os.path.join(project_dir, "build_tools", "version_info_portable.txt")
 
 datas = []
 binaries = []
@@ -27,11 +29,18 @@ for pkg in ["nicegui", "plotly", "latex2mathml"]:
 # Application modules and assets
 hiddenimports += collect_submodules("math_app")
 datas += [(assets_dir, "assets")]
+datas += collect_data_files("math_app")
 
 # Pywebview and webview backend
-datas += collect_data_files("webview")
-binaries += collect_dynamic_libs("webview")
-hiddenimports += collect_submodules("webview")
+try:
+    pkg_datas, pkg_binaries, pkg_hidden = collect_all("webview")
+    datas += pkg_datas
+    binaries += pkg_binaries
+    hiddenimports += pkg_hidden
+except Exception:
+    datas += collect_data_files("webview")
+    binaries += collect_dynamic_libs("webview")
+    hiddenimports += collect_submodules("webview")
 
 # Windows-specific native dependencies (pythonnet, clr_loader)
 for pkg in ["pythonnet", "clr_loader"]:
@@ -43,15 +52,14 @@ for pkg in ["pythonnet", "clr_loader"]:
     except Exception:
         pass
 
-if sys.platform.startswith("linux"):
-    for pkg in ["PyQt6"]:
-        try:
-            pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
-            datas += pkg_datas
-            binaries += pkg_binaries
-            hiddenimports += pkg_hidden
-        except Exception:
-            pass
+for pkg in ["PyQt6"]:
+    try:
+        pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
+        datas += pkg_datas
+        binaries += pkg_binaries
+        hiddenimports += pkg_hidden
+    except Exception:
+        pass
 
 hiddenimports += [
     # ASGI and WebSocket server
@@ -62,6 +70,8 @@ hiddenimports += [
     "uvicorn.lifespan.on",
     "uvicorn.lifespan.off",
     "wsproto",
+    "engineio.async_drivers.asgi",
+    "socketio.async_drivers.asgi",
     # Windows pywebview native backend (.NET / WinForms / WebView2)
     "clr",
     "pythonnet",
@@ -90,6 +100,25 @@ a = Analysis(
     noarchive=False,
 )
 
+# Prioritize using signed native binaries from existing onedir distribution
+# to ensure embedded dependencies inside Portable Onefile are individually signed
+onedir_base = os.path.join(project_dir, "dist", "mathweave-studio")
+onedir_internal = os.path.join(onedir_base, "_internal")
+if os.path.isdir(onedir_internal) or os.path.isdir(onedir_base):
+    staged_binaries = []
+    for item in a.binaries:
+        dest_name, src_path, btype = item[0], item[1], item[2]
+        base_name = os.path.basename(dest_name)
+        cand_internal = os.path.join(onedir_internal, base_name)
+        cand_root = os.path.join(onedir_base, base_name)
+        if os.path.isfile(cand_internal):
+            staged_binaries.append((dest_name, cand_internal, btype))
+        elif os.path.isfile(cand_root):
+            staged_binaries.append((dest_name, cand_root, btype))
+        else:
+            staged_binaries.append(item)
+    a.binaries = staged_binaries
+
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(
@@ -99,18 +128,19 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name="MathWeaveStudio-Beta",
+    name="MathWeave-Studio-Portable",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,  # Kept True for beta debugging diagnostics
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
     icon=icon_path,
+    version=version_file if os.path.exists(version_file) else None,
 )

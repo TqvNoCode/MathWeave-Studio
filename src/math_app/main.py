@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import hmac
+import os
 from pathlib import Path
+from typing import Any
 
-from nicegui import ui
+from fastapi import BackgroundTasks, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
+from nicegui import app, ui
 
 from math_app import __title__
 
@@ -15,6 +20,7 @@ from math_app.presentation.app import create_app
 from math_app.presentation.startup import (
     HeadlessEnvironmentError,
     NativeBackendError,
+    resolve_configured_port,
     resolve_startup_mode,
     validate_and_prepare_native_backend,
 )
@@ -50,11 +56,21 @@ def get_resource_path(relative_path: str | Path) -> Path:
     import sys
     from pathlib import Path
 
+    rel_p = Path(relative_path)
     if hasattr(sys, "_MEIPASS"):
-        base_dir = Path(sys._MEIPASS)
-    else:
-        base_dir = Path(__file__).resolve().parent.parent.parent
-    return (base_dir / relative_path).resolve()
+        candidate = (Path(sys._MEIPASS) / rel_p).resolve()
+        if candidate.exists():
+            return candidate
+
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        for candidate_base in (exe_dir, exe_dir / "_internal"):
+            candidate = (candidate_base / rel_p).resolve()
+            if candidate.exists():
+                return candidate
+
+    base_dir = Path(__file__).resolve().parent.parent.parent
+    return (base_dir / rel_p).resolve()
 
 
 def build_application() -> SolveProblemUseCase:
@@ -165,12 +181,123 @@ def get_available_port(host: str = DEFAULT_HOST, default_port: int = DEFAULT_POR
         return s.getsockname()[1]
 
 
+_shutdown_initiated = False
+
+
+def _coordinate_graceful_shutdown(reason: str = "general") -> None:
+    """Idempotent graceful shutdown coordinator.
+
+    1. Executes NiceGUI's supported public API `app.shutdown()`.
+    2. If app.shutdown() raises an unexpected exception (e.g. if the native window
+       was already disposed and method_queue cannot receive commands), catches it,
+       logs a safe diagnostic notice, and invokes Server.instance.should_exit = True
+       as an emergency fallback to stop the Uvicorn ASGI event loop.
+    """
+    global _shutdown_initiated
+    if _shutdown_initiated:
+        return
+    _shutdown_initiated = True
+
+    try:
+        app.shutdown()
+        return
+    except Exception as exc:
+        import sys
+
+        if sys.stderr is not None:
+            try:
+                sys.stderr.write(
+                    f"[SHUTDOWN-RECOVERY] app.shutdown() encountered exception ({reason}): {exc}. "
+                    "Activating Server.instance emergency fallback.\n"
+                )
+                sys.stderr.flush()
+            except Exception:
+                pass
+
+    # Targeted emergency fallback: directly signal Uvicorn ASGI event loop to stop
+    # in the event that app.shutdown() failed during native window teardown.
+    try:
+        from nicegui.server import Server
+
+        if hasattr(Server, "instance") and Server.instance is not None:
+            Server.instance.should_exit = True
+    except Exception as fallback_exc:
+        import sys
+
+        if sys.stderr is not None:
+            try:
+                sys.stderr.write(
+                    f"[SHUTDOWN-ERROR] Emergency Server.instance fallback failed: {fallback_exc}\n"
+                )
+                sys.stderr.flush()
+            except Exception:
+                pass
+
+
+def _setup_test_shutdown_endpoint(host: str) -> bool:
+    """Configure an authenticated loopback-only shutdown endpoint for automated CI testing.
+
+    Security specifications:
+    1. Enabled strictly and exclusively when MATHWEAVE_TEST_SHUTDOWN_TOKEN is present and non-empty in os.environ.
+    2. Server must be bound to loopback ('127.0.0.1', 'localhost', '::1'). If not, registration is aborted.
+    3. Validates incoming X-Shutdown-Token header using constant-time comparison (hmac.compare_digest).
+    4. Token is never logged or exposed.
+    5. Requests from non-loopback clients are rejected with HTTP 403.
+    6. Unauthenticated or invalid token requests are rejected with HTTP 401.
+    7. HTTP 200 response is dispatched before graceful application shutdown begins.
+    8. Triggers supported NiceGUI app.shutdown() and Server.instance.should_exit = True.
+    """
+    token = os.environ.get("MATHWEAVE_TEST_SHUTDOWN_TOKEN")
+    if not token or not token.strip():
+        return False
+
+    # Loopback safety assertion
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        return False
+
+    expected_token = token.strip()
+
+    @app.post("/_test/shutdown")
+    async def _test_shutdown_endpoint(
+        request: Request,
+        background_tasks: BackgroundTasks,
+        x_shutdown_token: str | None = Header(default=None, alias="X-Shutdown-Token"),
+    ) -> JSONResponse:
+        # 1. Loopback-only caller verification
+        client_host = request.client.host if request.client else ""
+        if client_host not in ("127.0.0.1", "::1", "localhost", "testclient"):
+            raise HTTPException(status_code=403, detail="Forbidden: loopback access only")
+
+        # 2. Constant-time token verification (never log or expose token value)
+        if not x_shutdown_token or not hmac.compare_digest(
+            x_shutdown_token.encode("utf-8"), expected_token.encode("utf-8")
+        ):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+        # 3. Schedule graceful shutdown after response transmission
+        async def _execute_graceful_shutdown() -> None:
+            import asyncio
+
+            await asyncio.sleep(0.05)
+            _coordinate_graceful_shutdown(reason="authenticated_test_endpoint")
+
+        background_tasks.add_task(_execute_graceful_shutdown)
+
+        return JSONResponse(
+            content={
+                "status": "shutting_down",
+                "message": "Graceful application shutdown initiated.",
+            }
+        )
+
+    return True
+
+
 def _setup_signal_handlers() -> None:
     """Configure robust, bounded signal handling to prevent shutdown deadlocks."""
     import os
     import signal
     import sys
-    from typing import Any
 
     is_shutting_down = False
 
@@ -224,11 +351,24 @@ def main() -> None:
     try:
         startup_mode = resolve_startup_mode()
     except HeadlessEnvironmentError as exc:
-        sys.stderr.write(f"\n[ERROR] {exc}\n\n")
-        sys.stderr.flush()
+        if sys.stderr is not None:
+            try:
+                sys.stderr.write(f"\n[ERROR] {exc}\n\n")
+                sys.stderr.flush()
+            except Exception:
+                pass
         sys.exit(1)
 
     use_native = startup_mode.is_native
+
+    if sys.stdout is not None:
+        try:
+            sys.stdout.write(
+                f"[STARTUP] Resolved startup mode: {startup_mode.value.upper()} (native={use_native})\n"
+            )
+            sys.stdout.flush()
+        except Exception:
+            pass
 
     ico_path = get_resource_path("assets/icon.ico")
     png_path = get_resource_path("assets/icon.png")
@@ -245,16 +385,34 @@ def main() -> None:
                 icon_path=png_path if png_path.is_file() else ico_path
             )
         except NativeBackendError as exc:
-            sys.stderr.write(f"\n[ERROR] {exc}\n\n")
-            sys.stderr.flush()
+            if sys.stderr is not None:
+                try:
+                    sys.stderr.write(f"\n[ERROR] {exc}\n\n")
+                    sys.stderr.flush()
+                except Exception:
+                    pass
             sys.exit(1)
 
     use_case = build_application()
     create_app(use_case)
 
     _setup_signal_handlers()
+    _setup_test_shutdown_endpoint(DEFAULT_HOST)
 
-    port = get_available_port(DEFAULT_HOST, DEFAULT_PORT)
+    if use_native:
+        def _on_native_window_closed(*_args: Any, **_kwargs: Any) -> None:
+            """Proactive graceful shutdown coordinator when desktop window closes."""
+            _coordinate_graceful_shutdown(reason="native_window_closed")
+
+        try:
+            app.native.on("closed", _on_native_window_closed)
+        except Exception:
+            pass
+
+    configured_port = resolve_configured_port(sys.argv, os.environ, DEFAULT_PORT)
+    port = get_available_port(DEFAULT_HOST, configured_port)
+
+    show_browser = ("--no-show" not in sys.argv) and not use_native
 
     try:
         ui.run(
@@ -265,18 +423,46 @@ def main() -> None:
             native=use_native,
             window_size=(1200, 800) if use_native else None,
             favicon=favicon_path,
+            show=show_browser,
             timeout_graceful_shutdown=3.0,
         )
     except KeyboardInterrupt:
         pass
     finally:
+        # Deterministic teardown sequence:
+        # 1. Stop NiceGUI thread/process pools
         try:
             from nicegui import run
             run.tear_down()
         except Exception:
             pass
-        sys.stdout.flush()
-        sys.stderr.flush()
+
+        # 2. Bounded join for multiprocessing child processes (native window process)
+        if use_native:
+            try:
+                import multiprocessing
+                for child in multiprocessing.active_children():
+                    try:
+                        child.join(timeout=2.0)
+                        if child.is_alive():
+                            child.terminate()
+                            child.join(timeout=1.0)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        # 3. Flush standard streams
+        if sys.stdout is not None:
+            try:
+                sys.stdout.flush()
+            except Exception:
+                pass
+        if sys.stderr is not None:
+            try:
+                sys.stderr.flush()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

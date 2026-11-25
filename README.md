@@ -15,7 +15,7 @@
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Python 3.14+](https://img.shields.io/badge/Python-3.14+-blue.svg)](https://www.python.org/)
-[![Status: v0.1.1](https://img.shields.io/badge/Status-v0.1.1-green.svg)](pyproject.toml)
+[![Latest Release](https://img.shields.io/github/v/release/TqvNoCode/MathWeave-Studio?display_name=tag)](https://github.com/TqvNoCode/MathWeave-Studio/releases/latest)
 
 </div>
 
@@ -23,20 +23,16 @@
 
 ## Overview
 
-Most mathematical software outputs only a final answer, leaving learners unsure of how a solution was derived or whether intermediate steps are sound.
+Most mathematical software outputs only a final answer, leaving learners unsure of how a solution was derived or whether intermediate steps are mathematically sound.
 
 MathWeave Studio bridges this gap by combining:
-- **Symbolic Computation:** Exact mathematical computation powered by SymPy.
-- **Pedagogical Derivation Engine:** Step-by-step decomposition of standard calculus rules (Power, Sum, Product, Quotient, Chain, Trig rules) with expandable substeps.
-- **Native MathML & Shared LaTeX Rendering:** Seamless rendering of inline and display mathematics across all problem categories via secure, sanitized native MathML.
-- **Dual-Layer Independent Verification:** Every solution is independently cross-checked against reference symbolic invariants and multi-point numerical probing.
-- **Interactive Visualization:** 2D function plotting with automatic singularity/asymptote detection, standardized 3D surface visualization, and variation tables (*bảng biến thiên*).
-
-> **Note on Versioning:** MathWeave Studio is currently at version `v0.1.1`. Pushing commits to GitHub does not publish a new release version; a GitHub Release and matching Git tag must be created for release-tracking badges to update automatically.
+- **Symbolic Computation:** Mathematical expression manipulation and exact arithmetic powered by SymPy.
+- **Pedagogical Derivation Engine:** Step-by-step decomposition of standard calculus and differential equation rules with expandable substeps.
+- **Native MathML & Shared LaTeX Rendering:** Clear rendering of inline and display mathematics across all problem categories via secure, sanitized native MathML.
+- **Independent Verification:** Independent verification using symbolic invariants and multi-point numerical probing where supported.
+- **Interactive Visualization:** 2D function plotting with automatic pole and asymptote detection, standardized 3D surface visualization, and variation tables (*bảng biến thiên*).
 
 ---
-
-<!-- DEMO / SCREENSHOT PLACEHOLDER: A representative application screenshot or demo recording will be placed here once committed to the repository assets. -->
 
 ## Features
 
@@ -50,9 +46,11 @@ MathWeave Studio bridges this gap by combining:
 - **First-Order Linear ODEs ($y' = ay + b$ & $y' + p(t)y = g(t)$):** Constant & variable coefficients with integrating factors ($\mu(t) = e^{\int p(t)dt}$) and equilibrium solution preservation.
 - **Separable Equations ($y' = f(t)g(y)$):** Validated separation of variables with preservation of all equilibrium roots ($g(y) = 0$).
 - **Exact Differential Equations ($M(x, y)dx + N(x, y)dy = 0$):** Exactness condition check ($\frac{\partial M}{\partial y} = \frac{\partial N}{\partial x}$) and potential function construction ($F(x, y) = C$).
-- **Integrating Factors ($\mu(x)$ / $\mu(y)$):** Conversion of non-exact equations into exact equations.
+- **Integrating Factors ($\mu(x)$ / $\mu(y)$):** Conversion of non-exact equations into exact differential equations.
 - **Second-Order Constant-Coefficient ODEs ($ay'' + by' + cy = 0$):** Characteristic polynomial analysis ($ar^2 + br + c = 0$), discriminant classification ($\Delta > 0$ distinct real, $\Delta < 0$ complex conjugate via Euler's formula, $\Delta = 0$ repeated root with factor $t$), fundamental solution sets, and independent verification.
-- **Second-Order Initial Value Problems (Cauchy IVP):** Dual initial conditions $y(t_0) = y_0$ and $y'(t_0) = v_0$ with 2x2 linear system resolution for $C_1, C_2$ and independent verification.
+- **Second-Order Nonhomogeneous ODEs ($ay'' + by' + cy = g(t)$):** Particular solutions via the Method of Undetermined Coefficients (MUC) with resonance factor $t^s$, and Variation of Parameters (VoP) via Wronskian integration.
+- **Second-Order Initial Value Problems (Cauchy IVP):** Dual initial conditions $y(t_0) = y_0$ and $y'(t_0) = v_0$ for both homogeneous and nonhomogeneous systems ($y = y_h + y_p$) with 2x2 linear system resolution for $C_1, C_2$ and independent verification.
+- **Singular Cauchy IVPs & Domain Branching:** Decomposition into connected normalized domain intervals, anchored integrating factors ($\mu_{t_0}(t) = e^{\int_{t_0}^t p(s)ds}$) avoiding cross-singularity leakage, algebraic compatibility analysis at singular points, and smooth $C^1$ extension verification.
 - **Reduction of Order:** Derivation of second fundamental solution $y_2(t) = v(t)y_1(t)$ from verified non-zero $y_1(t)$ via first-order reduction $u = v'$ and integral formula $u(t) = \frac{e^{-\int p(t)dt}}{y_1(t)^2}$, with domain singularity detection.
 - **Wronskian Determinant ($W(y_1, y_2)$):** Linear independence auditing and Abel's identity validation.
 
@@ -64,13 +62,19 @@ MathWeave Studio bridges this gap by combining:
 - **Linear Systems ($Ax = b$):** Augmented matrix $[A | b]$ solving with complete solution classification.
 
 ### Verification & Rationale
-- **Dual-Layer Auditing:** Every result displays an audit badge (*Verified* via symbolic invariant or *Numerical Probe* sampling with error $< 10^{-9}$).
-- **Domain Restrictions ($\mathcal{D}$):** Automatic detection of non-zero denominator conditions, non-negative radical constraints, and trigonometric singularities.
+- **Multi-Level Auditing & Pedagogical Badges:** Results display transparent verification status badges (*Verified*, *Partially Verified*, *Conditional Extension*, *Numerical Probe* sampling with error $< 10^{-9}$, or *Failed*). Verification status communicates the actual level of confidence rather than assuming universal correctness.
+- **Tri-State Validation & Domain Restrictions ($\mathcal{D}$):** Enforces fail-closed tri-state validation (`valid`, `invalid`, `unknown`). Unresolved symbolic conditions or indeterminate limits are reported honestly as `UNVERIFIED`. Source-level domain restrictions (non-zero denominators, non-negative radical constraints, trigonometric poles) are preserved before algebraic simplification where supported.
+- **Singular Extension Verification:** Limit evaluation and derivative compatibility across singular branch interfaces without arbitrary constant assignment.
+
+### Workspaces & UI Experience
+- **Dedicated Workspaces:** Specialized input environments for Calculus, Linear Algebra, and First/Second-Order ODEs with automatic differential equation order detection.
+- **Operation Catalog & Deep Linking:** Searchable operation launcher with category filtering, quick-launch chips, and direct URL query parameter pre-filling (`?op=ode&eq=...`).
+- **Structured Pedagogical Flows:** Stage-by-stage derivation pipelines (Formulation $\to$ Homogeneous $\to$ Particular $\to$ Superposition $\to$ Cauchy IVP $\to$ Independent Verification) with collapsible substeps.
 
 ### Visualization
 - **2D Plotting (Plotly):** Interactive graphs with zoom, pan, and automatic pole detection to prevent invalid line connections across vertical asymptotes.
 - **3D Visualization:** Isometric 3D surfaces and space curves with RGB coordinate axes (X=Red, Y=Green, Z=Blue).
-- **Variation Tables:** Academic variation tables showing domain, critical points, poles (double bar `||`), derivative signs, and monotonicity arrows.
+- **Variation Tables:** Academic variation tables showing domain $\mathcal{D}$, critical points, poles (double bar `||`), derivative signs, and monotonicity arrows.
 
 ---
 
@@ -121,13 +125,29 @@ Download the official Windows packages from the **[MathWeave Studio v0.1.1 Relea
 
 Double-click either package to launch MathWeave Studio directly in a native desktop window without requiring Python or uv to be installed.
 
+> [!NOTE]
+> **Code Signing Transparency:**
+> The prebuilt Windows binaries above are unsigned development builds (`Unsigned-Dev`) and are not signed with a commercial Authenticode certificate. Windows SmartScreen or antivirus software may present an *"Unknown Publisher"* warning on first launch. To run the portable application, select **More info** $\to$ **Run anyway**, or verify the downloaded file against `SHA256SUMS.txt`.
+
 > **System Prerequisites for Windows Native Mode:**
 > MathWeave Studio utilizes Microsoft Edge WebView2 for its native desktop window. WebView2 is pre-installed on Windows 11 and modern Windows 10 versions. If running on a stripped or offline Windows edition without WebView2, install the official [Microsoft Edge WebView2 Evergreen Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703), or launch with `--browser` from the command prompt.
 
-#### Building Standalone EXE on Windows:
+#### Building on Windows from Source:
+
+MathWeave Studio supports building both a standalone portable binary and a full setup installer using Python 3.14+:
+
 ```powershell
+# Synchronize all dependency groups including dev and packaging tools
 uv sync --all-groups
+
+# 1. Build Standalone Portable Executable (Single-file EXE):
 uv run pyinstaller mathweave-studio-onefile.spec --clean --noconfirm
+
+# 2. Build Directory Distribution (Onedir) for Installer Packaging:
+uv run pyinstaller mathweave-studio.spec --clean --noconfirm
+
+# 3. Compile Windows Setup Installer (Requires Inno Setup 6 / ISCC.exe):
+ISCC.exe /DMyAppVersion=0.1.1 /DMyAppPublisher="TqvNoCode" /DMyOutputBaseFilename="MathWeave-Studio-Setup-Unsigned-Dev" installer/MathWeave-Studio.iss
 ```
 
 ---
@@ -141,14 +161,14 @@ uv run pyinstaller mathweave-studio-onefile.spec --clean --noconfirm
 
 ## Development & Testing
 
-MathWeave Studio maintains an automated test suite enforcing Clean Architecture boundary isolation, solver mathematical validity, and UI stability:
+MathWeave Studio maintains an automated test suite enforcing Clean Architecture boundary isolation, solver mathematical validity, edge-case regressions, and UI stability:
 
 ```bash
-# Run all automated tests
-uv run pytest
+# Run the full automated test suite
+uv run pytest -q
 ```
 
-All automated tests pass with 100% success rate.
+The test suite executes unit, acceptance, and architectural tests across all supported modules. While extensive automated testing validates implemented algorithms and prevents regressions, passing tests do not constitute a formal mathematical proof for all arbitrary symbolic expressions.
 
 ---
 

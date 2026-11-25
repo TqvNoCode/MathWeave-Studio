@@ -22,7 +22,7 @@ from math_app.rendering.latex.formatter import expr_to_latex
 from math_app.verification.calculus.ode_verifier import (
     ODEVerifier,
     _prove_symbolic_zero,
-    validate_initial_point_in_domain,
+    evaluate_initial_point_domain,
 )
 
 
@@ -496,6 +496,7 @@ class ODEClassicalHomogeneousSolver(Solver):
 
         # F(v) where _v_ratio is replaced by v_sym
         F_v = sp.simplify(parsed.homogeneous_F_v.subs(sp.Symbol("_v_ratio", real=True), v_sym))
+        rhs_f_xy = sp.simplify(F_v.subs(v_sym, dep_var / var))
 
         domain_restrictions: list[str] = [
             f"Điều kiện xác định: {var} khác 0 (Miền xác định không chứa điểm kỳ dị {var} = 0)."
@@ -523,7 +524,7 @@ class ODEClassicalHomogeneousSolver(Solver):
                     f"Điểm ban đầu {var}0 = 0 là điểm kỳ dị của phương trình thuần nhất cấp một (x0 cannot be zero)."
                 )
 
-            is_valid_pt, pt_err = validate_initial_point_in_domain(
+            pt_stat, pt_err = evaluate_initial_point_domain(
                 None,
                 var,
                 dep_var,
@@ -531,9 +532,27 @@ class ODEClassicalHomogeneousSolver(Solver):
                 y0,
                 original_denominators=parsed.original_denominators,
                 leading_coeffs=parsed.leading_coeffs,
+                source_constraints=getattr(parsed, "original_domain_constraints", ()),
             )
-            if not is_valid_pt:
+            if pt_stat == "invalid":
                 raise InvalidInputError(f"Điều kiện ban đầu ({x0}, {y0}) không hợp lệ: {pt_err}")
+            if pt_stat == "unknown":
+                elapsed = (time.perf_counter() - t0_start) * 1000.0
+                return SolutionResponse(
+                    status=SolutionStatus.UNVERIFIED,
+                    verification=VerificationResult(
+                        status=VerificationStatus.UNVERIFIED,
+                        method="initial_condition_domain_unverified",
+                        details=f"Không thể xác nhận điều kiện ban đầu ({x0}, {y0}) thuộc miền xác định: {pt_err}",
+                    ),
+                    raw_input=request.raw_input,
+                    canonical_input=parsed.canonical_eq,
+                    final_result="",
+                    final_latex="",
+                    domain_restrictions=tuple(domain_restrictions),
+                    warnings=(f"Không thể xác nhận điều kiện ban đầu ({x0}, {y0}): {pt_err}",),
+                    execution_time_ms=elapsed,
+                )
 
         steps: list[SolutionStep] = []
         step_num = 1
@@ -686,7 +705,7 @@ class ODEClassicalHomogeneousSolver(Solver):
                 verif_res = self.verifier.verify_explicit(
                     part_sol,
                     var,
-                    rhs_f=parsed.rhs_expr if parsed.lhs_expr == sp.Symbol("y_prime") else parsed.lhs_expr,
+                    rhs_f=rhs_f_xy,
                     dep_var=dep_var,
                     initial_condition=parsed.initial_condition,
                     domain_interval=dom_int,
@@ -722,7 +741,7 @@ class ODEClassicalHomogeneousSolver(Solver):
             verif_res = self.verifier.verify_explicit(
                 gen_sol,
                 var,
-                rhs_f=parsed.rhs_expr if parsed.lhs_expr == sp.Symbol("y_prime") else parsed.lhs_expr,
+                rhs_f=rhs_f_xy,
                 dep_var=dep_var,
                 integration_constant=c_sym,
                 domain_interval=(0, sp.oo),
@@ -873,7 +892,7 @@ class ODEClassicalHomogeneousSolver(Solver):
                 verif_res = self.verifier.verify_explicit(
                     part_sol,
                     var,
-                    rhs_f=parsed.rhs_expr if parsed.lhs_expr == sp.Symbol("y_prime") else parsed.lhs_expr,
+                    rhs_f=rhs_f_xy,
                     dep_var=dep_var,
                     initial_condition=parsed.initial_condition,
                     domain_interval=dom_int,
@@ -1049,7 +1068,7 @@ class ODEClassicalHomogeneousSolver(Solver):
                     v_res = self.verifier.verify_explicit(
                         p_sol,
                         var,
-                        rhs_f=parsed.rhs_expr if parsed.lhs_expr == sp.Symbol("y_prime") else parsed.lhs_expr,
+                        rhs_f=rhs_f_xy,
                         dep_var=dep_var,
                         initial_condition=parsed.initial_condition,
                         domain_interval=b_dom_int,
@@ -1111,7 +1130,7 @@ class ODEClassicalHomogeneousSolver(Solver):
                 v_res = self.verifier.verify_explicit(
                     cand_y,
                     var,
-                    rhs_f=parsed.rhs_expr if parsed.lhs_expr == sp.Symbol("y_prime") else parsed.lhs_expr,
+                    rhs_f=rhs_f_xy,
                     dep_var=dep_var,
                     integration_constant=c_sym,
                     domain_interval=gen_dom_int,

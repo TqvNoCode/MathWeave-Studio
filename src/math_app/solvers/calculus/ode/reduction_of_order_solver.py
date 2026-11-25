@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from typing import Any
 import sympy as sp
 
 from math_app.application.dtos import (
@@ -21,7 +22,8 @@ from math_app.verification.calculus.ode_verifier import (
     ODEVerifier,
     ResidualCheckOutcome,
     check_residual_outcome,
-    validate_initial_point_in_domain,
+    classify_scalar_real_finite,
+    evaluate_initial_point_domain,
 )
 
 
@@ -86,10 +88,14 @@ class ODEReductionOfOrderSolver(Solver):
         p_expr = sp.simplify(b / a)
         q_expr = sp.simplify(c / a)
 
-        is_neg_interval = bool(parsed.interval and ("< 0" in parsed.interval or "negative" in parsed.interval or "-oo" in parsed.interval))
+        is_neg_interval = bool(
+            parsed.interval and ("< 0" in parsed.interval or "negative" in parsed.interval or "-oo" in parsed.interval)
+        )
+        effective_interval: Any = parsed.interval
 
         # Domain restrictions: singularities where a(t) = 0 or denominators vanish
         domain_restrictions: list[str] = []
+        a_zeros: list[sp.Expr] = []
         try:
             a_zeros = sp.solve(sp.Eq(a, 0), var)
             if a_zeros:
@@ -97,6 +103,16 @@ class ODEReductionOfOrderSolver(Solver):
                 domain_restrictions.append(f"Điểm kỳ dị của hệ số dẫn a({var}): {var} in {{{zeros_str}}}. Nghiệm không liên tục qua các điểm kỳ dị này.")
         except Exception:
             pass
+
+        if not is_neg_interval and parsed.interval is None and parsed.initial_condition is not None:
+            try:
+                t0_ivp = parsed.initial_condition[0]
+                if t0_ivp.is_number and t0_ivp.is_real is True and bool(sp.N(t0_ivp) < 0):
+                    if sp.Integer(0) in a_zeros or sp.limit(p_expr, var, 0).has(sp.oo, -sp.oo, sp.zoo):
+                        is_neg_interval = True
+                        effective_interval = (-sp.oo, 0)
+            except Exception:
+                pass
 
         try:
             y1_zeros = sp.solve(sp.Eq(y1, 0), var)
@@ -144,8 +160,8 @@ class ODEReductionOfOrderSolver(Solver):
                         "(Real numbers required for Cauchy initial conditions)."
                     )
 
-            # Check original unsimplified denominators and leading coefficients
-            is_valid_orig, orig_err = validate_initial_point_in_domain(
+            # Check original unsimplified denominators, leading coefficients, and realness of Cauchy data
+            orig_stat, orig_err = evaluate_initial_point_domain(
                 None,
                 var,
                 dep_var,
@@ -153,9 +169,31 @@ class ODEReductionOfOrderSolver(Solver):
                 y0_cand,
                 original_denominators=parsed.original_denominators,
                 leading_coeffs=parsed.leading_coeffs,
+                source_constraints=getattr(parsed, "original_domain_constraints", ()),
             )
-            if not is_valid_orig:
+            if orig_stat == "invalid":
                 raise InvalidInputError(f"Điều kiện ban đầu t0 = {t0_cand} không hợp lệ: {orig_err}")
+            v0_stat, v0_msg = classify_scalar_real_finite(v0_cand)
+            if v0_stat == "invalid":
+                raise InvalidInputError(f"Giá trị điều kiện ban đầu v0 = {v0_cand} không hợp lệ: {v0_msg}")
+            if orig_stat == "unknown" or v0_stat == "unknown":
+                unv_msg = orig_err if orig_stat == "unknown" else v0_msg
+                elapsed = (time.perf_counter() - t0_start) * 1000.0
+                return SolutionResponse(
+                    status=SolutionStatus.UNVERIFIED,
+                    verification=VerificationResult(
+                        status=VerificationStatus.UNVERIFIED,
+                        method="initial_condition_domain_unverified",
+                        details=f"Không thể xác nhận điều kiện ban đầu Cauchy ({t0_cand}, {y0_cand}, {v0_cand}): {unv_msg}",
+                    ),
+                    raw_input=raw,
+                    canonical_input=parsed.canonical_eq,
+                    final_result="",
+                    final_latex="",
+                    domain_restrictions=tuple(domain_restrictions),
+                    warnings=(f"Không thể xác nhận điều kiện ban đầu ({t0_cand}, {y0_cand}, {v0_cand}): {unv_msg}",),
+                    execution_time_ms=elapsed,
+                )
 
             # Distinguish ODE singularity a(t0) = 0 from method limitation y1(t0) = 0
             if sp.simplify(a.subs(var, t0_cand)) == 0:
@@ -509,6 +547,8 @@ class ODEReductionOfOrderSolver(Solver):
         # -------------------------------------------------------------------------
         final_sol = gen_sol
         has_ivp = bool(parsed.initial_condition is not None and parsed.initial_derivative is not None)
+        ivp_solved = not has_ivp
+        ivp_warnings: list[str] = []
 
         if has_ivp:
             t0, y0 = parsed.initial_condition  # type: ignore[misc]
@@ -524,6 +564,7 @@ class ODEReductionOfOrderSolver(Solver):
                 c2_v = sp.simplify(sol_c[c2_sym])
                 particular_sol = sp.simplify(gen_sol.subs([(c1_sym, c1_v), (c2_sym, c2_v)]))
                 final_sol = particular_sol
+                ivp_solved = True
 
                 steps.append(
                     SolutionStep(
@@ -544,6 +585,10 @@ class ODEReductionOfOrderSolver(Solver):
                     )
                 )
                 step_num += 1
+            else:
+                ivp_warnings.append(
+                    f"Không thể giải duy nhất hằng số (C1, C2) từ điều kiện ban đầu tại {var} = {t0}."
+                )
 
         # -------------------------------------------------------------------------
         # Independent Verification
@@ -556,9 +601,39 @@ class ODEReductionOfOrderSolver(Solver):
             b,
             c,
             forcing_expr=parsed.rem_expr,
-            domain_interval=parsed.interval,
+            domain_interval=effective_interval,
             domain_restrictions=tuple(domain_restrictions),
         )
+        if verif_result.status == VerificationStatus.VERIFIED:
+            if not ivp_solved:
+                verif_result = VerificationResult(
+                    status=VerificationStatus.UNVERIFIED,
+                    method="reduction_of_order_ivp_unresolved",
+                    details="Đã kiểm chứng hệ nghiệm cơ bản (y1, y2) nhưng không thể xác định duy nhất nghiệm riêng Cauchy từ điều kiện ban đầu.",
+                )
+            else:
+                sol_verif = self.verifier.verify_second_order(
+                    solution=final_sol,
+                    variable=var,
+                    a_coeff=a,
+                    b_coeff=b,
+                    c_coeff=c,
+                    initial_condition=parsed.initial_condition if has_ivp else None,
+                    initial_derivative=parsed.initial_derivative if has_ivp else None,
+                    c1_sym=None if has_ivp else c1_sym,
+                    c2_sym=None if has_ivp else c2_sym,
+                    forcing_expr=parsed.rem_expr,
+                    domain_interval=effective_interval,
+                    domain_restrictions=tuple(domain_restrictions),
+                )
+                if sol_verif.status != VerificationStatus.VERIFIED:
+                    verif_result = sol_verif
+                elif has_ivp:
+                    verif_result = VerificationResult(
+                        status=VerificationStatus.VERIFIED,
+                        method="reduction_of_order_full_and_ivp_verification",
+                        details=f"{verif_result.details} {sol_verif.details}",
+                    )
 
         steps.append(
             SolutionStep(
@@ -576,7 +651,15 @@ class ODEReductionOfOrderSolver(Solver):
             )
         )
 
-        status = SolutionStatus.SUCCESS if verif_result.status == VerificationStatus.VERIFIED else SolutionStatus.UNVERIFIED
+        status = (
+            SolutionStatus.SUCCESS
+            if verif_result.status == VerificationStatus.VERIFIED
+            else (
+                SolutionStatus.DISCREPANCY_DETECTED
+                if verif_result.status == VerificationStatus.FAILED
+                else SolutionStatus.UNVERIFIED
+            )
+        )
         elapsed = (time.perf_counter() - t0_start) * 1000.0
 
         return SolutionResponse(
@@ -588,6 +671,6 @@ class ODEReductionOfOrderSolver(Solver):
             final_latex=f"y({var}) = {expr_to_latex(final_sol)}",
             steps=tuple(steps),
             domain_restrictions=tuple(domain_restrictions),
-            warnings=(),
+            warnings=tuple(ivp_warnings),
             execution_time_ms=elapsed,
         )

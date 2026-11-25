@@ -70,9 +70,14 @@ class WronskianSolver(Solver):
         )
         step_num += 1
 
-        # Step 2: First-order derivatives
-        dy1 = sp.diff(y1, var)
-        dy2 = sp.diff(y2, var)
+        # Step 2: First-order derivatives (real-domain aware for Peano-type |t| functions)
+        real_var = var if getattr(var, "is_real", None) is True else sp.Symbol(var.name, real=True)
+        y1_r = y1.subs(var, real_var) if real_var != var else y1
+        y2_r = y2.subs(var, real_var) if real_var != var else y2
+        dy1_r = sp.diff(y1_r, real_var)
+        dy2_r = sp.diff(y2_r, real_var)
+        dy1 = dy1_r.subs(real_var, var) if real_var != var else dy1_r
+        dy2 = dy2_r.subs(real_var, var) if real_var != var else dy2_r
 
         deriv_latex = f"y_1'({var}) = {expr_to_latex(dy1)}, \\quad y_2'({var}) = {expr_to_latex(dy2)}"
         steps.append(
@@ -96,10 +101,15 @@ class WronskianSolver(Solver):
         step_num += 1
 
         # Step 3: Wronskian Matrix & Determinant Formula
-        w_raw = y1 * dy2 - dy1 * y2
-        w_simp = sp.simplify(w_raw)
-        if w_simp != 0:
-            w_simp = sp.simplify(sp.trigsimp(w_simp))
+        w_raw_r = y1_r * dy2_r - dy1_r * y2_r
+        w_simp_r = sp.simplify(w_raw_r)
+        if w_simp_r != 0:
+            w_simp_r = sp.simplify(sp.trigsimp(w_simp_r))
+        if w_simp_r != 0 and w_simp_r.has(sp.Abs, sp.sign):
+            w_pw = sp.simplify(w_simp_r.rewrite(sp.Piecewise))
+            if w_pw == 0:
+                w_simp_r = sp.Integer(0)
+        w_simp = w_simp_r.subs(real_var, var) if real_var != var else w_simp_r
 
         w_matrix_latex = (
             f"W(y_1, y_2)({var}) = \\begin{{vmatrix}} y_1 & y_2 \\\\ y_1' & y_2' \\end{{vmatrix}} "

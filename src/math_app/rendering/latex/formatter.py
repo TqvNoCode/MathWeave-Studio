@@ -27,9 +27,20 @@ def normalize_latex(latex_str: str) -> str:
     # Normalize unicode infinity symbols to LaTeX commands
     s = s.replace("-∞", r"-\infty").replace("+∞", r"+\infty").replace("∞", r"\infty")
 
-    # Normalize programmer syntax if present in displayed math strings
+    # Normalize programmer syntax and parenthesized exponents if present in displayed math strings
+    s = re.sub(r"\*\*\(([^)]+)\)", r"^{\1}", s)
+    s = re.sub(r"\^\(([^)]+)\)", r"^{\1}", s)
     s = re.sub(r"\*\*(\d+)", r"^{\1}", s)
     s = re.sub(r"\*\*([a-zA-Z])", r"^{\1}", s)
+
+    # Normalize unwrapped exp(...) notation to standard e^{...}
+    s = re.sub(r"(?<!\\)\bexp\s*\(([^)]+)\)", r"e^{\1}", s)
+
+    # Clean up raw multiplication asterisks into textbook math spacing / cdot
+    s = re.sub(r"(\d+)\s*\*\s*([a-zA-Z\\])", r"\1 \2", s)
+    s = re.sub(r"([a-zA-Z_\)\}])\s*\*\s*([a-zA-Z\\])", r"\1 \2", s)
+    s = re.sub(r"(\d+)\s*\*\s*(\d+)", r"\1 \\cdot \2", s)
+    s = re.sub(r"\{([^{}]+)\}", lambda m: "{" + m.group(1).replace("*", " ") + "}", s)
 
     # Standardize coefficient-variable spacing with thin space \,
     # Only applies to numeric coefficients followed by single variables, Greek commands, or radicals

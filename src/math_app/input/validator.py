@@ -18,6 +18,7 @@ ALLOWED_FUNCTIONS = frozenset({
     "sin", "cos", "tan", "sec", "csc", "cot",
     "asin", "acos", "atan",
     "exp", "log", "ln", "sqrt",
+    "abs", "Abs",
 })
 ALLOWED_CONSTANTS = frozenset({"e", "pi", "E", "PI", "oo", "inf", "infinity"})
 ALLOWED_COMMON_VARIABLES = frozenset({"x", "y", "z", "t", "u", "v", "r", "s", "w", "rho", "ρ", "theta", "phi", "θ", "φ"})

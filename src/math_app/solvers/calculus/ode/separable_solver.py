@@ -20,10 +20,15 @@ from math_app.domain.models import EquilibriumUniqueness, ProblemType, SolutionS
 from math_app.domain.step_content import ExpressionStepContent
 from math_app.input.ode_parser import ParsedODE, check_classical_homogeneous_ode, parse_ode_input
 from math_app.rendering.latex.formatter import expr_to_latex
+from math_app.solvers.calculus.ode._real_calculus import (
+    real_integrate_expression,
+    realify_integrated_logs,
+)
 from math_app.verification.calculus.ode_verifier import (
     ODEVerifier,
+    _diff_real_expr,
     _prove_symbolic_zero,
-    validate_initial_point_in_domain,
+    evaluate_initial_point_domain,
 )
 from sympy.calculus.util import continuous_domain
 
@@ -33,25 +38,32 @@ def _find_connected_domain_interval(
     var: sp.Symbol,
     t0: sp.Expr | float | None = None,
     given_interval: tuple[Any, Any] | None = None,
+    rhs_expr: sp.Expr | None = None,
 ) -> tuple[sp.Expr | float, sp.Expr | float]:
     """Determine a connected real domain interval for an ODE solution branch."""
     if given_interval is not None:
         return given_interval
-    if expr is not None:
-        try:
-            dom = continuous_domain(expr, var, sp.S.Reals)
-            if isinstance(dom, sp.Interval):
-                return (dom.start, dom.end)
-            if isinstance(dom, sp.Union):
-                if t0 is not None:
-                    for arg in dom.args:
-                        if isinstance(arg, sp.Interval) and (arg.contains(t0) or arg.start <= t0 <= arg.end):
-                            return (arg.start, arg.end)
+    dom: Any = sp.S.Reals
+    has_dom = False
+    for target_e in (expr, rhs_expr):
+        if target_e is not None and var in target_e.free_symbols:
+            try:
+                cand_dom = continuous_domain(target_e, var, sp.S.Reals)
+                dom = dom.intersect(cand_dom)
+                has_dom = True
+            except Exception:
+                pass
+    if has_dom:
+        if isinstance(dom, sp.Interval):
+            return (dom.start, dom.end)
+        if isinstance(dom, sp.Union):
+            if t0 is not None:
                 for arg in dom.args:
-                    if isinstance(arg, sp.Interval):
+                    if isinstance(arg, sp.Interval) and (arg.contains(t0) or arg.start <= t0 <= arg.end):
                         return (arg.start, arg.end)
-        except Exception:
-            pass
+            for arg in dom.args:
+                if isinstance(arg, sp.Interval):
+                    return (arg.start, arg.end)
     if t0 is not None:
         try:
             t0_n = float(sp.N(t0))
@@ -395,7 +407,8 @@ def _solve_explicit_separable_candidates(
     c_sym: sp.Symbol,
 ) -> list[SeparableExplicitCandidate] | None:
     """Solve for explicit real solution candidates y(t) with full domain and radical provenance."""
-    int_f = sp.integrate(f_expr, var)
+    int_f_raw = sp.integrate(f_expr, var)
+    int_f = realify_integrated_logs(int_f_raw, f_expr, wrap_all=True)
 
     # 1. Constant g(y) = k
     if dep_var not in g_expr.free_symbols:
@@ -485,6 +498,9 @@ def _solve_explicit_separable_candidates(
 
         if p_val.is_integer:
             p_int = int(p_val)
+            if p_int == -1 and f_expr.free_symbols:
+                # dy/dt = f(x) * (k / y) with variable f(x): yields conic/circle implicit family y^2 - 2k F(x) = C
+                return None
             m = 1 - p_int
             # int(y^(-p) dy) = y^m / m = k * (int_f + C) => y^m = m * k * (int_f + C)
             U = sp.simplify(m * k_val * (int_f + c_sym))
@@ -660,35 +676,13 @@ class ODESeparableSolver(Solver):
                 execution_time_ms=elapsed,
             )
 
-        # Classical homogeneous ODE: y' = F(y/x) must be solved by ODEClassicalHomogeneousSolver
-        if parsed.is_classical_homogeneous:
-            elapsed = (time.perf_counter() - t0_start) * 1000.0
-            return SolutionResponse(
-                status=SolutionStatus.CANNOT_SOLVE,
-                verification=VerificationResult(
-                    status=VerificationStatus.NOT_APPLICABLE,
-                    method="classical_homogeneous_ode_detected",
-                    details=(
-                        "Phương trình có dạng vi phân thuần nhất bậc 0: y' = F(y/x). "
-                        "Phương pháp tách biến trực tiếp không áp dụng được; cần sử dụng ODEClassicalHomogeneousSolver với phép thế y = vx."
-                    ),
-                ),
-                raw_input=request.raw_input,
-                canonical_input=parsed.canonical_eq,
-                final_result="",
-                final_latex="",
-                warnings=(
-                    "Phương trình là phương trình vi phân thuần nhất bậc 0 y' = F(y/x). "
-                    "Vui lòng sử dụng phương thức giải phương trình thuần nhất (ODEClassicalHomogeneousSolver).",
-                ),
-                execution_time_ms=elapsed,
-            )
-
         # Validate initial point in domain before processing
         if parsed.initial_condition is not None:
             t0, y0 = parsed.initial_condition
+            unknown_pt_err: str | None = None
+            src_constraints = getattr(parsed, "original_domain_constraints", ())
             for br in real_branches:
-                is_valid_pt, pt_err = validate_initial_point_in_domain(
+                pt_stat, pt_err = evaluate_initial_point_domain(
                     br,
                     var,
                     dep_var,
@@ -696,8 +690,9 @@ class ODESeparableSolver(Solver):
                     y0,
                     original_denominators=parsed.original_denominators,
                     leading_coeffs=parsed.leading_coeffs,
+                    source_constraints=src_constraints,
                 )
-                if not is_valid_pt:
+                if pt_stat == "invalid":
                     elapsed = (time.perf_counter() - t0_start) * 1000.0
                     return SolutionResponse(
                         status=SolutionStatus.INVALID_INPUT,
@@ -716,6 +711,27 @@ class ODESeparableSolver(Solver):
                         ),
                         execution_time_ms=elapsed,
                     )
+                if pt_stat == "unknown" and unknown_pt_err is None:
+                    unknown_pt_err = pt_err
+
+            if unknown_pt_err is not None:
+                elapsed = (time.perf_counter() - t0_start) * 1000.0
+                return SolutionResponse(
+                    status=SolutionStatus.UNVERIFIED,
+                    verification=VerificationResult(
+                        status=VerificationStatus.UNVERIFIED,
+                        method="initial_condition_domain_unverified",
+                        details=f"Không thể xác nhận điểm ban đầu ({t0}, {y0}) thuộc miền xác định: {unknown_pt_err}",
+                    ),
+                    raw_input=request.raw_input,
+                    canonical_input=parsed.canonical_eq,
+                    final_result="",
+                    final_latex="",
+                    warnings=(
+                        f"Không thể xác nhận điều kiện ban đầu ({t0}, {y0}): {unknown_pt_err}",
+                    ),
+                    execution_time_ms=elapsed,
+                )
 
         steps: list[SolutionStep] = []
         step_num = 1
@@ -893,11 +909,9 @@ class ODESeparableSolver(Solver):
 
             # Integrate both sides with real calculus
             int_g = _real_integrate_reciprocal(g_expr, dep_var)
-            int_f = sp.integrate(f_expr, var)
+            int_f = real_integrate_expression(f_expr, var, source_expr=f_expr, wrap_all_logs=True)
 
-            if any(isinstance(node, sp.Integral) for node in sp.preorder_traversal(int_g)) or any(
-                isinstance(node, sp.Integral) for node in sp.preorder_traversal(int_f)
-            ):
+            if int_f is None or any(isinstance(node, sp.Integral) for node in sp.preorder_traversal(int_g)):
                 elapsed = (time.perf_counter() - t0_start) * 1000.0
                 return SolutionResponse(
                     status=SolutionStatus.CANNOT_SOLVE,
@@ -1166,7 +1180,9 @@ class ODESeparableSolver(Solver):
                             part_str = f"{dep_var}({var}) = {part_sol}"
                             part_latex = f"{dep_var}({var}) = {expr_to_latex(part_sol)}"
                             b_restrs = list(domain_restrictions) + list(cand.real_root_restrictions) + list(cand.denominator_exclusions)
-                            b_dom_int = _find_connected_domain_interval(part_sol, var, t0=t0, given_interval=parsed.interval)
+                            b_dom_int = _find_connected_domain_interval(
+                                part_sol, var, t0=t0, given_interval=parsed.interval, rhs_expr=f_expr
+                            )
                             emitted_solutions.append(
                                 EmittedBranchSolution(
                                     solution_str=part_str,
@@ -1196,7 +1212,9 @@ class ODESeparableSolver(Solver):
                         else:
                             part_str = f"{int_g} = {int_f + c_val}" if not c_val.is_number or c_val > 0 else f"{int_g} = {int_f} - {-c_val}"
                             part_latex = f"{expr_to_latex(int_g)} = {expr_to_latex(int_f + c_val)}"
-                        b_dom_int = _find_connected_domain_interval(None, var, t0=t0, given_interval=parsed.interval)
+                        b_dom_int = _find_connected_domain_interval(
+                            None, var, t0=t0, given_interval=parsed.interval, rhs_expr=f_expr
+                        )
                         emitted_solutions.append(
                             EmittedBranchSolution(
                                 solution_str=part_str,
@@ -1245,8 +1263,55 @@ class ODESeparableSolver(Solver):
                             )
                         )
                 else:
-                    gen_str = f"{int_g} = {int_f} + {c_branch_sym}"
-                    gen_latex = f"{expr_to_latex(int_g)} = {expr_to_latex(int_f)} + {expr_to_latex(c_branch_sym)}"
+                    inv_g = sp.simplify(1 / g_expr)
+                    coeff, rest_sym = inv_g.as_coeff_Mul()
+                    if rest_sym == dep_var and coeff.is_number and coeff != 0:
+                        k_const = 1 / coeff
+                        rest_term = sp.expand(-2 * k_const * int_f)
+                        if str(rest_term).startswith("-"):
+                            gen_str = f"{dep_var}**2 - {-rest_term} = {c_branch_sym}"
+                        else:
+                            gen_str = f"{dep_var}**2 + {rest_term} = {c_branch_sym}"
+                        gen_latex = f"{dep_var}^{{2}} + {expr_to_latex(rest_term)} = {expr_to_latex(c_branch_sym)}"
+
+                        geom_desc = ""
+                        # Check for T01 conic: y^2 + 4*t^2 = C
+                        if rest_term == 4 * var**2:
+                            geom_desc = (
+                                " Ý nghĩa hình học của họ đường cong tích phân $y^2 + 4t^2 = C$: "
+                                "Với $C > 0$, đây là họ elip thực; với $C = 0$, suy biến thành điểm gốc tọa độ $(0, 0)$; "
+                                "với $C < 0$, tập nghiệm thực rỗng."
+                            )
+                        # Check for T02 conic: y^2 + 8*t*x = C
+                        elif var == sp.Symbol("x") and rest_term == 8 * sp.Symbol("t") * sp.Symbol("x"):
+                            geom_desc = (
+                                " Ý nghĩa hình học của họ đường cong tích phân $y^2 + 8tx = C$: "
+                                "Khi tham số $t \\ne 0$, đây là họ parabol theo biến $x$; "
+                                "khi $t = 0$, hệ thức suy biến thành $y^2 = C$ (hai đường thẳng song song nếu $C > 0$, "
+                                "đường thẳng trùng nhau $y = 0$ nếu $C = 0$, và tập nghiệm thực rỗng nếu $C < 0$)."
+                            )
+
+                        steps.append(
+                            SolutionStep(
+                                step_number=step_num,
+                                rule_name="Rút ra nghiệm tổng quát",
+                                title=f"Rút ra hệ thức nghiệm tổng quát dạng ẩn{branch_label}",
+                                description=(
+                                    f"Chuyển vế để thu được hệ thức nghiệm tổng quát dạng ẩn: "
+                                    f"${gen_latex}$.{geom_desc}"
+                                ),
+                                content=ExpressionStepContent(
+                                    expression_before=f"{int_g} = {int_f} + {c_branch_sym}",
+                                    expression_after=gen_str,
+                                    latex_before=int_latex,
+                                    latex_after=gen_latex,
+                                ),
+                            )
+                        )
+                        step_num += 1
+                    else:
+                        gen_str = f"{int_g} = {int_f} + {c_branch_sym}"
+                        gen_latex = f"{expr_to_latex(int_g)} = {expr_to_latex(int_f)} + {expr_to_latex(c_branch_sym)}"
                     b_dom_int = _find_connected_domain_interval(None, var, t0=None, given_interval=parsed.interval)
                     emitted_solutions.append(
                         EmittedBranchSolution(
@@ -1317,7 +1382,7 @@ class ODESeparableSolver(Solver):
             if em.explicit_expr is not None:
                 # Direct check: compute dy/dt and substitute into parsed.standard_expr and derivative_branch
                 try:
-                    dy_dt = sp.diff(em.explicit_expr, var)
+                    dy_dt = _diff_real_expr(em.explicit_expr, var, domain_interval=em.domain_interval)
                     # Verify against original ODE
                     res_ode = sp.simplify(parsed.standard_expr.subs([(yp_sym, dy_dt), (dep_var, em.explicit_expr)]))
                     is_res_ode_zero = _prove_symbolic_zero(
@@ -1335,6 +1400,22 @@ class ODESeparableSolver(Solver):
                         domain_interval=em.domain_interval,
                         variable=var,
                     )
+
+                    # When explicit solution involves Abs (e.g. sqrt(Abs(t))) across symmetric intervals
+                    # with t = 0 excluded from the ODE domain, verify each open sign interval independently
+                    if (
+                        (not is_res_ode_zero or not is_res_branch_zero)
+                        and em.explicit_expr.has(sp.Abs)
+                        and (em.domain_interval is None or em.domain_interval == (-sp.oo, sp.oo))
+                    ):
+                        ode_pos = _prove_symbolic_zero(res_ode, (em.c_sym,), domain_interval=(0, sp.oo), variable=var)
+                        ode_neg = _prove_symbolic_zero(res_ode, (em.c_sym,), domain_interval=(-sp.oo, 0), variable=var)
+                        br_pos = _prove_symbolic_zero(res_branch, (em.c_sym,), domain_interval=(0, sp.oo), variable=var)
+                        br_neg = _prove_symbolic_zero(res_branch, (em.c_sym,), domain_interval=(-sp.oo, 0), variable=var)
+                        if ode_pos and ode_neg:
+                            is_res_ode_zero = True
+                        if br_pos and br_neg:
+                            is_res_branch_zero = True
 
                     # Also verify initial condition if present
                     ic_ok = True

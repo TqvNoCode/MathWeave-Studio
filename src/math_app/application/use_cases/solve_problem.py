@@ -106,6 +106,9 @@ def _execute_in_isolated_process(
                         warnings=resp.warnings,
                         execution_time_ms=elapsed,
                         branch_solutions=resp.branch_solutions,
+                        original_domain_latex=resp.original_domain_latex,
+                        normalized_domain_latex=resp.normalized_domain_latex,
+                        domain_completeness=resp.domain_completeness,
                     )
                 return resp
             elif status_tag == "invalid_input":
@@ -291,6 +294,9 @@ class SolveProblemUseCase:
                     warnings=response.warnings,
                     execution_time_ms=elapsed,
                     branch_solutions=response.branch_solutions,
+                    original_domain_latex=response.original_domain_latex,
+                    normalized_domain_latex=response.normalized_domain_latex,
+                    domain_completeness=response.domain_completeness,
                 )
             return response
         except InvalidInputError as exc:

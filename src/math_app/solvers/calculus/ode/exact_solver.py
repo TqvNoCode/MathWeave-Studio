@@ -17,10 +17,14 @@ from math_app.domain.models import ProblemType, SolutionStatus, VerificationStat
 from math_app.domain.step_content import ExpressionStepContent
 from math_app.input.ode_parser import ParsedODE, parse_ode_input
 from math_app.rendering.latex.formatter import expr_to_latex
-from math_app.verification.calculus.ode_verifier import (
-    ODEVerifier,
-    validate_initial_point_in_domain,
+from math_app.solvers.calculus.ode._real_calculus import (
+    classify_finite_real_scalar,
+    compute_differential_form_domain_metadata,
+    real_integrate_expression,
+    strip_log_abs,
+    validate_differential_form_ic,
 )
+from math_app.verification.calculus.ode_verifier import ODEVerifier
 
 
 class ODEExactSolver(Solver):
@@ -77,105 +81,33 @@ class ODEExactSolver(Solver):
         N_expr = sp.simplify(N_cand)
 
         # Validate initial point in domain before proceeding
-        if parsed.initial_condition is not None:
-            x0, y0 = parsed.initial_condition
+        invalid_resp = validate_differential_form_ic(
+            raw_input=request.raw_input,
+            parsed=parsed,
+            x_var=x_var,
+            y_var=y_var,
+            M_expr=M_expr,
+            N_expr=N_expr,
+            elapsed_ms_fn=lambda: (time.perf_counter() - t0_start) * 1000.0,
+        )
+        if invalid_resp is not None:
+            return invalid_resp
 
-            # First, check original unsimplified denominators and leading coefficients
-            is_valid_orig, orig_err = validate_initial_point_in_domain(
-                None,
-                x_var,
-                y_var,
-                x0,
-                y0,
-                original_denominators=parsed.original_denominators,
-                leading_coeffs=parsed.leading_coeffs,
-            )
-            if not is_valid_orig:
-                elapsed = (time.perf_counter() - t0_start) * 1000.0
-                return SolutionResponse(
-                    status=SolutionStatus.INVALID_INPUT,
-                    verification=VerificationResult(
-                        status=VerificationStatus.NOT_APPLICABLE,
-                        method="initial_point_domain_validation",
-                        details=f"Điểm ban đầu ({x0}, {y0}) vi phạm điều kiện xác định ban đầu: {orig_err}",
-                    ),
-                    raw_input=request.raw_input,
-                    canonical_input=parsed.canonical_eq,
-                    final_result="",
-                    final_latex="",
-                    warnings=(f"Điều kiện ban đầu ({x0}, {y0}) không hợp lệ: {orig_err}.",),
-                    execution_time_ms=elapsed,
-                )
-
-            is_valid_m, m_err = validate_initial_point_in_domain(
-                M_expr,
-                x_var,
-                y_var,
-                x0,
-                y0,
-                original_denominators=parsed.original_denominators,
-                leading_coeffs=parsed.leading_coeffs,
-            )
-            if not is_valid_m:
-                elapsed = (time.perf_counter() - t0_start) * 1000.0
-                return SolutionResponse(
-                    status=SolutionStatus.INVALID_INPUT,
-                    verification=VerificationResult(
-                        status=VerificationStatus.NOT_APPLICABLE,
-                        method="initial_point_domain_validation",
-                        details=f"Điểm ban đầu ({x0}, {y0}) không thuộc miền xác định của M({x_var}, {y_var}): {m_err}",
-                    ),
-                    raw_input=request.raw_input,
-                    canonical_input=parsed.canonical_eq,
-                    final_result="",
-                    final_latex="",
-                    warnings=(f"Điều kiện ban đầu ({x0}, {y0}) không hợp lệ đối với M({x_var}, {y_var}): {m_err}.",),
-                    execution_time_ms=elapsed,
-                )
-
-            is_valid_n, n_err = validate_initial_point_in_domain(
-                N_expr,
-                x_var,
-                y_var,
-                x0,
-                y0,
-                original_denominators=parsed.original_denominators,
-                leading_coeffs=parsed.leading_coeffs,
-            )
-            if not is_valid_n:
-                elapsed = (time.perf_counter() - t0_start) * 1000.0
-                return SolutionResponse(
-                    status=SolutionStatus.INVALID_INPUT,
-                    verification=VerificationResult(
-                        status=VerificationStatus.NOT_APPLICABLE,
-                        method="initial_point_domain_validation",
-                        details=f"Điểm ban đầu ({x0}, {y0}) không thuộc miền xác định của N({x_var}, {y_var}): {n_err}",
-                    ),
-                    raw_input=request.raw_input,
-                    canonical_input=parsed.canonical_eq,
-                    final_result="",
-                    final_latex="",
-                    warnings=(f"Điều kiện ban đầu ({x0}, {y0}) không hợp lệ đối với N({x_var}, {y_var}): {n_err}.",),
-                    execution_time_ms=elapsed,
-                )
+        ic_subs = (
+            [(x_var, parsed.initial_condition[0]), (y_var, parsed.initial_condition[1])]
+            if parsed.initial_condition is not None
+            else None
+        )
 
         steps: list[SolutionStep] = []
         step_num = 1
-        domain_restrictions: list[str] = []
-
-        # Track denominator restrictions
-        try:
-            _, m_denom = sp.fraction(M_expr)
-            if m_denom != 1 and (x_var in m_denom.free_symbols or y_var in m_denom.free_symbols):
-                domain_restrictions.append(f"Điều kiện xác định của M({x_var}, {y_var}): {m_denom} khác 0.")
-        except Exception:
-            pass
-        try:
-            _, n_denom = sp.fraction(N_expr)
-            if n_denom != 1 and (x_var in n_denom.free_symbols or y_var in n_denom.free_symbols):
-                domain_restrictions.append(f"Điều kiện xác định của N({x_var}, {y_var}): {n_denom} khác 0.")
-        except Exception:
-            pass
+        domain_meta = compute_differential_form_domain_metadata(
+            parsed=parsed,
+            x_var=x_var,
+            y_var=y_var,
+            M_expr=M_expr,
+            N_expr=N_expr,
+        )
 
         # Check exactness: dM/dy == dN/dx
         dM_dy = sp.simplify(sp.diff(M_expr, y_var))
@@ -203,6 +135,18 @@ class ODEExactSolver(Solver):
             )
 
         # Step 1: Verification of exactness condition
+        free_params = sorted(
+            [s for s in (M_expr.free_symbols | N_expr.free_symbols) if s not in (x_var, y_var)],
+            key=lambda s: s.name,
+        )
+        param_str = ", ".join(str(p) for p in free_params)
+        var_args = f"{x_var}, {y_var}; {param_str}" if free_params else f"{x_var}, {y_var}"
+        M_fn = f"M({var_args})"
+        N_fn = f"N({var_args})"
+        Psi_fn = f"\\Psi({var_args})"
+        F_fn = f"F({var_args})"
+
+        param_note = f"Biến độc lập: ${x_var}$. Hàm phụ thuộc: ${y_var}({x_var})$. Tham số hằng: ${param_str}$. " if free_params else ""
         check_latex = (
             f"\\frac{{\\partial M}}{{\\partial {y_var}}} = {expr_to_latex(dM_dy)}, \\quad "
             f"\\frac{{\\partial N}}{{\\partial {x_var}}} = {expr_to_latex(dN_dx)}"
@@ -213,7 +157,8 @@ class ODEExactSolver(Solver):
                 rule_name="Kiểm tra tính vi phân toàn phần",
                 title="Kiểm tra điều kiện vi phân toàn phần (Exactness Condition)",
                 description=(
-                    f"Xác định $M({x_var}, {y_var}) = {expr_to_latex(M_expr)}$ và $N({x_var}, {y_var}) = {expr_to_latex(N_expr)}$. "
+                    f"{param_note}"
+                    f"Xác định ${M_fn} = {expr_to_latex(M_expr)}$ và ${N_fn} = {expr_to_latex(N_expr)}$. "
                     f"Tính các đạo hàm riêng: $\\frac{{\\partial M}}{{\\partial {y_var}}} = {expr_to_latex(dM_dy)}$ "
                     f"và $\\frac{{\\partial N}}{{\\partial {x_var}}} = {expr_to_latex(dN_dx)}$. "
                     f"Vì $\\frac{{\\partial M}}{{\\partial {y_var}}} = \\frac{{\\partial N}}{{\\partial {x_var}}}$, phương trình là vi phân toàn phần."
@@ -221,7 +166,7 @@ class ODEExactSolver(Solver):
                 content=ExpressionStepContent(
                     expression_before=f"M = {M_expr}, N = {N_expr}",
                     expression_after=f"dM/d{y_var} = {dM_dy} == dN/d{x_var} = {dN_dx}",
-                    latex_before=f"M({x_var}, {y_var}) = {expr_to_latex(M_expr)}, \\quad N({x_var}, {y_var}) = {expr_to_latex(N_expr)}",
+                    latex_before=f"{M_fn} = {expr_to_latex(M_expr)}, \\quad {N_fn} = {expr_to_latex(N_expr)}",
                     latex_after=check_latex,
                 ),
             )
@@ -229,22 +174,38 @@ class ODEExactSolver(Solver):
         step_num += 1
 
         # Step 2: Integrate M(x, y) with respect to x: Psi(x, y) = int(M dx)
-        psi_expr = sp.simplify(sp.integrate(M_expr, x_var))
-        psi_latex = f"\\Psi({x_var}, {y_var}) = \\int \\left( {expr_to_latex(M_expr)} \\right) d{x_var} = {expr_to_latex(psi_expr)}"
+        psi_expr = real_integrate_expression(M_expr, x_var, source_expr=M_expr, eval_subs=ic_subs)
+        if psi_expr is None:
+            elapsed = (time.perf_counter() - t0_start) * 1000.0
+            return SolutionResponse(
+                status=SolutionStatus.CANNOT_SOLVE,
+                verification=VerificationResult(
+                    status=VerificationStatus.NOT_APPLICABLE,
+                    method="exact_potential_integration",
+                    details=f"Tích phân int({M_expr} d{x_var}) không có nguyên hàm sơ cấp thực.",
+                ),
+                raw_input=request.raw_input,
+                canonical_input=parsed.canonical_eq,
+                final_result="",
+                final_latex="",
+                warnings=(f"Không thể tìm nguyên hàm sơ cấp thực cho M({x_var}, {y_var}) theo biến {x_var}.",),
+                execution_time_ms=elapsed,
+            )
+        psi_latex = f"{Psi_fn} = \\int \\left( {expr_to_latex(M_expr)} \\right) d{x_var} = {expr_to_latex(psi_expr)}"
 
         steps.append(
             SolutionStep(
                 step_number=step_num,
                 rule_name="Tích phân hai vế",
-                title=f"Tích phân hàm $M({x_var}, {y_var})$ theo biến ${x_var}$",
+                title=f"Tích phân hàm ${M_fn}$ theo biến ${x_var}$",
                 description=(
-                    f"Lấy nguyên hàm của $M({x_var}, {y_var})$ theo biến ${x_var}$ (coi ${y_var}$ là hằng số): "
-                    f"$\\Psi({x_var}, {y_var}) = \\int \\left( {expr_to_latex(M_expr)} \\right)\\,d{x_var} = {expr_to_latex(psi_expr)} + h({y_var})$."
+                    f"Lấy nguyên hàm của ${M_fn}$ theo biến ${x_var}$ (coi ${y_var}$ là hằng số): "
+                    f"${Psi_fn} = \\int \\left( {expr_to_latex(M_expr)} \\right)\\,d{x_var} = {expr_to_latex(psi_expr)} + h({y_var})$."
                 ),
                 content=ExpressionStepContent(
                     expression_before=f"int({M_expr}) d{x_var}",
                     expression_after=f"Psi = {psi_expr} + h({y_var})",
-                    latex_before=f"\\int M({x_var}, {y_var})\\,d{x_var}",
+                    latex_before=f"\\int {M_fn}\\,d{x_var}",
                     latex_after=f"{psi_latex} + h({y_var})",
                 ),
             )
@@ -252,7 +213,7 @@ class ODEExactSolver(Solver):
         step_num += 1
 
         # Step 3: Find h(y): dPsi/dy + h'(y) = N => h'(y) = N - dPsi/dy
-        dpsi_dy = sp.simplify(sp.diff(psi_expr, y_var))
+        dpsi_dy = sp.simplify(sp.diff(strip_log_abs(psi_expr), y_var))
         h_prime = sp.simplify(N_expr - dpsi_dy)
 
         # Verify h_prime is independent of x
@@ -273,7 +234,23 @@ class ODEExactSolver(Solver):
                 execution_time_ms=elapsed,
             )
 
-        h_expr = sp.simplify(sp.integrate(h_prime, y_var))
+        h_expr = real_integrate_expression(h_prime, y_var, source_expr=h_prime, eval_subs=ic_subs)
+        if h_expr is None:
+            elapsed = (time.perf_counter() - t0_start) * 1000.0
+            return SolutionResponse(
+                status=SolutionStatus.CANNOT_SOLVE,
+                verification=VerificationResult(
+                    status=VerificationStatus.NOT_APPLICABLE,
+                    method="exact_potential_integration",
+                    details=f"Tích phân int({h_prime} d{y_var}) không có nguyên hàm sơ cấp thực.",
+                ),
+                raw_input=request.raw_input,
+                canonical_input=parsed.canonical_eq,
+                final_result="",
+                final_latex="",
+                warnings=(f"Không thể tìm nguyên hàm sơ cấp thực cho h'({y_var}).",),
+                execution_time_ms=elapsed,
+            )
         h_latex = f"h'({y_var}) = {expr_to_latex(h_prime)} \\implies h({y_var}) = {expr_to_latex(h_expr)}"
 
         steps.append(
@@ -283,13 +260,13 @@ class ODEExactSolver(Solver):
                 title=f"Xác định hàm số phụ $h({y_var})$",
                 description=(
                     f"Đạo hàm riêng theo ${y_var}$: $\\frac{{\\partial \\Psi}}{{\\partial {y_var}}} = {expr_to_latex(dpsi_dy)}$. "
-                    f"So sánh với $N({x_var}, {y_var})$ ta có: $h'({y_var}) = N - \\frac{{\\partial \\Psi}}{{\\partial {y_var}}} = {expr_to_latex(h_prime)}$. "
+                    f"So sánh với ${N_fn}$ ta có: $h'({y_var}) = N - \\frac{{\\partial \\Psi}}{{\\partial {y_var}}} = {expr_to_latex(h_prime)}$. "
                     f"Tích phân theo ${y_var}$ suy ra: $h({y_var}) = {expr_to_latex(h_expr)}$."
                 ),
                 content=ExpressionStepContent(
                     expression_before=f"h'({y_var}) = {N_expr} - ({dpsi_dy})",
                     expression_after=f"h({y_var}) = {h_expr}",
-                    latex_before=f"h'({y_var}) = N({x_var}, {y_var}) - \\frac{{\\partial \\Psi}}{{\\partial {y_var}}}",
+                    latex_before=f"h'({y_var}) = {N_fn} - \\frac{{\\partial \\Psi}}{{\\partial {y_var}}}",
                     latex_after=h_latex,
                 ),
             )
@@ -298,21 +275,21 @@ class ODEExactSolver(Solver):
 
         # Step 4: Construct potential function F(x, y) = Psi + h
         potential_F = sp.expand(psi_expr + h_expr)
-        potential_latex = f"F({x_var}, {y_var}) = {expr_to_latex(potential_F)}"
+        potential_latex = f"{F_fn} = {expr_to_latex(potential_F)}"
 
         steps.append(
             SolutionStep(
                 step_number=step_num,
                 rule_name="Xây dựng hàm thế",
-                title=f"Xây dựng hàm thế vi phân toàn phần $F({x_var}, {y_var})$",
+                title=f"Xây dựng hàm thế vi phân toàn phần ${F_fn}$",
                 description=(
-                    f"Hàm thế vi phân toàn phần là $F({x_var}, {y_var}) = \\Psi({x_var}, {y_var}) + h({y_var}) = {expr_to_latex(potential_F)}$. "
-                    f"Nghiệm tổng quát của phương trình là $F({x_var}, {y_var}) = C$, tức ${expr_to_latex(potential_F)} = C$."
+                    f"Hàm thế vi phân toàn phần là ${F_fn} = {Psi_fn} + h({y_var}) = {expr_to_latex(potential_F)}$. "
+                    f"Nghiệm tổng quát của phương trình là ${F_fn} = C$, tức ${expr_to_latex(potential_F)} = C$."
                 ),
                 content=ExpressionStepContent(
                     expression_before=f"F = ({psi_expr}) + ({h_expr})",
                     expression_after=f"F({x_var}, {y_var}) = {potential_F} = C",
-                    latex_before=f"F({x_var}, {y_var}) = \\Psi({x_var}, {y_var}) + h({y_var})",
+                    latex_before=f"{F_fn} = {Psi_fn} + h({y_var})",
                     latex_after=f"{potential_latex} = C",
                 ),
             )
@@ -326,6 +303,27 @@ class ODEExactSolver(Solver):
         if parsed.initial_condition is not None:
             x0, y0 = parsed.initial_condition
             c_val = sp.simplify(potential_F.subs([(x_var, x0), (y_var, y0)]))
+            c_stat, c_err = classify_finite_real_scalar(c_val, (M_expr, N_expr))
+            if c_stat == "invalid":
+                elapsed = (time.perf_counter() - t0_start) * 1000.0
+                return SolutionResponse(
+                    status=SolutionStatus.CANNOT_SOLVE,
+                    verification=VerificationResult(
+                        status=VerificationStatus.NOT_APPLICABLE,
+                        method="exact_ic_domain_violation",
+                        details=f"Không thể xác định hằng số thực hữu hạn tại ({x0}, {y0}): {c_err}.",
+                    ),
+                    raw_input=request.raw_input,
+                    canonical_input=parsed.canonical_eq,
+                    final_result="",
+                    final_latex="",
+                    domain_restrictions=domain_meta.domain_restrictions,
+                    original_domain_latex=domain_meta.original_domain_latex,
+                    normalized_domain_latex=domain_meta.normalized_domain_latex,
+                    domain_completeness=domain_meta.completeness,
+                    warnings=(f"Hàm thế không cho giá trị thực hữu hạn tại điều kiện ban đầu ({x0}, {y0}): {c_err}.",),
+                    execution_time_ms=elapsed,
+                )
             part_latex = f"{expr_to_latex(potential_F)} = {expr_to_latex(c_val)}"
 
             steps.append(
@@ -358,6 +356,7 @@ class ODEExactSolver(Solver):
             x_sym=x_var,
             y_sym=y_var,
             initial_condition=parsed.initial_condition,
+            source_constraints=getattr(parsed, "original_domain_constraints", ()),
         )
 
         # Determine overall solution status
@@ -380,7 +379,10 @@ class ODEExactSolver(Solver):
             final_result=final_sol_str,
             final_latex=final_latex_sol,
             steps=tuple(steps),
-            domain_restrictions=tuple(domain_restrictions),
+            domain_restrictions=domain_meta.domain_restrictions,
+            original_domain_latex=domain_meta.original_domain_latex,
+            normalized_domain_latex=domain_meta.normalized_domain_latex,
+            domain_completeness=domain_meta.completeness,
             warnings=tuple(warnings_list),
             execution_time_ms=elapsed,
         )

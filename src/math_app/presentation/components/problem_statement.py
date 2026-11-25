@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+import sympy as sp
 
 from math_app.domain.models import ProblemType
 from math_app.input.parser import (
@@ -56,6 +57,120 @@ def get_result_card_title(op_type: ProblemType) -> str:
         ProblemType.MATRIX_SOLVE_SYSTEM: "KẾT QUẢ GIẢI HỆ PHƯƠNG TRÌNH",
     }
     return titles.get(op_type, "KẾT QUẢ PHÉP TOÁN")
+
+
+def _format_second_order_ode_latex(parsed_so: Any, clean_var: str) -> str:
+    a = parsed_so.a_coeff
+    b = parsed_so.b_coeff
+    c = parsed_so.c_coeff
+    rhs = sp.simplify(parsed_so.rhs_expr)
+
+    d2 = f"\\frac{{d^2y}}{{d{clean_var}^2}}"
+    d1 = f"\\frac{{dy}}{{d{clean_var}}}"
+
+    # a * y''
+    if a == 1:
+        t1 = d2
+    elif a == -1:
+        t1 = f"-{d2}"
+    else:
+        t1 = f"{expr_to_latex(a)}{d2}"
+
+    # b * y'
+    if b == 0:
+        t2 = ""
+    elif b == 1:
+        t2 = f" + {d1}"
+    elif b == -1:
+        t2 = f" - {d1}"
+    elif b.is_number:
+        if b > 0:
+            t2 = f" + {expr_to_latex(b)}{d1}"
+        else:
+            t2 = f" - {expr_to_latex(-b)}{d1}"
+    else:
+        b_ltx = expr_to_latex(b)
+        if b_ltx.startswith("-"):
+            t2 = f" - {expr_to_latex(-b)}{d1}"
+        else:
+            t2 = f" + {b_ltx}{d1}"
+
+    # c * y
+    if c == 0:
+        t3 = ""
+    elif c == 1:
+        t3 = " + y"
+    elif c == -1:
+        t3 = " - y"
+    elif c.is_number:
+        if c > 0:
+            t3 = f" + {expr_to_latex(c)}y"
+        else:
+            t3 = f" - {expr_to_latex(-c)}y"
+    else:
+        c_ltx = expr_to_latex(c)
+        if c_ltx.startswith("-"):
+            t3 = f" - {expr_to_latex(-c)}y"
+        else:
+            t3 = f" + {c_ltx}y"
+
+    return f"{t1}{t2}{t3} = {expr_to_latex(rhs)}"
+
+
+def _format_first_order_ode_latex(parsed_fo: Any, clean_var: str) -> str | None:
+    yp_sym = sp.Symbol("y_prime")
+    y_sym = sp.Symbol("y")
+    if yp_sym in parsed_fo.lhs_expr.free_symbols:
+        a = parsed_fo.lhs_expr.coeff(yp_sym, 1)
+        rem = parsed_fo.lhs_expr.coeff(yp_sym, 0)
+        b = rem.coeff(y_sym, 1)
+        c = rem.coeff(y_sym, 0)
+        if c == 0 and a != 0:
+            d1 = f"\\frac{{dy}}{{d{clean_var}}}"
+            if a == 1:
+                t1 = d1
+            elif a == -1:
+                t1 = f"-{d1}"
+            else:
+                t1 = f"{expr_to_latex(a)}{d1}"
+
+            if b == 0:
+                t2 = ""
+            elif b == 1:
+                t2 = " + y"
+            elif b == -1:
+                t2 = " - y"
+            elif b.is_number:
+                if b > 0:
+                    t2 = f" + {expr_to_latex(b)}y"
+                else:
+                    t2 = f" - {expr_to_latex(-b)}y"
+            else:
+                b_ltx = expr_to_latex(b)
+                if b_ltx.startswith("-"):
+                    t2 = f" - {expr_to_latex(-b)}y"
+                else:
+                    t2 = f" + {b_ltx}y"
+            rhs_expr = sp.simplify(parsed_fo.rhs_expr)
+            return f"{t1}{t2} = {expr_to_latex(rhs_expr)}"
+    return None
+
+
+def _format_ode_side_fallback(side: str, clean_var: str) -> str:
+    s = side.strip()
+    if "y'" not in s and "y''" not in s and "dy" not in s:
+        try:
+            from math_app.input.parser import parse_safe_expression
+            expr = parse_safe_expression(s, target_variable=clean_var, evaluate=True)
+            return expr_to_latex(expr)
+        except Exception:
+            pass
+
+    s = s.replace("y''", f"\\frac{{d^2y}}{{d{clean_var}^2}}")
+    s = s.replace("y'", f"\\frac{{dy}}{{d{clean_var}}}")
+    s = re.sub(r"(\d+)\s*\*\s*([a-zA-Z\\])", r"\1\2", s)
+    s = re.sub(r"([a-zA-Z_\)\}])\s*\*\s*([a-zA-Z\\])", r"\1 \2", s)
+    return s
 
 
 def format_problem_statement_latex(
@@ -297,34 +412,59 @@ def format_problem_statement_latex(
         ProblemType.ODE_REDUCTION_OF_ORDER,
     ):
         try:
-            from math_app.input.ode_parser import extract_second_order_ics_from_string
+            from math_app.input.ode_parser import (
+                extract_second_order_ics_from_string,
+                parse_second_order_ode_input,
+                parse_ode_input,
+            )
             eq_str, y_ic, yp_ic, y1_str = extract_second_order_ics_from_string(raw_input)
-            if not y_ic and p and "initial_condition" in p and p["initial_condition"]:
+            if (not y_ic or not yp_ic) and p and "initial_condition" in p and p["initial_condition"]:
                 ic_val = str(p["initial_condition"]).strip()
-                if "y'" in ic_val or "yp" in ic_val:
-                    yp_ic = ic_val
-                else:
-                    y_ic = ic_val
+                _, p_y_ic, p_yp_ic, _ = extract_second_order_ics_from_string("dummy = 0, " + ic_val)
+                if p_y_ic and not y_ic:
+                    y_ic = p_y_ic
+                if p_yp_ic and not yp_ic:
+                    yp_ic = p_yp_ic
+                if not y_ic and not yp_ic:
+                    if "y'" in ic_val or "yp" in ic_val:
+                        yp_ic = ic_val
+                    else:
+                        y_ic = ic_val
             if not y1_str and p and "y1" in p and p["y1"]:
                 y1_str = str(p["y1"]).strip()
 
-            eq_ltx = eq_str
-            if "=" in eq_str:
-                parts = eq_str.split("=")
-                if len(parts) == 2:
-                    l_str = (
-                        parts[0]
-                        .strip()
-                        .replace("y''", f"\\frac{{d^2y}}{{d{clean_var}^2}}")
-                        .replace("y'", f"\\frac{{dy}}{{d{clean_var}}}")
-                    )
-                    r_str = (
-                        parts[1]
-                        .strip()
-                        .replace("y''", f"\\frac{{d^2y}}{{d{clean_var}^2}}")
-                        .replace("y'", f"\\frac{{dy}}{{d{clean_var}}}")
-                    )
+            eq_ltx: str | None = None
+            if op_type in (
+                ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+                ProblemType.ODE_SECOND_ORDER_IVP,
+                ProblemType.ODE_REDUCTION_OF_ORDER,
+            ):
+                try:
+                    parsed_so = parse_second_order_ode_input(eq_str, target_variable=clean_var)
+                    eq_ltx = _format_second_order_ode_latex(parsed_so, clean_var)
+                except Exception:
+                    pass
+
+            if eq_ltx is None and op_type in (
+                ProblemType.ODE_FIRST_ORDER_LINEAR,
+                ProblemType.ODE_SEPARABLE,
+                ProblemType.ODE_EXACT,
+                ProblemType.ODE_INTEGRATING_FACTOR,
+            ):
+                try:
+                    parsed_fo = parse_ode_input(eq_str, target_variable=clean_var)
+                    eq_ltx = _format_first_order_ode_latex(parsed_fo, clean_var)
+                except Exception:
+                    pass
+
+            if eq_ltx is None:
+                if "=" in eq_str:
+                    parts = eq_str.split("=", 1)
+                    l_str = _format_ode_side_fallback(parts[0], clean_var)
+                    r_str = _format_ode_side_fallback(parts[1], clean_var)
                     eq_ltx = f"{l_str} = {r_str}"
+                else:
+                    eq_ltx = _format_ode_side_fallback(eq_str, clean_var)
 
             addons: list[str] = []
             if y_ic:
@@ -334,6 +474,12 @@ def format_problem_statement_latex(
             if y1_str:
                 clean_y1 = re.sub(r"^y_?1\s*=\s*", "", y1_str).strip()
                 addons.append(f"y_1 = {clean_y1}")
+
+            if addons:
+                return f"{eq_ltx}, \\quad " + ", \\quad ".join(addons)
+            return eq_ltx
+        except Exception:
+            return raw_input
 
             if addons:
                 return f"{eq_ltx}, \\quad " + ", \\quad ".join(addons)
@@ -478,6 +624,33 @@ def format_final_answer_latex(
         return f"x = {raw_final_latex}"
 
     if op_type == ProblemType.SOLVE_EQUATION:
+        if ", \\quad " in raw_final_latex:
+            parts = raw_final_latex.split(", \\quad ")
+            if len(parts) > 1:
+                aligned_lines = []
+                for idx, pt in enumerate(parts, 1):
+                    subbed_pt = re.sub(r"^\s*([a-zA-Z])\s*=\s*", rf"\1_{{{idx}}} &= ", pt)
+                    if subbed_pt == pt:
+                        subbed_pt = re.sub(r"\s*=\s*", r" &= ", pt, count=1)
+                    aligned_lines.append(subbed_pt)
+                return rf"\begin{{aligned}} {' \\\\ '.join(aligned_lines)} \end{{aligned}}"
         return raw_final_latex
+
+    if op_type in (
+        ProblemType.ODE_FIRST_ORDER_LINEAR,
+        ProblemType.ODE_FIRST_ORDER_HOMOGENEOUS,
+        ProblemType.ODE_SEPARABLE,
+        ProblemType.ODE_EXACT,
+        ProblemType.ODE_INTEGRATING_FACTOR,
+        ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+        ProblemType.ODE_SECOND_ORDER_IVP,
+        ProblemType.ODE_REDUCTION_OF_ORDER,
+        ProblemType.WRONSKIAN,
+    ) or (isinstance(op_type, ProblemType) and op_type.value.startswith("ode_")):
+        from math_app.presentation.components.ode_pedagogical_enhancer import (
+            standardize_ode_notation,
+        )
+
+        return standardize_ode_notation(raw_final_latex)
 
     return raw_final_latex

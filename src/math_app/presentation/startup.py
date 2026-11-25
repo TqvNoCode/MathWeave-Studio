@@ -337,11 +337,10 @@ def patch_pywebview_qt() -> None:
 
         self.pywebview_window.events.closed.set()
 
-        # Detach page from webview and schedule deferred deletion
+        # Schedule deferred deletion of page and flush events before app exit
         try:
             page = self.webview.page()
             if page:
-                self.webview.setPage(None)
                 page.deleteLater()
         except Exception:
             pass

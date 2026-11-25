@@ -20,7 +20,7 @@ def render_substep_compact(substep: SolutionStep) -> None:
             ui.icon("fiber_manual_record", size="0.55rem").classes("text-blue-500")
             raw_title = substep.title or f"Phép biến đổi {substep.step_number}"
             if raw_title.startswith("Số hạng "):
-                term_part = raw_title[len("Số hạng "):].strip()
+                term_part = raw_title[len("Số hạng ") :].strip()
                 if term_part.startswith("$") and term_part.endswith("$"):
                     term_part = term_part[1:-1].strip()
                 ui.label("Số hạng:").classes("font-semibold text-xs md:text-sm text-slate-800")
@@ -29,7 +29,9 @@ def render_substep_compact(substep: SolutionStep) -> None:
                 ui_math_text(raw_title, classes="font-semibold text-xs md:text-sm text-slate-800")
             rn = substep.display_rule_name
             if rn and rn != raw_title:
-                with ui.badge(color="slate-100").classes("text-slate-600 text-[11px] px-2 py-0.5 rounded-md font-medium"):
+                with ui.badge(color="slate-100").classes(
+                    "text-slate-600 text-[11px] px-2 py-0.5 rounded-md font-medium"
+                ):
                     ui_math_text(rn)
 
         # Pedagogical term explanation
@@ -55,9 +57,9 @@ def render_substep_compact(substep: SolutionStep) -> None:
                     render_substep_compact(deep_sub)
 
 
-def render_step(step: SolutionStep) -> None:
+def render_step(step: SolutionStep, display_index: int | None = None) -> None:
     """Render an individual main derivation step (Layer A) with optional Layer B details."""
-    card_classes = "w-full p-5 my-2.5 shadow-xs border border-slate-200 rounded-xl bg-white gap-3"
+    card_classes = "w-full min-w-0 max-w-full p-5 my-2.5 shadow-xs border border-slate-200 rounded-xl bg-white gap-3"
     step_title = step.display_title
     rule_name_vi = step.display_rule_name
 
@@ -66,13 +68,22 @@ def render_step(step: SolutionStep) -> None:
         with ui.row().classes("items-center justify-between w-full flex-wrap gap-2 border-b border-slate-100 pb-2.5"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("check_circle_outline", size="1.25rem").classes("text-blue-600")
-                ui_math_text(f"Bước {step.step_number}: {step_title}", classes="text-base font-bold text-slate-900")
+                step_num_disp = (
+                    display_index
+                    if display_index is not None
+                    else getattr(
+                        step, "presentation_step_number", getattr(step, "display_step_number", step.step_number)
+                    )
+                )
+                ui_math_text(f"Bước {step_num_disp}: {step_title}", classes="text-base font-bold text-slate-900")
 
             with ui.row().classes("items-center gap-2"):
                 with ui.badge(color="blue-1").classes("text-blue-800 text-xs px-2.5 py-0.5 rounded-full font-medium"):
                     ui_math_text(rule_name_vi)
                 if step.notes:
-                    with ui.badge(color="slate-200").classes("text-slate-700 text-xs px-2 py-0.5 rounded-md font-medium"):
+                    with ui.badge(color="slate-200").classes(
+                        "text-slate-700 text-xs px-2 py-0.5 rounded-md font-medium"
+                    ):
                         ui_math_text(step.notes)
 
         # 2. Concise Pedagogical Explanation in Vietnamese (Layer A)
@@ -81,27 +92,41 @@ def render_step(step: SolutionStep) -> None:
 
         # 3. Step Assumptions / Conditions (e.g. Với n != -1)
         if step.assumptions:
-            with ui.row().classes("items-center gap-2 px-3 py-1.5 bg-amber-50/70 border border-amber-200/60 rounded-lg text-xs text-amber-900"):
+            with ui.row().classes(
+                "items-center gap-2 px-3 py-1.5 bg-amber-50/70 border border-amber-200/60 rounded-lg text-xs text-amber-900"
+            ):
                 ui.icon("info", size="1rem").classes("text-amber-600")
                 for asmp in step.assumptions:
                     ui_math(asmp, block=False, classes="text-xs text-amber-950 font-medium")
 
         # 4. Continuous Mathematical Transformation (Layer A - Always Visible)
         if step.equation_latex:
-            with ui.column().classes("w-full bg-slate-50/90 rounded-xl p-4 my-1 border border-slate-200/80 items-start overflow-x-auto"):
+            with ui.column().classes(
+                "w-full min-w-0 max-w-full bg-slate-50/90 rounded-xl p-4 my-1 border border-slate-200/80 items-start overflow-x-auto"
+            ):
                 ui_math(step.equation_latex, block=True, classes="text-base md:text-lg text-slate-900 font-medium py-1")
         else:
-            with ui.column().classes("w-full bg-slate-50/90 rounded-xl p-3.5 my-1 border border-slate-200/80 gap-2"):
-                with ui.row().classes("items-center justify-between w-full flex-wrap gap-4"):
-                    with ui.column().classes("gap-1 min-w-[200px] flex-1"):
-                        ui.label("Trước biến đổi:").classes("text-[11px] font-bold text-slate-500 uppercase tracking-wider")
+            with ui.column().classes(
+                "w-full min-w-0 max-w-full bg-slate-50/90 rounded-xl p-3.5 my-1 border border-slate-200/80 gap-2 overflow-x-auto"
+            ):
+                with ui.row().classes("items-center justify-between w-full flex-wrap gap-4 min-w-0"):
+                    with ui.column().classes("gap-1 min-w-[200px] flex-1 min-w-0 overflow-x-auto"):
+                        ui.label("Trước biến đổi:").classes(
+                            "text-[11px] font-bold text-slate-500 uppercase tracking-wider"
+                        )
                         ui_math(step.content.latex_before, block=False, classes="text-base text-slate-900 py-0.5")
 
                     ui.icon("arrow_forward", size="1.25rem").classes("text-blue-500 self-center hidden sm:block")
 
-                    with ui.column().classes("gap-1 min-w-[200px] flex-1"):
-                        ui.label("Sau biến đổi:").classes("text-[11px] font-bold text-blue-700 uppercase tracking-wider")
-                        ui_math(step.content.latex_after, block=False, classes="text-base font-semibold text-blue-800 py-0.5")
+                    with ui.column().classes("gap-1 min-w-[200px] flex-1 min-w-0 overflow-x-auto"):
+                        ui.label("Sau biến đổi:").classes(
+                            "text-[11px] font-bold text-blue-700 uppercase tracking-wider"
+                        )
+                        ui_math(
+                            step.content.latex_after,
+                            block=False,
+                            classes="text-base font-semibold text-blue-800 py-0.5",
+                        )
 
         # 5. Layer B: Detailed Reasoning on Demand (Compact Substeps)
         if step.substeps:
@@ -129,11 +154,13 @@ def render_steps_container(
             with ui.row().classes("items-center gap-2"):
                 ui.icon("format_list_numbered", size="1.4rem").classes("text-blue-600")
                 ui.label("Trình tự giải chi tiết từng bước").classes("text-base md:text-lg font-bold text-slate-900")
-            ui.badge(f"{len(steps)} bước", color="blue-1").classes("text-blue-800 text-xs px-2.5 py-0.5 rounded-full font-semibold")
+            ui.badge(f"{len(steps)} bước", color="blue-1").classes(
+                "text-blue-800 text-xs px-2.5 py-0.5 rounded-full font-semibold"
+            )
 
         # Derivation Sequence (Layer A & Layer B)
-        for step in steps:
-            render_step(step)
+        for idx, step in enumerate(steps, start=1):
+            render_step(step, display_index=idx)
 
         # Final Conclusion in the Derivation Sequence
         if final_answer_latex and final_answer_latex.strip():
@@ -144,8 +171,14 @@ def render_steps_container(
             elif clean_conclusion.startswith(r"\fbox{") and clean_conclusion.endswith("}"):
                 clean_conclusion = clean_conclusion[6:-1].strip()
 
-            with ui.card().classes("w-full p-4.5 my-2 border-2 border-blue-200 bg-gradient-to-r from-blue-50/80 to-indigo-50/60 rounded-xl gap-2 shadow-xs"):
+            with ui.card().classes(
+                "w-full p-4.5 my-2 border-2 border-blue-200 bg-gradient-to-r from-blue-50/80 to-indigo-50/60 rounded-xl gap-2 shadow-xs"
+            ):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("task_alt", color="primary", size="1.3rem")
                     ui.label("Kết luận:").classes("text-base font-bold text-blue-950")
-                ui_math(clean_conclusion, block=True, classes="conclusion-formula text-xl md:text-2xl font-bold text-blue-900 py-1")
+                ui_math(
+                    clean_conclusion,
+                    block=True,
+                    classes="conclusion-formula text-xl md:text-2xl font-bold text-blue-900 py-1",
+                )

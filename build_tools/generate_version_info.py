@@ -18,10 +18,10 @@ BUILD_TOOLS_DIR = ROOT_DIR / "build_tools"
 def get_project_version() -> str:
     """Extract project version from pyproject.toml."""
     if not PYPROJECT_PATH.is_file():
-        return "0.1.1"
+        return "0.2.0"
     content = PYPROJECT_PATH.read_text(encoding="utf-8")
     match = re.search(r'version\s*=\s*"([^"]+)"', content)
-    return match.group(1) if match else "0.1.1"
+    return match.group(1) if match else "0.2.0"
 
 
 def get_project_author() -> str:

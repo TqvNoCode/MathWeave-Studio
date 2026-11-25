@@ -21,6 +21,26 @@
 
 ---
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Features](#features)
+  - [Calculus](#calculus)
+  - [Differential Equations (ODE)](#differential-equations-ode)
+  - [Linear Algebra](#linear-algebra)
+  - [Verification & Rationale](#verification--rationale)
+  - [Workspaces & UI Experience](#workspaces--ui-experience)
+  - [Visualization](#visualization)
+- [Installation](#installation)
+  - [Quick Start (Linux via uv)](#quick-start-linux-via-uv)
+  - [Windows Standalone Desktop Application](#windows-standalone-desktop-application)
+  - [Building on Windows from Source](#building-on-windows-from-source)
+- [Documentation](#documentation)
+- [Development & Testing](#development--testing)
+- [License & Author](#license--author)
+
+---
+
 ## Overview
 
 Most mathematical software outputs only a final answer, leaving learners unsure of how a solution was derived or whether intermediate steps are mathematically sound.
@@ -132,7 +152,7 @@ Double-click either package to launch MathWeave Studio directly in a native desk
 > **System Prerequisites for Windows Native Mode:**
 > MathWeave Studio utilizes Microsoft Edge WebView2 for its native desktop window. WebView2 is pre-installed on Windows 11 and modern Windows 10 versions. If running on a stripped or offline Windows edition without WebView2, install the official [Microsoft Edge WebView2 Evergreen Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703), or launch with `--browser` from the command prompt.
 
-#### Building on Windows from Source:
+#### Building on Windows from Source
 
 MathWeave Studio supports building both a standalone portable binary and a full setup installer using Python 3.14+:
 
@@ -147,7 +167,9 @@ uv run pyinstaller mathweave-studio-onefile.spec --clean --noconfirm
 uv run pyinstaller mathweave-studio.spec --clean --noconfirm
 
 # 3. Compile Windows Setup Installer (Requires Inno Setup 6 / ISCC.exe):
-ISCC.exe /DMyAppVersion=0.1.1 /DMyAppPublisher="TqvNoCode" /DMyOutputBaseFilename="MathWeave-Studio-Setup-Unsigned-Dev" installer/MathWeave-Studio.iss
+$version = uv run python -c "from build_tools.generate_version_info import get_project_version; print(get_project_version())"
+$author = uv run python -c "from build_tools.generate_version_info import get_project_author; print(get_project_author())"
+ISCC.exe /DMyAppVersion="$version" /DMyAppPublisher="$author" /DMyOutputBaseFilename="MathWeave-Studio-Setup-Unsigned-Dev" installer/MathWeave-Studio.iss
 ```
 
 ---

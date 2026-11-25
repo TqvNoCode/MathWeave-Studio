@@ -121,7 +121,7 @@ To verify that all mathematical solvers, architectural boundaries, and pedagogic
 uv run pytest
 ```
 
-Expected result: **243 passed** in under 25 seconds.
+Ensure all tests pass and no errors are reported.
 
 ### Troubleshooting
 

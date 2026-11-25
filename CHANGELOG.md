@@ -7,7 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-25
+
 ### Added
+- **Second-Order Nonhomogeneous ODE Solvers & Solvers Pipeline**:
+  - Implemented Method of Undetermined Coefficients (MUC) with automatic polynomial, exponential, trigonometric resonance boosting factor $t^s$.
+  - Implemented Variation of Parameters (VoP) using Wronskian integration for nonhomogeneous second-order equations where MUC is inapplicable.
+  - Integrated full Cauchy Initial Value Problem (IVP) solving for second-order equations ($y(t_0) = y_0, y'(t_0) = v_0$) with $2 \times 2$ linear system resolution.
+  - Added reduction of order solver deriving fundamental pairs from a known solution $y_1(t)$.
+  - Added Wronskian solver with Abel's identity verification and Peano theorem warnings on linear independence.
+- **Fail-Closed Domain Validation & Tri-State Verification**:
+  - Implemented tri-state (`valid` / `invalid` / `unknown`) domain validation across all ODE solvers and Cauchy IVP handlers, preventing unresolved symbolic conditions from silently passing.
+  - Added domain restriction extraction preserving source-level denominators and constraints through algebraic simplification.
+  - Added singular Cauchy point analysis, connected domain branching, and $C^1$ smooth continuation validation.
+- **Minimalist Pedagogical Workspaces & Design System**:
+  - Introduced dedicated mathematical workspaces (First-Order ODEs, Second-Order ODEs, Linear Algebra, Multivariable Calculus) with responsive NiceGUI layout and design system tokens.
+  - Added comprehensive Operation Catalog, guided first-order ODE classifier, interactive problem statement builder, and staged step viewer with step-by-step pedagogical breakdowns.
+  - Added sticky navigation bar and scroll manager for intuitive exploration.
 - **Portable Cross-Platform Computation Timeout**:
   - Implemented `process_guard.py` (`run_with_process_timeout`) providing robust, process-based execution timeouts compatible with Windows multiprocessing `spawn` and Linux.
   - Eliminated Unix-only `signal.setitimer` and `SIGALRM` across solvers and verifiers, ensuring reliable timeout behavior in multithreaded environments and on Windows.
@@ -19,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Verified and documented true numerical arc length benchmark for $f(x) = \cos(x) - \tan(x)$ on $[0, 1]$ ($L \approx 2.280484110764684$).
   - Hardened unit tests with explicit tolerance assertions (`math.isclose`), covering regular lines, nonlinear curves, convergent endpoint singularities, divergent singularities, and parametric curves.
   - Updated `SolveProblemUseCase` to use `daemon=False` and clean up OS process handles (`p.close()`), preventing handle leaks on Windows.
+- **Branding & Footer Consistency**:
+  - Synchronized application version metadata across desktop shell, about dialog, and automated test assertions.
 
 ## [0.1.1] - 2026-11-15
 

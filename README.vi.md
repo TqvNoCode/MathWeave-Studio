@@ -21,6 +21,26 @@
 
 ---
 
+## Mục lục
+
+- [Tổng quan dự án](#tổng-quan-dự-án)
+- [Các tính năng chính](#các-tính-năng-chính)
+  - [Giải tích](#giải-tích-calculus)
+  - [Phương trình vi phân](#phương-trình-vi-phân-differential-equations)
+  - [Đại số tuyến tính](#đại-số-tuyến-tính-linear-algebra)
+  - [Kiểm chuẩn & Ràng buộc toán học](#kiểm-chuẩn--ràng-buộc-toán-học)
+  - [Không gian làm việc & Trải nghiệm giao diện](#không-gian-làm-việc--trải-nghiệm-giao-diện)
+  - [Trực quan hóa & Bảng biến thiên](#trực-quan-hóa--bảng-biến-thiên)
+- [Cài đặt và Khởi động nhanh](#cài-đặt-và-khởi-động-nhanh)
+  - [Khởi động nhanh (Linux qua uv)](#khởi-động-nhanh-linux-qua-uv)
+  - [Ứng dụng Desktop Độc lập trên Windows](#ứng-dụng-desktop-độc-lập-trên-windows)
+  - [Đóng gói trên Windows từ Mã nguồn](#đóng-gói-trên-windows-từ-mã-nguồn)
+- [Tài liệu dự án](#tài-liệu-dự-án)
+- [Phát triển và Bộ kiểm thử](#phát-triển-và-bộ-kiểm-thử)
+- [Bản quyền & Tác giả](#bản-quyền--tác-giả)
+
+---
+
 ## Tổng quan dự án
 
 Hầu hết các phần mềm toán học hiện nay chỉ đưa ra đáp án sau cùng, khiến người học gặp khó khăn trong việc hiểu rõ cách thức dẫn đến kết quả hoặc kiểm chứng tính đúng đắn của từng bước trung gian.
@@ -132,7 +152,7 @@ Nhấp đúp vào tệp để mở MathWeave Studio trực tiếp trong cửa s�
 > **Yêu cầu hệ thống cho chế độ Desktop Windows:**
 > MathWeave Studio sử dụng Microsoft Edge WebView2 để tạo cửa sổ ứng dụng native. WebView2 đã được tích hợp sẵn trên Windows 11 và các bản cập nhật Windows 10 tiêu chuẩn. Đối với các phiên bản Windows rút gọn hoặc ngoại tuyến chưa có WebView2, vui lòng cài đặt [Microsoft Edge WebView2 Evergreen Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703), hoặc chạy ứng dụng từ dòng lệnh với tham số `--browser`.
 
-#### Đóng gói trên Windows từ Mã nguồn:
+#### Đóng gói trên Windows từ Mã nguồn
 
 MathWeave Studio hỗ trợ đóng gói cả tệp thực thi portable độc lập và bộ cài đặt hoàn chỉnh với Python 3.14+:
 
@@ -147,7 +167,9 @@ uv run pyinstaller mathweave-studio-onefile.spec --clean --noconfirm
 uv run pyinstaller mathweave-studio.spec --clean --noconfirm
 
 # 3. Biên dịch bộ cài đặt Windows Setup (Yêu cầu Inno Setup 6 / ISCC.exe):
-ISCC.exe /DMyAppVersion=0.1.1 /DMyAppPublisher="TqvNoCode" /DMyOutputBaseFilename="MathWeave-Studio-Setup-Unsigned-Dev" installer/MathWeave-Studio.iss
+$version = uv run python -c "from build_tools.generate_version_info import get_project_version; print(get_project_version())"
+$author = uv run python -c "from build_tools.generate_version_info import get_project_author; print(get_project_author())"
+ISCC.exe /DMyAppVersion="$version" /DMyAppPublisher="$author" /DMyOutputBaseFilename="MathWeave-Studio-Setup-Unsigned-Dev" installer/MathWeave-Studio.iss
 ```
 
 ---

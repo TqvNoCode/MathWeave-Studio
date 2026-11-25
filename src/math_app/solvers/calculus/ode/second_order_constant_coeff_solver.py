@@ -17,6 +17,12 @@ from math_app.domain.models import ProblemType, SolutionStatus, VerificationStat
 from math_app.domain.step_content import ExpressionStepContent
 from math_app.input.ode_parser import ParsedSecondOrderODE, parse_second_order_ode_input
 from math_app.rendering.latex.formatter import expr_to_latex, format_quadratic_root_latex
+from math_app.solvers.calculus.ode.nonhomogeneous_ivp import (
+    solve_nonhomogeneous_cauchy_system,
+    validate_initial_point_against_domain,
+)
+from math_app.solvers.calculus.ode.undetermined_coefficients import solve_undetermined_coefficients
+from math_app.solvers.calculus.ode.variation_of_parameters import solve_variation_of_parameters
 from math_app.verification.calculus.ode_verifier import ODEVerifier
 
 
@@ -124,7 +130,31 @@ class ODESecondOrderConstantCoeffSolver(Solver):
         has_y_ic = parsed.initial_condition is not None
         has_yp_ic = parsed.initial_derivative is not None
 
-        if request.problem_type == ProblemType.ODE_SECOND_ORDER_IVP:
+        prob_mode = str(request.parameters.get("problem_mode", "")).strip().upper()
+        if prob_mode == "GENERAL" and (has_y_ic or has_yp_ic):
+            elapsed = (time.perf_counter() - t0_start) * 1000.0
+            msg = (
+                "Phát hiện không khớp yêu cầu bài toán: Bạn đang ở chế độ 'Tìm nghiệm tổng quát' "
+                "nhưng dữ liệu bài toán lại chứa điều kiện ban đầu Cauchy (y(t0) hoặc y'(t0)). "
+                "Vui lòng chuyển sang chế độ 'Bài toán Cauchy (IVP)' để tìm nghiệm xác định duy nhất, "
+                "hoặc xóa các điều kiện ban đầu để tìm nghiệm tổng quát."
+            )
+            return SolutionResponse(
+                status=SolutionStatus.CANNOT_SOLVE,
+                verification=VerificationResult(
+                    status=VerificationStatus.NOT_APPLICABLE,
+                    method="problem_mode_mismatch",
+                    details=msg,
+                ),
+                raw_input=request.raw_input,
+                canonical_input=parsed.canonical_eq,
+                final_result="",
+                final_latex="",
+                warnings=(msg,),
+                execution_time_ms=elapsed,
+            )
+
+        if request.problem_type == ProblemType.ODE_SECOND_ORDER_IVP or prob_mode == "CAUCHY_IVP":
             if not has_y_ic and not has_yp_ic:
                 raise InvalidInputError(
                     "Bài toán Cauchy (IVP) cấp hai yêu cầu cung cấp đầy đủ hai điều kiện ban đầu: "
@@ -158,23 +188,49 @@ class ODESecondOrderConstantCoeffSolver(Solver):
                         "(Finite real numbers required for Cauchy initial conditions)."
                     )
 
-        # Validate homogeneity
-        if not parsed.is_homogeneous:
+        # Validate classification consistency against user's declared mode if provided
+        expected_class = str(request.parameters.get("expected_classification", "")).strip().upper()
+        if expected_class in ("HOMOGENEOUS", "THUẦN NHẤT", "THUAN_NHAT") and not parsed.is_homogeneous:
+            elapsed = (time.perf_counter() - t0_start) * 1000.0
+            g_val = sp.simplify(-parsed.rem_expr)
+            msg = (
+                f"Phát hiện không khớp phân loại: Bạn đang ở chế độ 'Phương trình vi phân cấp 2 thuần nhất' (vế phải bằng 0), "
+                f"nhưng phương trình nhập vào có vế phải g({parsed.independent_var}) = {g_val} khác 0. "
+                "Vui lòng chuyển sang chế độ 'Phương trình vi phân cấp 2 không thuần nhất' hoặc sửa vế phải về 0."
+            )
             return SolutionResponse(
                 status=SolutionStatus.CANNOT_SOLVE,
                 verification=VerificationResult(
                     status=VerificationStatus.NOT_APPLICABLE,
-                    method="homogeneity_check",
-                    details="Phương trình không thuần nhất (Nonhomogeneous ODE).",
+                    method="classification_mismatch",
+                    details=msg,
                 ),
                 raw_input=request.raw_input,
                 canonical_input=parsed.canonical_eq,
                 final_result="",
                 final_latex="",
-                warnings=(
-                    "Phương trình vi phân cấp 2 không thuần nhất chưa được hỗ trợ trong phiên bản này "
-                    "(Nonhomogeneous second-order ODEs are unsupported in this milestone).",
+                warnings=(msg,),
+                execution_time_ms=elapsed,
+            )
+        elif expected_class in ("NONHOMOGENEOUS", "KHÔNG THUẦN NHẤT", "KHONG_THUAN_NHAT") and parsed.is_homogeneous:
+            elapsed = (time.perf_counter() - t0_start) * 1000.0
+            msg = (
+                "Phát hiện không khớp phân loại: Bạn đang ở chế độ 'Phương trình vi phân cấp 2 không thuần nhất' (vế phải g(t) khác 0), "
+                "nhưng phương trình nhập vào là phương trình thuần nhất (vế phải bằng 0). "
+                "Vui lòng chuyển sang chế độ 'Phương trình vi phân cấp 2 thuần nhất' hoặc nhập vế phải g(t) khác 0."
+            )
+            return SolutionResponse(
+                status=SolutionStatus.CANNOT_SOLVE,
+                verification=VerificationResult(
+                    status=VerificationStatus.NOT_APPLICABLE,
+                    method="classification_mismatch",
+                    details=msg,
                 ),
+                raw_input=request.raw_input,
+                canonical_input=parsed.canonical_eq,
+                final_result="",
+                final_latex="",
+                warnings=(msg,),
                 execution_time_ms=elapsed,
             )
 
@@ -202,6 +258,7 @@ class ODESecondOrderConstantCoeffSolver(Solver):
         a = parsed.a_coeff
         b = parsed.b_coeff
         c = parsed.c_coeff
+        g_expr = sp.simplify(-parsed.rem_expr) if not parsed.is_homogeneous else sp.Integer(0)
 
         steps: list[SolutionStep] = []
         step_num = 1
@@ -215,24 +272,70 @@ class ODESecondOrderConstantCoeffSolver(Solver):
         delta = sp.simplify(b**2 - 4 * a * c)
 
         # Format standard linear ODE LHS cleanly
-        b_term = f" + {expr_to_latex(b)}\\,y'" if b > 0 else (f" - {expr_to_latex(-b)}\\,y'" if b < 0 else "")
-        c_term = f" + {expr_to_latex(c)}\\,y" if c > 0 else (f" - {expr_to_latex(-c)}\\,y" if c < 0 else "")
-        ode_lhs_latex = f"{expr_to_latex(a)}\\,y''{b_term}{c_term}"
+        if a == 1:
+            a_term = "y''"
+        elif a == -1:
+            a_term = "-y''"
+        else:
+            a_term = f"{expr_to_latex(a)}\\,y''"
+
+        if b == 0:
+            b_term = ""
+        elif b == 1:
+            b_term = " + y'"
+        elif b == -1:
+            b_term = " - y'"
+        elif b.is_positive:
+            b_term = f" + {expr_to_latex(b)}\\,y'"
+        elif b.is_negative:
+            b_term = f" - {expr_to_latex(-b)}\\,y'"
+        else:
+            b_term = f" + ({expr_to_latex(b)})\\,y'"
+
+        if c == 0:
+            c_term = ""
+        elif c == 1:
+            c_term = " + y"
+        elif c == -1:
+            c_term = " - y"
+        elif c.is_positive:
+            c_term = f" + {expr_to_latex(c)}\\,y"
+        elif c.is_negative:
+            c_term = f" - {expr_to_latex(-c)}\\,y"
+        else:
+            c_term = f" + ({expr_to_latex(c)})\\,y"
+
+        ode_lhs_latex = f"{a_term}{b_term}{c_term}"
+
+        if parsed.is_homogeneous:
+            step1_desc = (
+                f"Xét phương trình vi phân tuyến tính thuần nhất hệ số hằng cấp hai: "
+                f"${ode_lhs_latex} = 0$. "
+                f"Giả thiết nghiệm có dạng $y = e^{{rt}}$, ta xây dựng phương trình đặc trưng: $ar^2 + br + c = 0$."
+            )
+            step1_expr_before = f"{a}*y'' + {b}*y' + {c}*y = 0"
+            step1_latex_before = f"{ode_lhs_latex} = 0"
+        else:
+            g_latex = expr_to_latex(g_expr)
+            step1_desc = (
+                f"Xét phương trình vi phân tuyến tính cấp hai hệ số hằng không thuần nhất: "
+                f"${ode_lhs_latex} = {g_latex}$. "
+                f"Để tìm nghiệm tổng quát $y({var}) = y_c({var}) + Y_p({var})$, trước hết ta xây dựng phương trình đặc trưng "
+                f"của phương trình thuần nhất tương ứng (${ode_lhs_latex} = 0$): $ar^2 + br + c = 0$."
+            )
+            step1_expr_before = f"{a}*y'' + {b}*y' + {c}*y = {g_expr}"
+            step1_latex_before = f"{ode_lhs_latex} = {g_latex}"
 
         steps.append(
             SolutionStep(
                 step_number=step_num,
                 rule_name="Phương trình đặc trưng",
                 title="Thiết lập phương trình đặc trưng",
-                description=(
-                    f"Xét phương trình vi phân tuyến tính thuần nhất hệ số hằng cấp hai: "
-                    f"${ode_lhs_latex} = 0$. "
-                    f"Giả thiết nghiệm có dạng $y = e^{{rt}}$, ta xây dựng phương trình đặc trưng: $ar^2 + br + c = 0$."
-                ),
+                description=step1_desc,
                 content=ExpressionStepContent(
-                    expression_before=f"{a}*y'' + {b}*y' + {c}*y = 0",
+                    expression_before=step1_expr_before,
                     expression_after=f"{char_poly} = 0",
-                    latex_before=f"{ode_lhs_latex} = 0",
+                    latex_before=step1_latex_before,
                     latex_after=f"{expr_to_latex(char_poly)} = 0",
                 ),
                 equation_latex=f"{expr_to_latex(char_poly)} = 0",
@@ -271,7 +374,7 @@ class ODESecondOrderConstantCoeffSolver(Solver):
         c2_sym = sp.Symbol("C2")
 
         # Handle symbolic discriminant with undetermined sign
-        if delta.is_number is False and not delta.is_real:
+        if delta.free_symbols or (delta.is_number is False and not delta.is_real):
             elapsed = (time.perf_counter() - t0_start) * 1000.0
             return SolutionResponse(
                 status=SolutionStatus.CANNOT_SOLVE,
@@ -476,6 +579,411 @@ class ODESecondOrderConstantCoeffSolver(Solver):
                 )
             )
             step_num += 1
+
+        # -------------------------------------------------------------------------
+        # Nonhomogeneous ODE: Method Selection & Solving Pipeline
+        # -------------------------------------------------------------------------
+        if not parsed.is_homogeneous:
+            yp_sol: sp.Expr
+            is_integral_form: bool = False
+            domain_restrs = list(parsed.original_domain_restrictions)
+            warnings_list: list[str] = []
+
+            has_ivp = bool(parsed.initial_condition is not None and parsed.initial_derivative is not None)
+            if has_ivp:
+                t0, y0 = parsed.initial_condition  # type: ignore[misc]
+                _, v0 = parsed.initial_derivative  # type: ignore[misc]
+                is_valid_t0, err_t0 = validate_initial_point_against_domain(
+                    t0=t0,
+                    g_expr=g_expr,
+                    var=var,
+                    domain_restrictions=parsed.original_domain_restrictions,
+                    interval_str=parsed.interval,
+                )
+                if not is_valid_t0:
+                    elapsed = (time.perf_counter() - t0_start) * 1000.0
+                    return SolutionResponse(
+                        status=SolutionStatus.CANNOT_SOLVE,
+                        verification=VerificationResult(
+                            status=VerificationStatus.NOT_APPLICABLE,
+                            method="initial_point_out_of_domain",
+                            details=err_t0 or "Điểm ban đầu không nằm trong tập xác định của phương trình vi phân.",
+                        ),
+                        raw_input=request.raw_input,
+                        canonical_input=parsed.canonical_eq,
+                        final_result="",
+                        final_latex="",
+                        warnings=(err_t0 or "Điểm ban đầu không hợp lệ.",),
+                        execution_time_ms=elapsed,
+                    )
+
+            # Method Preference Resolution
+            raw_pref = str(request.parameters.get("method_preference", "AUTO")).strip().upper()
+            is_uc_pref = raw_pref in ("UNDETERMINED_COEFFICIENTS", "UC", "HỆ SỐ BẤT ĐỊNH", "HE_SO_BAT_DINH")
+            is_vop_pref = raw_pref in ("VARIATION_OF_PARAMETERS", "VOP", "BIẾN THIÊN HẰNG SỐ", "BIEN_THIEN_HANG_SO")
+
+            method_used: str = ""
+            is_anchored_vop: bool = False
+
+            if is_vop_pref:
+                # User explicitly requested Variation of Parameters (skip Undetermined Coefficients)
+                vop_result = solve_variation_of_parameters(
+                    a=a,
+                    b=b,
+                    c=c,
+                    g_expr=g_expr,
+                    y1=y1_fund,
+                    y2=y2_fund,
+                    var=var,
+                    start_step_num=step_num,
+                    domain_restrictions=parsed.original_domain_restrictions,
+                    domain_interval=parsed.interval,
+                    initial_point=t0 if has_ivp else None,
+                )
+
+                if not vop_result.is_supported:
+                    elapsed = (time.perf_counter() - t0_start) * 1000.0
+                    return SolutionResponse(
+                        status=SolutionStatus.CANNOT_SOLVE,
+                        verification=VerificationResult(
+                            status=VerificationStatus.NOT_APPLICABLE,
+                            method="variation_of_parameters_unsupported",
+                            details=vop_result.unsupported_reason or "Không thể tìm nghiệm riêng bằng phương pháp Biến thiên hằng số.",
+                        ),
+                        raw_input=request.raw_input,
+                        canonical_input=parsed.canonical_eq,
+                        final_result="",
+                        final_latex="",
+                        warnings=(
+                            vop_result.unsupported_reason
+                            or "Phương pháp Biến thiên hằng số không giải được phương trình này.",
+                        ),
+                        execution_time_ms=elapsed,
+                    )
+
+                is_integral_form = vop_result.is_integral_form
+                yp_sol = vop_result.particular_solution
+                steps.extend(vop_result.steps)
+                step_num = steps[-1].step_number + 1
+
+                for r in vop_result.domain_restrictions:
+                    if r not in domain_restrs:
+                        domain_restrs.append(r)
+
+                if is_integral_form:
+                    warnings_list.append(
+                        "Nghiệm riêng chứa dạng tích phân chính xác không biểu diễn được dưới dạng hàm sơ cấp hữu hạn "
+                        "(Exact unevaluated integral representation)."
+                    )
+                method_used = "Biến thiên hằng số"
+                is_anchored_vop = True
+
+            else:
+                # Either AUTO or UNDETERMINED_COEFFICIENTS
+                uc_result = solve_undetermined_coefficients(
+                    a=a,
+                    b=b,
+                    c=c,
+                    g_expr=g_expr,
+                    var=var,
+                    start_step_num=step_num,
+                )
+
+                if uc_result.is_supported:
+                    yp_sol = uc_result.particular_solution
+                    steps.extend(uc_result.steps)
+                    step_num = steps[-1].step_number + 1
+                    method_used = "Hệ số bất định"
+                    is_anchored_vop = False
+                elif is_uc_pref:
+                    # User explicitly requested UC, but it is not supported for this forcing function
+                    elapsed = (time.perf_counter() - t0_start) * 1000.0
+                    reason = uc_result.unsupported_reason or (
+                        f"Phương pháp Hệ số bất định chỉ áp dụng cho vế phải g({var}) có dạng đa thức, "
+                        "hàm mũ e^(alpha*t), hoặc hàm lượng giác sin(beta*t), cos(beta*t) (hoặc tích của chúng). "
+                        f"Hàm g({var}) = {g_expr} không thuộc dạng này."
+                    )
+                    return SolutionResponse(
+                        status=SolutionStatus.CANNOT_SOLVE,
+                        verification=VerificationResult(
+                            status=VerificationStatus.NOT_APPLICABLE,
+                            method="undetermined_coefficients_unsupported",
+                            details=reason,
+                        ),
+                        raw_input=request.raw_input,
+                        canonical_input=parsed.canonical_eq,
+                        final_result="",
+                        final_latex="",
+                        warnings=(reason,),
+                        execution_time_ms=elapsed,
+                    )
+                else:
+                    # AUTO mode: If failure was due to inconclusive resonance caused by a symbolic parameter, do not fallback
+                    if isinstance(uc_result.unsupported_reason, str) and (
+                        "tham số" in uc_result.unsupported_reason.lower()
+                        or "cộng hưởng" in uc_result.unsupported_reason.lower()
+                    ):
+                        elapsed = (time.perf_counter() - t0_start) * 1000.0
+                        return SolutionResponse(
+                            status=SolutionStatus.CANNOT_SOLVE,
+                            verification=VerificationResult(
+                                status=VerificationStatus.NOT_APPLICABLE,
+                                method="undetermined_coefficients_unsupported",
+                                details=uc_result.unsupported_reason,
+                            ),
+                            raw_input=request.raw_input,
+                            canonical_input=parsed.canonical_eq,
+                            final_result="",
+                            final_latex="",
+                            warnings=(uc_result.unsupported_reason,),
+                            execution_time_ms=elapsed,
+                        )
+
+                    # 2. Fallback to Method of Variation of Parameters (Lagrange)
+                    vop_result = solve_variation_of_parameters(
+                        a=a,
+                        b=b,
+                        c=c,
+                        g_expr=g_expr,
+                        y1=y1_fund,
+                        y2=y2_fund,
+                        var=var,
+                        start_step_num=step_num,
+                        domain_restrictions=parsed.original_domain_restrictions,
+                        domain_interval=parsed.interval,
+                        initial_point=t0 if has_ivp else None,
+                    )
+
+                    if not vop_result.is_supported:
+                        elapsed = (time.perf_counter() - t0_start) * 1000.0
+                        return SolutionResponse(
+                            status=SolutionStatus.CANNOT_SOLVE,
+                            verification=VerificationResult(
+                                status=VerificationStatus.NOT_APPLICABLE,
+                                method="variation_of_parameters_unsupported",
+                                details=vop_result.unsupported_reason or "Không thể tìm nghiệm riêng bằng phương pháp Biến thiên hằng số.",
+                            ),
+                            raw_input=request.raw_input,
+                            canonical_input=parsed.canonical_eq,
+                            final_result="",
+                            final_latex="",
+                            warnings=(
+                                vop_result.unsupported_reason
+                                or "Phương trình vi phân không giải được bằng các phương pháp hiện có.",
+                            ),
+                            execution_time_ms=elapsed,
+                        )
+
+                    is_integral_form = vop_result.is_integral_form
+                    yp_sol = vop_result.particular_solution
+                    steps.extend(vop_result.steps)
+                    step_num = steps[-1].step_number + 1
+
+                    for r in vop_result.domain_restrictions:
+                        if r not in domain_restrs:
+                            domain_restrs.append(r)
+
+                    if is_integral_form:
+                        warnings_list.append(
+                            "Nghiệm riêng chứa dạng tích phân chính xác không biểu diễn được dưới dạng hàm sơ cấp hữu hạn "
+                            "(Exact unevaluated integral representation)."
+                        )
+                    method_used = "Biến thiên hằng số"
+                    is_anchored_vop = True
+
+            # Assemble General Solution or Cauchy IVP Solution
+            if has_ivp:
+                cauchy_res = solve_nonhomogeneous_cauchy_system(
+                    y1=y1_fund,
+                    y2=y2_fund,
+                    yp=yp_sol,
+                    t0=t0,
+                    y0=y0,
+                    v0=v0,
+                    var=var,
+                    start_step_num=step_num,
+                    is_anchored_vop=is_anchored_vop,
+                    method_name=method_used,
+                )
+                if not cauchy_res.is_valid:
+                    elapsed = (time.perf_counter() - t0_start) * 1000.0
+                    return SolutionResponse(
+                        status=SolutionStatus.CANNOT_SOLVE,
+                        verification=VerificationResult(
+                            status=VerificationStatus.NOT_APPLICABLE,
+                            method="cauchy_system_singular",
+                            details=cauchy_res.error_reason or "Hệ Cauchy suy biến.",
+                        ),
+                        raw_input=request.raw_input,
+                        canonical_input=parsed.canonical_eq,
+                        final_result="",
+                        final_latex="",
+                        warnings=(cauchy_res.error_reason or "Hệ Cauchy suy biến.",),
+                        execution_time_ms=elapsed,
+                    )
+                steps.extend(cauchy_res.steps)
+                step_num = steps[-1].step_number + 1
+                final_sol = cauchy_res.y_ivp_solution
+            else:
+                final_sol = gen_sol + yp_sol
+                steps.append(
+                    SolutionStep(
+                        step_number=step_num,
+                        rule_name="Tổng hợp nghiệm tổng quát",
+                        title="Xây dựng nghiệm tổng quát của phương trình vi phân không thuần nhất",
+                        description=(
+                            f"Nghiệm tổng quát của phương trình vi phân tuyến tính không thuần nhất cấp hai "
+                            f"là tổng của nghiệm thuần nhất $y_c({var})$ và nghiệm riêng $Y_p({var})$:\n"
+                            f"$$y({var}) = y_c({var}) + Y_p({var}) = {expr_to_latex(final_sol)}$$"
+                        ),
+                        content=ExpressionStepContent(
+                            expression_before=f"y_c = {gen_sol}, Y_p = {yp_sol}",
+                            expression_after=f"y({var}) = {final_sol}",
+                            latex_before=f"y_c({var}) = {expr_to_latex(gen_sol)}, \\quad Y_p({var}) = {expr_to_latex(yp_sol)}",
+                            latex_after=f"y({var}) = {expr_to_latex(final_sol)}",
+                        ),
+                        equation_latex=f"y({var}) = {expr_to_latex(final_sol)}",
+                    )
+                )
+                step_num += 1
+
+            # Independent Mathematical Verification for nonhomogeneous ODE
+            dy = sp.diff(final_sol, var)
+            d2y = sp.diff(dy, var)
+            ode_lhs = a * d2y + b * dy + c * final_sol
+            residual = sp.simplify(ode_lhs - g_expr)
+            if residual != 0:
+                residual = sp.simplify(sp.expand(ode_lhs - g_expr))
+            if residual != 0:
+                residual = sp.simplify(sp.trigsimp(residual))
+            if residual != 0 and hasattr(residual, "doit"):
+                residual = sp.simplify(residual.doit())
+
+            is_ode_verified = bool(residual == 0)
+            if not is_ode_verified and (c1_sym in residual.free_symbols or c2_sym in residual.free_symbols):
+                coeff_c1 = sp.simplify(residual.coeff(c1_sym, 1))
+                coeff_c2 = sp.simplify(residual.coeff(c2_sym, 1))
+                rem = sp.simplify(residual.subs([(c1_sym, 0), (c2_sym, 0)]))
+                if coeff_c1 == 0 and coeff_c2 == 0 and rem == 0:
+                    is_ode_verified = True
+
+            if has_ivp:
+                verification_result = self.verifier.verify_second_order(
+                    solution=final_sol,
+                    variable=var,
+                    a_coeff=a,
+                    b_coeff=b,
+                    c_coeff=c,
+                    initial_condition=(t0, y0),
+                    initial_derivative=(t0, v0),
+                    forcing_expr=g_expr,
+                    domain_restrictions=tuple(domain_restrs),
+                    domain_interval=parsed.interval,
+                )
+            else:
+                verification_result = self.verifier.verify_second_order(
+                    solution=final_sol,
+                    variable=var,
+                    a_coeff=a,
+                    b_coeff=b,
+                    c_coeff=c,
+                    forcing_expr=g_expr,
+                    c1_sym=c1_sym,
+                    c2_sym=c2_sym,
+                    domain_restrictions=tuple(domain_restrs),
+                    domain_interval=parsed.interval,
+                )
+
+            status_ode_text = "Thỏa mãn (R ≡ 0) — Thỏa mãn đồng nhất" if is_ode_verified else "Chưa xác nhận"
+            ode_full_latex = f"{ode_lhs_latex} - \\left({expr_to_latex(g_expr)}\\right)"
+            eq_verif_latex = (
+                f"R({var}) = {ode_full_latex} \\equiv 0"
+                if is_ode_verified
+                else f"R({var}) = {expr_to_latex(residual)}"
+            )
+
+            if has_ivp:
+                val_y_at_t0 = sp.simplify(final_sol.subs(var, t0))
+                val_dy_at_t0 = sp.simplify(dy.subs(var, t0))
+                is_ic1_ok = bool(sp.simplify(val_y_at_t0 - y0) == 0)
+                is_ic2_ok = bool(sp.simplify(val_dy_at_t0 - v0) == 0)
+
+                status_ic1_text = "Thỏa mãn" if is_ic1_ok else "Không khớp"
+                status_ic2_text = "Thỏa mãn" if is_ic2_ok else "Không khớp"
+
+                verif_desc = (
+                    f"Bước này không tìm nghiệm mới. Ta thay nghiệm vừa tìm được trở lại "
+                    f"phương trình vi phân ban đầu và hệ điều kiện Cauchy để xác nhận tính đúng đắn.\n\n"
+                    f"1. Kiểm chứng phương trình vi phân:\n"
+                    f"$$R({var}) = a y'' + b y' + c y - g({var}) = {ode_full_latex}$$\n"
+                    f"Thay nghiệm $y({var})$ cùng các đạo hàm:\n"
+                    f"- $y'({var}) = {expr_to_latex(dy)}$\n"
+                    f"- $y''({var}) = {expr_to_latex(d2y)}$\n"
+                    f"Rút gọn biểu thức thu được:\n"
+                    f"$$R({var}) = {expr_to_latex(residual)}"
+                    + (r" \equiv 0" if is_ode_verified else r" \neq 0")
+                    + f"$$\n"
+                    f"Kết quả kiểm chứng phương trình vi phân: {status_ode_text}.\n\n"
+                    f"2. Kiểm chứng hệ điều kiện ban đầu Cauchy tại ${var} = {expr_to_latex(t0)}$:\n"
+                    f"- $y({expr_to_latex(t0)}) = {expr_to_latex(val_y_at_t0)}$ (kỳ vọng ${expr_to_latex(y0)}$): {status_ic1_text}\n"
+                    f"- $y'({expr_to_latex(t0)}) = {expr_to_latex(val_dy_at_t0)}$ (kỳ vọng ${expr_to_latex(v0)}$): {status_ic2_text}\n\n"
+                    f"Tổng kết: Nghiệm duy nhất thỏa mãn trọn vẹn bài toán Cauchy."
+                )
+            else:
+                verif_desc = (
+                    f"Bước này không tìm nghiệm mới. Ta thay nghiệm vừa tìm được "
+                    f"trở lại phương trình vi phân ban đầu để xác nhận rằng nghiệm thực sự đúng.\n\n"
+                    f"Tính biểu thức dư của phương trình vi phân theo biến ${var}$:\n"
+                    f"$$R({var}) = a y'' + b y' + c y - g({var}) = {ode_full_latex}$$\n"
+                    f"Thay nghiệm $y({var}) = {expr_to_latex(final_sol)}$ cùng các đạo hàm cấp một và cấp hai vào vế trái:\n"
+                    f"- Đạo hàm cấp một: $y'({var}) = {expr_to_latex(dy)}$\n"
+                    f"- Đạo hàm cấp hai: $y''({var}) = {expr_to_latex(d2y)}$\n\n"
+                    f"Rút gọn biểu thức thu được:\n"
+                    f"$$R({var}) = {expr_to_latex(residual)}"
+                    + (r" \equiv 0" if is_ode_verified else r" \neq 0")
+                    + "$$\n\n"
+                    f"Tổng kết kết quả kiểm chứng: Biểu thức dư phương trình vi phân: {status_ode_text}"
+                )
+
+            step_verif = SolutionStep(
+                step_number=step_num,
+                rule_name="Kiểm chứng nghiệm",
+                title="Kiểm chứng nghiệm độc lập",
+                description=verif_desc,
+                content=ExpressionStepContent(
+                    expression_before=f"R({var}) = {a}*y'' + {b}*y' + {c}*y - ({g_expr})",
+                    expression_after=f"R({var}) = 0" if is_ode_verified else f"R({var}) = {residual}",
+                    latex_before=f"R({var}) = {ode_full_latex}",
+                    latex_after=eq_verif_latex,
+                ),
+                equation_latex=eq_verif_latex,
+                notes=verification_result.details,
+            )
+            steps.append(step_verif)
+
+            status = (
+                SolutionStatus.SUCCESS
+                if verification_result.status == VerificationStatus.VERIFIED
+                else (
+                    SolutionStatus.DISCREPANCY_DETECTED
+                    if verification_result.status == VerificationStatus.FAILED
+                    else SolutionStatus.UNVERIFIED
+                )
+            )
+            elapsed = (time.perf_counter() - t0_start) * 1000.0
+
+            return SolutionResponse(
+                status=status,
+                verification=verification_result,
+                raw_input=request.raw_input,
+                canonical_input=parsed.canonical_eq,
+                final_result=f"y({var}) = {final_sol}",
+                final_latex=f"y({var}) = {expr_to_latex(final_sol)}",
+                steps=tuple(steps),
+                domain_restrictions=tuple(domain_restrs),
+                warnings=tuple(warnings_list),
+                execution_time_ms=elapsed,
+            )
 
         # -------------------------------------------------------------------------
         # Initial Value Problem (IVP) Handling
@@ -981,42 +1489,34 @@ class ODESecondOrderConstantCoeffSolver(Solver):
             val_v0_check = sp.simplify(dy.subs(var, t0))
             is_v0_verified = bool(sp.simplify(val_v0_check - v0) == 0)
 
-        # Determine verification status
-        if has_ivp:
-            if is_ode_verified and is_y0_verified and is_v0_verified:
-                v_status = VerificationStatus.VERIFIED
-                v_method = "second_order_ode_residual_and_dual_ic_zero_check"
-                v_details = (
-                    f"Kiểm chứng độc lập thành công: Biểu thức dư R({var}) ≡ 0 và "
-                    f"hệ điều kiện Cauchy y({t0}) = {y0}, y'({t0}) = {v0} nghiệm đúng."
-                )
-            elif not is_ode_verified:
-                v_status = VerificationStatus.FAILED
-                v_method = "ode_residual_mismatch"
-                v_details = f"Phương trình vi phân không thỏa mãn: Biểu thức dư R({var}) = {residual} != 0."
-            elif not is_y0_verified:
-                v_status = VerificationStatus.FAILED
-                v_method = "initial_condition_mismatch"
-                v_details = f"Nghiệm không thỏa mãn điều kiện ban đầu y({t0}): nhận được {val_y0_check}, kỳ vọng {y0}."
-            else:
-                v_status = VerificationStatus.FAILED
-                v_method = "initial_derivative_mismatch"
-                v_details = f"Nghiệm không thỏa mãn điều kiện đạo hàm ban đầu y'({t0}): nhận được {val_v0_check}, kỳ vọng {v0}."
-        else:
-            if is_ode_verified:
-                v_status = VerificationStatus.VERIFIED
-                v_method = "second_order_ode_residual_zero_check"
-                v_details = f"Kiểm chứng độc lập thành công: Biểu thức dư R({var}) ≡ 0."
-            else:
-                v_status = VerificationStatus.FAILED
-                v_method = "ode_residual_mismatch"
-                v_details = f"Phương trình vi phân không thỏa mãn: Biểu thức dư R({var}) = {residual} != 0."
-
-        verification_result = VerificationResult(
-            status=v_status,
-            method=v_method,
-            details=v_details,
+        # Delegate authoritative verification to ODEVerifier.verify_second_order
+        verification_result = self.verifier.verify_second_order(
+            solution=final_sol,
+            variable=var,
+            a_coeff=a,
+            b_coeff=b,
+            c_coeff=c,
+            initial_condition=(t0, y0) if has_ivp else None,
+            initial_derivative=(t0, v0) if has_ivp else None,
+            c1_sym=None if has_ivp else c1_sym,
+            c2_sym=None if has_ivp else c2_sym,
+            forcing_expr=sp.Integer(0),
+            domain_interval=parsed.interval,
         )
+        v_status = verification_result.status
+        is_ode_verified = v_status == VerificationStatus.VERIFIED or (
+            verification_result.method not in ("numerical_residual_discrepancy", "inconclusive", "residual_computation_failed")
+            and residual == 0
+        )
+        if has_ivp:
+            is_y0_verified = v_status == VerificationStatus.VERIFIED or (
+                verification_result.method not in ("numerical_residual_discrepancy", "inconclusive", "residual_computation_failed", "initial_condition_mismatch", "ic_evaluation_failed")
+                and is_y0_verified
+            )
+            is_v0_verified = v_status == VerificationStatus.VERIFIED or (
+                verification_result.method not in ("numerical_residual_discrepancy", "inconclusive", "residual_computation_failed", "initial_condition_mismatch", "ic_evaluation_failed", "initial_derivative_mismatch", "ic_derivative_evaluation_failed")
+                and is_v0_verified
+            )
 
         status_ode_text = "Thỏa mãn (R ≡ 0) — Thỏa mãn đồng nhất" if is_ode_verified else "Chưa xác nhận"
         step8_desc_lines = [

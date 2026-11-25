@@ -134,16 +134,45 @@ def test_rational_coefficients(solver: ODESecondOrderConstantCoeffSolver):
     assert "exp(t/2)" in res.final_result
 
 
-def test_rejection_of_nonhomogeneous_ode(solver: ODESecondOrderConstantCoeffSolver):
-    """Verify nonhomogeneous equation is cleanly rejected."""
+def test_variation_of_parameters_fallback_tan(solver: ODESecondOrderConstantCoeffSolver):
+    """Verify nonhomogeneous equation with tan(t) falls back to Variation of Parameters and succeeds in M2."""
     req = ProblemRequest(
-        raw_input="y'' + y = sin(t)",
+        raw_input="y'' + y = tan(t)",
         problem_type=ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
         target_variable="t",
     )
     res = solver.solve(req)
-    assert res.status == SolutionStatus.CANNOT_SOLVE
-    assert any("không thuần nhất" in w.lower() for w in res.warnings)
+    assert res.status == SolutionStatus.SUCCESS
+    assert res.verification.status == VerificationStatus.VERIFIED
+    step_rules = [s.rule_name for s in res.steps]
+    assert "Phương pháp Biến thiên hằng số" in step_rules
+
+
+def test_nonhomogeneous_ivp_solving_milestone_3(solver: ODESecondOrderConstantCoeffSolver):
+    """Verify nonhomogeneous Cauchy IVP solves successfully with verified status in Milestone 3."""
+    req = ProblemRequest(
+        raw_input="y'' + y = sin(t), y(0) = 1, y'(0) = 0",
+        problem_type=ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+        target_variable="t",
+    )
+    res = solver.solve(req)
+    assert res.status == SolutionStatus.SUCCESS
+    assert res.verification.status == VerificationStatus.VERIFIED
+    t = sp.Symbol("t")
+    expected = sp.cos(t) + sp.Rational(1, 2) * sp.sin(t) - sp.Rational(1, 2) * t * sp.cos(t)
+    sol_expr = sp.sympify(res.final_result.split("=")[1].strip())
+    assert sp.simplify(sol_expr - expected) == 0
+
+
+def test_rejection_of_nonhomogeneous_partial_ivp(solver: ODESecondOrderConstantCoeffSolver):
+    """Verify nonhomogeneous equation with partial initial condition raises InvalidInputError."""
+    req = ProblemRequest(
+        raw_input="y'' + y = sin(t), y(0) = 1",
+        problem_type=ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+        target_variable="t",
+    )
+    with pytest.raises(InvalidInputError, match="không hoàn chỉnh"):
+        solver.solve(req)
 
 
 def test_rejection_of_variable_coefficients(solver: ODESecondOrderConstantCoeffSolver):
@@ -429,4 +458,192 @@ def test_case_12_symbolic_cauchy_initial_values(solver: ODESecondOrderConstantCo
     res_str = res.final_result.split("=", 1)[1].strip()
     assert sp.simplify(sp.sympify(res_str) - expected) == 0
 
+
+# -----------------------------------------------------------------------------
+# M4: Method Selection & Preference Routing Tests
+# -----------------------------------------------------------------------------
+
+def test_method_preference_auto_selects_uc(solver: ODESecondOrderConstantCoeffSolver):
+    """M4: In AUTO mode, solver chooses Undetermined Coefficients for exponential forcing."""
+    req = ProblemRequest(
+        raw_input="y'' - 3*y' - 4*y = 3*exp(2*t)",
+        problem_type=ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+        target_variable="t",
+        parameters={"method_preference": "AUTO"},
+    )
+    res = solver.solve(req)
+    assert res.status == SolutionStatus.SUCCESS
+    assert res.verification.status == VerificationStatus.VERIFIED
+    assert any("hệ số bất định" in s.rule_name.lower() or "hệ số bất định" in s.title.lower() for s in res.steps)
+    assert not any("biến thiên hằng số" in s.rule_name.lower() for s in res.steps)
+
+
+def test_method_preference_auto_falls_back_to_vop(solver: ODESecondOrderConstantCoeffSolver):
+    """M4: In AUTO mode, solver falls back to Variation of Parameters for tan(t)."""
+    req = ProblemRequest(
+        raw_input="y'' + y = tan(t)",
+        problem_type=ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+        target_variable="t",
+        parameters={"method_preference": "AUTO"},
+    )
+    res = solver.solve(req)
+    assert res.status == SolutionStatus.SUCCESS
+    assert res.verification.status == VerificationStatus.VERIFIED
+    assert any("biến thiên hằng số" in s.rule_name.lower() or "biến thiên hằng số" in s.title.lower() for s in res.steps)
+
+
+def test_method_preference_explicit_uc_success(solver: ODESecondOrderConstantCoeffSolver):
+    """M4: Explicit UNDETERMINED_COEFFICIENTS succeeds on exponential forcing."""
+    req = ProblemRequest(
+        raw_input="y'' - 3*y' - 4*y = 3*exp(2*t)",
+        problem_type=ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+        target_variable="t",
+        parameters={"method_preference": "UNDETERMINED_COEFFICIENTS"},
+    )
+    res = solver.solve(req)
+    assert res.status == SolutionStatus.SUCCESS
+    assert res.verification.status == VerificationStatus.VERIFIED
+    assert any("hệ số bất định" in s.rule_name.lower() or "hệ số bất định" in s.title.lower() for s in res.steps)
+
+
+def test_method_preference_explicit_uc_unsupported_rejects_without_fallback(solver: ODESecondOrderConstantCoeffSolver):
+    """M4: When UNDETERMINED_COEFFICIENTS is requested for tan(t), solver rejects without VoP fallback."""
+    req = ProblemRequest(
+        raw_input="y'' + y = tan(t)",
+        problem_type=ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+        target_variable="t",
+        parameters={"method_preference": "UNDETERMINED_COEFFICIENTS"},
+    )
+    res = solver.solve(req)
+    assert res.status == SolutionStatus.CANNOT_SOLVE
+    assert res.verification.status == VerificationStatus.NOT_APPLICABLE
+    assert res.verification.method == "undetermined_coefficients_unsupported"
+    assert "hệ số bất định" in res.verification.details.lower()
+    # Ensure VoP was NOT invoked
+    assert not any("biến thiên hằng số" in s.rule_name.lower() for s in res.steps)
+
+
+def test_method_preference_explicit_vop_on_exponential_bypasses_uc(solver: ODESecondOrderConstantCoeffSolver):
+    """M4: When VARIATION_OF_PARAMETERS is explicitly requested for exponential forcing,
+    solver solves using VoP directly without running Undetermined Coefficients."""
+    req = ProblemRequest(
+        raw_input="y'' - 3*y' - 4*y = 3*exp(2*t)",
+        problem_type=ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+        target_variable="t",
+        parameters={"method_preference": "VARIATION_OF_PARAMETERS"},
+    )
+    res = solver.solve(req)
+    assert res.status == SolutionStatus.SUCCESS
+    assert res.verification.status == VerificationStatus.VERIFIED
+    # Must use VoP, NOT UC
+    assert any("biến thiên hằng số" in s.rule_name.lower() or "biến thiên hằng số" in s.title.lower() for s in res.steps)
+    assert not any("hệ số bất định" in s.rule_name.lower() for s in res.steps)
+
+    # Check mathematical correctness
+    t = sp.Symbol("t")
+    parsed_sol = sp.sympify(res.final_result.split("=", 1)[1].strip())
+    d2 = sp.diff(parsed_sol, t, 2)
+    d1 = sp.diff(parsed_sol, t, 1)
+    res_ode = sp.simplify(d2 - 3 * d1 - 4 * parsed_sol - 3 * sp.exp(2 * t))
+    assert res_ode == 0
+
+
+def test_method_preference_ignored_on_homogeneous(solver: ODESecondOrderConstantCoeffSolver):
+    """M4: Method preference does not affect homogeneous ODEs (characteristic equation used)."""
+    req = ProblemRequest(
+        raw_input="y'' + 5*y' + 6*y = 0",
+        problem_type=ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+        target_variable="t",
+        parameters={"method_preference": "VARIATION_OF_PARAMETERS"},
+    )
+    res = solver.solve(req)
+    assert res.status == SolutionStatus.SUCCESS
+    assert res.verification.status == VerificationStatus.VERIFIED
+    assert any("đặc trưng" in s.rule_name.lower() or "đặc trưng" in s.title.lower() for s in res.steps)
+    assert not any("biến thiên hằng số" in s.rule_name.lower() for s in res.steps)
+
+
+def test_method_preference_with_cauchy_ivp(solver: ODESecondOrderConstantCoeffSolver):
+    """M4: Method preference works seamlessly with Cauchy IVPs."""
+    req_vop = ProblemRequest(
+        raw_input="y'' - 3*y' - 4*y = 3*exp(2*t), y(0) = 1, y'(0) = 0",
+        problem_type=ProblemType.ODE_SECOND_ORDER_IVP,
+        target_variable="t",
+        parameters={"method_preference": "VARIATION_OF_PARAMETERS"},
+    )
+    res_vop = solver.solve(req_vop)
+    assert res_vop.status == SolutionStatus.SUCCESS
+    assert res_vop.verification.status == VerificationStatus.VERIFIED
+    assert any("biến thiên hằng số" in s.rule_name.lower() or "biến thiên hằng số" in s.title.lower() for s in res_vop.steps)
+    assert any("cauchy" in s.rule_name.lower() or "cauchy" in s.title.lower() for s in res_vop.steps)
+
+    t = sp.Symbol("t")
+    parsed_sol = sp.sympify(res_vop.final_result.split("=", 1)[1].strip())
+    # Initial conditions
+    assert sp.simplify(parsed_sol.subs(t, 0)) == 1
+    assert sp.simplify(sp.diff(parsed_sol, t).subs(t, 0)) == 0
+    # ODE residual
+    d2 = sp.diff(parsed_sol, t, 2)
+    d1 = sp.diff(parsed_sol, t, 1)
+    assert sp.simplify(d2 - 3 * d1 - 4 * parsed_sol - 3 * sp.exp(2 * t)) == 0
+
+
+# -----------------------------------------------------------------------------
+# M4.1: Classification Consistency & Mismatch Validation Tests
+# -----------------------------------------------------------------------------
+
+def test_classification_mismatch_homogeneous_mode_with_forcing(solver: ODESecondOrderConstantCoeffSolver):
+    """M4.1: Solver rejects nonhomogeneous equation when HOMOGENEOUS mode was declared."""
+    req = ProblemRequest(
+        raw_input="y'' + y = sin(t)",
+        problem_type=ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+        target_variable="t",
+        parameters={"expected_classification": "HOMOGENEOUS"},
+    )
+    res = solver.solve(req)
+    assert res.status == SolutionStatus.CANNOT_SOLVE
+    assert res.verification.status == VerificationStatus.NOT_APPLICABLE
+    assert res.verification.method == "classification_mismatch"
+    assert "không khớp phân loại" in res.verification.details.lower()
+    assert "thuần nhất" in res.verification.details.lower()
+
+
+def test_classification_mismatch_nonhomogeneous_mode_with_zero_forcing(solver: ODESecondOrderConstantCoeffSolver):
+    """M4.1: Solver rejects homogeneous equation when NONHOMOGENEOUS mode was declared."""
+    req = ProblemRequest(
+        raw_input="y'' + 5*y' + 6*y = 0",
+        problem_type=ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+        target_variable="t",
+        parameters={"expected_classification": "NONHOMOGENEOUS"},
+    )
+    res = solver.solve(req)
+    assert res.status == SolutionStatus.CANNOT_SOLVE
+    assert res.verification.status == VerificationStatus.NOT_APPLICABLE
+    assert res.verification.method == "classification_mismatch"
+    assert "không khớp phân loại" in res.verification.details.lower()
+    assert "không thuần nhất" in res.verification.details.lower()
+
+
+def test_classification_match_homogeneous(solver: ODESecondOrderConstantCoeffSolver):
+    """M4.1: Solver succeeds when HOMOGENEOUS mode matches homogeneous equation."""
+    req = ProblemRequest(
+        raw_input="y'' + 5*y' + 6*y = 0",
+        problem_type=ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+        target_variable="t",
+        parameters={"expected_classification": "HOMOGENEOUS"},
+    )
+    res = solver.solve(req)
+    assert res.status == SolutionStatus.SUCCESS
+    assert res.verification.status == VerificationStatus.VERIFIED
+def test_classification_match_nonhomogeneous(solver: ODESecondOrderConstantCoeffSolver):
+    """M4.1: Solver succeeds when NONHOMOGENEOUS mode matches nonhomogeneous equation."""
+    req = ProblemRequest(
+        raw_input="y'' - 3*y' - 4*y = 3*exp(2*t)",
+        problem_type=ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
+        target_variable="t",
+        parameters={"expected_classification": "NONHOMOGENEOUS"},
+    )
+    res = solver.solve(req)
+    assert res.status == SolutionStatus.SUCCESS
+    assert res.verification.status == VerificationStatus.VERIFIED
 

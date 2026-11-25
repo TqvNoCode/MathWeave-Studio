@@ -29,8 +29,8 @@ The project uses `uv` for fast, reproducible dependency management and Python 3.
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/TqvNoCode/math_app.git
-cd math_app
+git clone https://github.com/TqvNoCode/MathWeave-Studio.git
+cd MathWeave-Studio
 
 # 2. Sync virtual environment and dependencies
 uv sync

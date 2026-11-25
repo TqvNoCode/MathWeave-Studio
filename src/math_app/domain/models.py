@@ -150,13 +150,28 @@ class SolutionStatus(str, Enum):
     INCONCLUSIVE = "inconclusive"
 
 
+class DomainCompleteness(str, Enum):
+    """Completeness level of symbolic domain analysis."""
+
+    EXACT = "exact"
+    PARTIAL = "partial"
+    UNKNOWN = "unknown"
+
+
 class VerificationStatus(str, Enum):
     """Confidence status produced by the mathematical verification procedure."""
 
     VERIFIED = "verified"
+    VERIFIED_ON_BRANCH = "verified_on_branch"
+    VERIFIED_GLOBALLY = "verified_globally"
+    CONTINUITY_VERIFIED = "continuity_verified"
+    C1_EXTENSION_VERIFIED = "c1_extension_verified"
+    CONDITIONAL_EXTENSION = "conditional_extension"
     UNVERIFIED = "unverified"
     FAILED = "failed"
     NOT_APPLICABLE = "not_applicable"
+    PARTIALLY_VERIFIED = "partially_verified"
+    UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)

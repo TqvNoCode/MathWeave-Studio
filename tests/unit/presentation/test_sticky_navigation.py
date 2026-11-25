@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import inspect
+from nicegui import ui
 from math_app.presentation.app import create_app
+from math_app.presentation.components.shell.page_shell import create_page_shell
+from math_app.presentation.components.shell.sticky_nav_bar import render_sticky_nav_bar
 
 
 def test_sticky_navigation_bar_css_classes():
@@ -14,20 +17,24 @@ def test_sticky_navigation_bar_css_classes():
 
     # Locate the navigation bar definition in render_screen_b
     assert "render_screen_b" in source
-    nav_marker = "Navigation Bar with Shared High-Contrast Back Button (Sticky on scroll)"
-    assert nav_marker in source
+    assert "render_sticky_nav_bar" in source
 
-    # Extract the snippet containing the sticky navigation row
-    idx = source.find(nav_marker)
-    nav_snippet = source[idx : idx + 300]
+    # Verify sticky navigation component classes directly on component instance
+    with ui.card():
+        navbar = render_sticky_nav_bar(
+            title="Đạo hàm",
+            domain="Giải tích (Calculus)",
+            on_back=lambda: None,
+        )
+    nav_classes = navbar._classes
 
     # Verify sticky positioning properties
-    assert "sticky" in nav_snippet, "Navigation bar must declare CSS position: sticky"
-    assert "top-0" in nav_snippet, "Sticky navigation bar must have top-0 offset"
-    assert "z-30" in nav_snippet, "Sticky navigation bar must declare a high z-index"
-    assert "bg-white" in nav_snippet, "Sticky navigation bar must be opaque (bg-white)"
-    assert "border" in nav_snippet, "Sticky navigation bar must have a clean border"
-    assert "shadow-sm" in nav_snippet, "Sticky navigation bar must have elevation shadow"
+    assert "sticky" in nav_classes, "Navigation bar must declare CSS position: sticky"
+    assert "top-0" in nav_classes, "Sticky navigation bar must have top-0 offset"
+    assert "z-30" in nav_classes, "Sticky navigation bar must declare a high z-index"
+    assert "bg-white" in nav_classes, "Sticky navigation bar must be opaque (bg-white)"
+    assert "border" in nav_classes, "Sticky navigation bar must have a clean border"
+    assert "shadow-sm" in nav_classes, "Sticky navigation bar must have elevation shadow"
 
 
 def test_no_overflow_hidden_on_parent_containers():
@@ -36,12 +43,12 @@ def test_no_overflow_hidden_on_parent_containers():
     """
     source = inspect.getsource(create_app)
 
-    # Check page_col definition
-    page_col_idx = source.find("page_col = ui.column()")
-    assert page_col_idx != -1
-    page_col_line = source[page_col_idx : page_col_idx + 150]
-    assert "overflow-hidden" not in page_col_line
-    assert "overflow-auto" not in page_col_line
+    # Check page_col definition uses create_page_shell
+    assert "page_col = create_page_shell()" in source
+    with ui.card():
+        page_col = create_page_shell()
+    assert "overflow-hidden" not in page_col._classes
+    assert "overflow-auto" not in page_col._classes
 
     # Check screen_body definition
     screen_body_idx = source.find("screen_body = ui.column()")

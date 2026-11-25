@@ -17,7 +17,18 @@ from math_app.domain.models import ProblemType, SolutionStatus, VerificationStat
 from math_app.domain.step_content import ExpressionStepContent
 from math_app.input.ode_parser import ParsedODE, parse_ode_input
 from math_app.rendering.latex.formatter import expr_to_latex
-from math_app.verification.calculus.ode_verifier import ODEVerifier
+from math_app.solvers.calculus.ode._real_calculus import (
+    classify_finite_real_scalar,
+    compute_differential_form_domain_metadata,
+    real_integrate_expression,
+    strip_log_abs,
+    validate_differential_form_ic,
+)
+from math_app.verification.calculus.ode_verifier import (
+    ODEVerifier,
+    _prove_symbolic_zero,
+    evaluate_initial_point_domain,
+)
 
 
 class ODEIntegratingFactorSolver(Solver):
@@ -74,9 +85,26 @@ class ODEIntegratingFactorSolver(Solver):
         M_expr = sp.simplify(M_cand)
         N_expr = sp.simplify(N_cand)
 
+        invalid_resp = validate_differential_form_ic(
+            raw_input=request.raw_input,
+            parsed=parsed,
+            x_var=x_var,
+            y_var=y_var,
+            M_expr=M_expr,
+            N_expr=N_expr,
+            elapsed_ms_fn=lambda: (time.perf_counter() - t0_start) * 1000.0,
+        )
+        if invalid_resp is not None:
+            return invalid_resp
+
+        ic_subs = (
+            [(x_var, parsed.initial_condition[0]), (y_var, parsed.initial_condition[1])]
+            if parsed.initial_condition is not None
+            else None
+        )
+
         steps: list[SolutionStep] = []
         step_num = 1
-        domain_restrictions: list[str] = []
 
         # Step 1: Check exactness condition: dM/dy == dN/dx
         dM_dy = sp.simplify(sp.diff(M_expr, y_var))
@@ -147,8 +175,8 @@ class ODEIntegratingFactorSolver(Solver):
                 if y_var not in diff_over_N.free_symbols:
                     # Depends only on x!
                     f_x = diff_over_N
-                    int_f = sp.integrate(f_x, x_var)
-                    if any(isinstance(node, sp.Integral) for node in sp.preorder_traversal(int_f)):
+                    int_f = real_integrate_expression(f_x, x_var, source_expr=f_x, eval_subs=ic_subs)
+                    if int_f is None:
                         elapsed = (time.perf_counter() - t0_start) * 1000.0
                         return SolutionResponse(
                             status=SolutionStatus.CANNOT_SOLVE,
@@ -195,8 +223,8 @@ class ODEIntegratingFactorSolver(Solver):
                 if x_var not in diff_over_M.free_symbols:
                     # Depends only on y!
                     g_y = diff_over_M
-                    int_g = sp.integrate(g_y, y_var)
-                    if any(isinstance(node, sp.Integral) for node in sp.preorder_traversal(int_g)):
+                    int_g = real_integrate_expression(g_y, y_var, source_expr=g_y, eval_subs=ic_subs)
+                    if int_g is None:
                         elapsed = (time.perf_counter() - t0_start) * 1000.0
                         return SolutionResponse(
                             status=SolutionStatus.CANNOT_SOLVE,
@@ -258,6 +286,71 @@ class ODEIntegratingFactorSolver(Solver):
                 )
 
             # Multiply both M and N by mu
+            if parsed.initial_condition is not None:
+                x0, y0 = parsed.initial_condition
+                allow_complex = M_expr.has(sp.I) or N_expr.has(sp.I)
+                mu_dom_stat, err_mu = evaluate_initial_point_domain(
+                    mu_expr, x_var, y_var, x0, y0, allow_complex=allow_complex
+                )
+                mu_ic_val = (
+                    sp.simplify(mu_expr.subs([(x_var, x0), (y_var, y0)]))
+                    if mu_dom_stat != "invalid"
+                    else sp.nan
+                )
+                mu_scalar_stat, mu_scalar_err = (
+                    classify_finite_real_scalar(mu_ic_val, (M_expr, N_expr))
+                    if mu_dom_stat != "invalid"
+                    else ("invalid", err_mu)
+                )
+                if mu_dom_stat == "invalid" or mu_scalar_stat == "invalid" or _prove_symbolic_zero(mu_ic_val):
+                    elapsed = (time.perf_counter() - t0_start) * 1000.0
+                    reason = err_mu if mu_dom_stat == "invalid" else (mu_scalar_err or "mu = 0")
+                    return SolutionResponse(
+                        status=SolutionStatus.CANNOT_SOLVE,
+                        verification=VerificationResult(
+                            status=VerificationStatus.NOT_APPLICABLE,
+                            method="integrating_factor_invalid_at_ic",
+                            details=f"Thừa số tích phân μ = {mu_expr} triệt tiêu hoặc không xác định tại điểm ban đầu ({x0}, {y0}): {reason}.",
+                        ),
+                        raw_input=request.raw_input,
+                        canonical_input=parsed.canonical_eq,
+                        final_result="",
+                        final_latex="",
+                        warnings=(
+                            f"Thừa số tích phân \u03bc = {mu_expr} không hợp lệ (triệt tiêu hoặc chia cho 0) tại ({x0}, {y0}): {reason}.",
+                        ),
+                        execution_time_ms=elapsed,
+                    )
+                if mu_dom_stat == "unknown" or mu_scalar_stat == "unknown":
+                    domain_meta_mu = compute_differential_form_domain_metadata(
+                        parsed=parsed,
+                        x_var=x_var,
+                        y_var=y_var,
+                        M_expr=M_expr,
+                        N_expr=N_expr,
+                        mu_expr=mu_expr,
+                    )
+                    elapsed = (time.perf_counter() - t0_start) * 1000.0
+                    reason = err_mu if mu_dom_stat == "unknown" else mu_scalar_err
+                    return SolutionResponse(
+                        status=SolutionStatus.UNVERIFIED,
+                        verification=VerificationResult(
+                            status=VerificationStatus.UNVERIFIED,
+                            method="integrating_factor_symbolic_unverified",
+                            details=f"Không thể xác nhận tính hợp lệ thực hữu hạn khác 0 của thừa số tích phân μ = {mu_expr} tại ({x0}, {y0}): {reason}.",
+                        ),
+                        raw_input=request.raw_input,
+                        canonical_input=parsed.canonical_eq,
+                        final_result="",
+                        final_latex="",
+                        domain_restrictions=domain_meta_mu.domain_restrictions,
+                        original_domain_latex=domain_meta_mu.original_domain_latex,
+                        normalized_domain_latex=domain_meta_mu.normalized_domain_latex,
+                        domain_completeness=domain_meta_mu.completeness,
+                        warnings=(f"Không thể xác nhận thừa số tích phân μ = {mu_expr} tại ({x0}, {y0}): {reason}.",),
+                        execution_time_ms=elapsed,
+                    )
+
             M_trans = sp.simplify(mu_expr * M_expr)
             N_trans = sp.simplify(mu_expr * N_expr)
 
@@ -324,30 +417,35 @@ class ODEIntegratingFactorSolver(Solver):
             )
             step_num += 1
 
-        # Check domain restrictions on mu(x, y) != 0 and denominators
-        domain_restrictions.append(f"Điều kiện thừa số tích phân: \u03bc = {mu_expr} khác 0.")
-        try:
-            _, mu_denom = sp.fraction(mu_expr)
-            if mu_denom != 1 and (x_var in mu_denom.free_symbols or y_var in mu_denom.free_symbols):
-                domain_restrictions.append(f"Điều kiện xác định của thừa số tích phân \u03bc: {mu_denom} khác 0.")
-        except Exception:
-            pass
-        try:
-            _, m_denom = sp.fraction(M_expr)
-            if m_denom != 1 and (x_var in m_denom.free_symbols or y_var in m_denom.free_symbols):
-                domain_restrictions.append(f"Điều kiện xác định của M({x_var}, {y_var}): {m_denom} khác 0.")
-        except Exception:
-            pass
-        try:
-            _, n_denom = sp.fraction(N_expr)
-            if n_denom != 1 and (x_var in n_denom.free_symbols or y_var in n_denom.free_symbols):
-                domain_restrictions.append(f"Điều kiện xác định của N({x_var}, {y_var}): {n_denom} khác 0.")
-        except Exception:
-            pass
+        # Preserve source restrictions and build integrating-factor / denominator metadata
+        domain_meta = compute_differential_form_domain_metadata(
+            parsed=parsed,
+            x_var=x_var,
+            y_var=y_var,
+            M_expr=M_expr,
+            N_expr=N_expr,
+            mu_expr=mu_expr,
+        )
 
         # Construct potential function Psi(x, y):
         # Psi_1 = int(M_trans dx)
-        psi_expr = sp.simplify(sp.integrate(M_trans, x_var))
+        psi_expr = real_integrate_expression(M_trans, x_var, source_expr=M_trans, eval_subs=ic_subs)
+        if psi_expr is None:
+            elapsed = (time.perf_counter() - t0_start) * 1000.0
+            return SolutionResponse(
+                status=SolutionStatus.CANNOT_SOLVE,
+                verification=VerificationResult(
+                    status=VerificationStatus.NOT_APPLICABLE,
+                    method="integrating_factor_potential_integration",
+                    details=f"Tích phân int({M_trans} d{x_var}) không có nguyên hàm sơ cấp thực.",
+                ),
+                raw_input=request.raw_input,
+                canonical_input=parsed.canonical_eq,
+                final_result="",
+                final_latex="",
+                warnings=(f"Không thể tìm nguyên hàm sơ cấp thực cho M_new({x_var}, {y_var}).",),
+                execution_time_ms=elapsed,
+            )
         psi_latex = f"\\Psi({x_var}, {y_var}) = \\int \\left( {expr_to_latex(M_trans)} \\right) d{x_var} = {expr_to_latex(psi_expr)}"
 
         steps.append(
@@ -370,7 +468,7 @@ class ODEIntegratingFactorSolver(Solver):
         step_num += 1
 
         # Find h(y): dPsi/dy + h'(y) = N_trans => h'(y) = N_trans - dPsi/dy
-        dpsi_dy = sp.simplify(sp.diff(psi_expr, y_var))
+        dpsi_dy = sp.simplify(sp.diff(strip_log_abs(psi_expr), y_var))
         h_prime = sp.simplify(N_trans - dpsi_dy)
 
         if x_var in h_prime.free_symbols:
@@ -390,7 +488,23 @@ class ODEIntegratingFactorSolver(Solver):
                 execution_time_ms=elapsed,
             )
 
-        h_expr = sp.simplify(sp.integrate(h_prime, y_var))
+        h_expr = real_integrate_expression(h_prime, y_var, source_expr=h_prime, eval_subs=ic_subs)
+        if h_expr is None:
+            elapsed = (time.perf_counter() - t0_start) * 1000.0
+            return SolutionResponse(
+                status=SolutionStatus.CANNOT_SOLVE,
+                verification=VerificationResult(
+                    status=VerificationStatus.NOT_APPLICABLE,
+                    method="integrating_factor_potential_integration",
+                    details=f"Tích phân int({h_prime} d{y_var}) không có nguyên hàm sơ cấp thực.",
+                ),
+                raw_input=request.raw_input,
+                canonical_input=parsed.canonical_eq,
+                final_result="",
+                final_latex="",
+                warnings=(f"Không thể tìm nguyên hàm sơ cấp thực cho h'({y_var}).",),
+                execution_time_ms=elapsed,
+            )
         h_latex = f"h'({y_var}) = {expr_to_latex(h_prime)} \\implies h({y_var}) = {expr_to_latex(h_expr)}"
 
         steps.append(
@@ -443,6 +557,27 @@ class ODEIntegratingFactorSolver(Solver):
         if parsed.initial_condition is not None:
             x0, y0 = parsed.initial_condition
             c_val = sp.simplify(potential_F.subs([(x_var, x0), (y_var, y0)]))
+            c_stat, c_err = classify_finite_real_scalar(c_val, (M_expr, N_expr))
+            if c_stat == "invalid":
+                elapsed = (time.perf_counter() - t0_start) * 1000.0
+                return SolutionResponse(
+                    status=SolutionStatus.CANNOT_SOLVE,
+                    verification=VerificationResult(
+                        status=VerificationStatus.NOT_APPLICABLE,
+                        method="integrating_factor_ic_domain_violation",
+                        details=f"Không thể xác định hằng số thực hữu hạn tại ({x0}, {y0}): {c_err}.",
+                    ),
+                    raw_input=request.raw_input,
+                    canonical_input=parsed.canonical_eq,
+                    final_result="",
+                    final_latex="",
+                    domain_restrictions=domain_meta.domain_restrictions,
+                    original_domain_latex=domain_meta.original_domain_latex,
+                    normalized_domain_latex=domain_meta.normalized_domain_latex,
+                    domain_completeness=domain_meta.completeness,
+                    warnings=(f"Hàm thế không cho giá trị thực hữu hạn tại điều kiện ban đầu ({x0}, {y0}): {c_err}.",),
+                    execution_time_ms=elapsed,
+                )
             part_latex = f"{expr_to_latex(potential_F)} = {expr_to_latex(c_val)}"
 
             steps.append(
@@ -476,6 +611,7 @@ class ODEIntegratingFactorSolver(Solver):
             x_sym=x_var,
             y_sym=y_var,
             initial_condition=parsed.initial_condition,
+            source_constraints=getattr(parsed, "original_domain_constraints", ()),
         )
 
         # Determine overall solution status
@@ -498,7 +634,10 @@ class ODEIntegratingFactorSolver(Solver):
             final_result=final_sol_str,
             final_latex=final_latex_sol,
             steps=tuple(steps),
-            domain_restrictions=tuple(domain_restrictions),
+            domain_restrictions=domain_meta.domain_restrictions,
+            original_domain_latex=domain_meta.original_domain_latex,
+            normalized_domain_latex=domain_meta.normalized_domain_latex,
+            domain_completeness=domain_meta.completeness,
             warnings=tuple(warnings_list),
             execution_time_ms=elapsed,
         )

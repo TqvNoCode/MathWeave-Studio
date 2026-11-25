@@ -44,3 +44,10 @@ Thumbs.db
 # Local profiling and debugging artifacts
 .prof
 *.prof
+
+# Local development scratch and milestone deliverable bundles (root-anchored)
+/scratch/
+/UX3_*_DELIVERABLES.zip
+/*_REVIEW_BUNDLE.zip
+/git_diff.patch
+/verify_bundle.py

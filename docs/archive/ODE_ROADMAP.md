@@ -1,5 +1,10 @@
 # MathWeave Studio — Ordinary Differential Equations (ODE) Roadmap
 
+> [!NOTE]
+> **Historical Archive Document**: This roadmap is a historical planning record established during early ODE subsystem development (v0.1.x, baseline 290 tests).
+> As of **MathWeave Studio v0.2.0**, all milestones described herein—including first-order ODE solvers, integrating factors, second-order constant-coefficient homogeneous & nonhomogeneous equations via Undetermined Coefficients and Variation of Parameters, Cauchy IVPs, singular point analysis, connected domain branching, and reduction of order—have been fully implemented, validated across 1,300+ tests, and integrated into dedicated pedagogical workspaces.
+> For current user and developer documentation, refer to the [User Guide](../USER_GUIDE.md) and [README](../../README.md).
+
 ## 1. Executive Summary & Architectural Overview
 
 MathWeave Studio provides an educational and research-grade symbolic mathematics environment built on Python 3.14+, SymPy, NumPy, and NiceGUI. This document outlines the architectural boundaries, mathematical foundations, verification methodology, and milestone roadmap for the Ordinary Differential Equations (ODE) subsystem.

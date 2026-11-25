@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import Any
+from typing import Any, Literal
 import sympy as sp
 
 from math_app.domain.exceptions import InvalidInputError
@@ -12,6 +12,15 @@ from math_app.input.parser import normalize_variable_name, parse_safe_expression
 
 # Whitelisted symbolic parameters commonly appearing in textbook differential equations
 ALLOWED_ODE_PARAMETERS = frozenset({"a", "b", "c", "k", "m", "n", "p", "q", "g", "r", "C", "C1", "C2", "x0", "y0", "t0", "v0", "I"})
+
+
+@dataclass(frozen=True)
+class SourceDomainConstraint:
+    """Structured symbolic domain constraint extracted from unsimplified source AST."""
+
+    relation: Literal["ne", "ge", "gt"]
+    expr: sp.Expr
+    description: str
 
 
 @dataclass(frozen=True)
@@ -39,6 +48,7 @@ class ParsedODE:
     original_domain_restrictions: tuple[str, ...] = ()
     original_denominators: tuple[sp.Expr, ...] = ()
     leading_coeffs: tuple[sp.Expr, ...] = ()
+    original_domain_constraints: tuple[SourceDomainConstraint, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -67,6 +77,7 @@ class ParsedSecondOrderODE:
     original_domain_restrictions: tuple[str, ...] = ()
     original_denominators: tuple[sp.Expr, ...] = ()
     leading_coeffs: tuple[sp.Expr, ...] = ()
+    original_domain_constraints: tuple[SourceDomainConstraint, ...] = ()
 
 
 def _safe_degree(expr: sp.Expr, sym: sp.Symbol) -> int | None:
@@ -164,6 +175,19 @@ def normalize_ode_equation_string(raw: str, indep_var: str = "t", dep_var: str =
     """
     norm = raw.strip()
 
+    # 0. Normalize LaTeX and text higher derivative notations (order >= 3)
+    # e.g. \frac{d^3y}{dt^3}, d3y/dt3, d^3y/dt^3, y''', y'''', y^(3) -> y_higher_prime
+    norm = re.sub(r"\\frac\{\s*d\^?\{?(?:[3-9]|\d{2,})\}?\s*" + re.escape(dep_var) + r"\s*\}\{\s*d\s*" + re.escape(indep_var) + r"\^?\{?(?:[3-9]|\d{2,})\}?\s*\}", "y_higher_prime", norm)
+    norm = re.sub(r"\\frac\{\s*d\^?\{?(?:[3-9]|\d{2,})\}?\s*y\s*\}\{\s*d\s*[tx]\^?\{?(?:[3-9]|\d{2,})\}?\s*\}", "y_higher_prime", norm)
+    norm = re.sub(r"\bd(?:\^?(?:[3-9]|\d{2,}))\s*y\s*/\s*d\s*[tx](?:\^?(?:[3-9]|\d{2,}))\b", "y_higher_prime", norm)
+    norm = re.sub(rf"\bd(?:\^?(?:[3-9]|\d{{2,}}))\s*{re.escape(dep_var)}\s*/\s*d\s*{re.escape(indep_var)}(?:\^?(?:[3-9]|\d{{2,}}))\b", "y_higher_prime", norm)
+    norm = re.sub(rf"\b{re.escape(dep_var)}'{{3,}}\s*\(\s*{re.escape(indep_var)}\s*\)", "y_higher_prime", norm)
+    norm = re.sub(r"\by'{3,}\s*\(\s*[a-zA-Z]\s*\)", "y_higher_prime", norm)
+    norm = re.sub(rf"\b{re.escape(dep_var)}'{{3,}}", "y_higher_prime", norm)
+    norm = re.sub(r"y'{3,}", "y_higher_prime", norm)
+    norm = re.sub(rf'\b{re.escape(dep_var)}"{{2,}}', "y_higher_prime", norm)
+    norm = re.sub(r'y"{2,}', "y_higher_prime", norm)
+
     # 1. Normalize LaTeX second derivative notations
     norm = re.sub(r"\\frac\{\s*d\^?\{?2\}?\s*" + re.escape(dep_var) + r"\s*\}\{\s*d\s*" + re.escape(indep_var) + r"\^?\{?2\}?\s*\}", "y_double_prime", norm)
     norm = re.sub(r"\\frac\{\s*d\^?\{?2\}?\s*y\s*\}\{\s*d\s*t\^?\{?2\}?\s*\}", "y_double_prime", norm)
@@ -217,18 +241,176 @@ def normalize_ode_equation_string(raw: str, indep_var: str = "t", dep_var: str =
         # Also clean up cases like (1) or *1
         norm = re.sub(r"\*\s*1\b", "", norm)
 
-    # 5. Implicit multiplication with y_double_prime, y_prime, y:
-    # 5a. Numbers followed by variables: e.g. 2y'' -> 2*y_double_prime, 2y' -> 2*y_prime, 2y -> 2*y
+    # 5. Implicit multiplication with y_higher_prime, y_double_prime, y_prime, y:
+    # 5a. Numbers followed by variables: e.g. 2y''' -> 2*y_higher_prime, 2y'' -> 2*y_double_prime, 2y' -> 2*y_prime, 2y -> 2*y
+    norm = re.sub(r"(\d+)\s*y_higher_prime\b", r"\1*y_higher_prime", norm)
     norm = re.sub(r"(\d+)\s*y_double_prime\b", r"\1*y_double_prime", norm)
     norm = re.sub(r"(\d+)\s*y_prime\b", r"\1*y_prime", norm)
     norm = re.sub(r"(\d+)\s*y\b", r"\1*y", norm)
 
-    # 5b. Variable expressions followed by y_double_prime, y_prime, y: e.g. 2t^2y'' -> 2t^2*y_double_prime, 3ty' -> 3t*y_prime
+    # 5b. Variable expressions followed by y_higher_prime, y_double_prime, y_prime, y: e.g. 2t^2y'' -> 2t^2*y_double_prime, 3ty' -> 3t*y_prime
+    norm = re.sub(r"([a-zA-Z0-9_\)\]])\s*y_higher_prime\b", lambda m: m.group(1) + "*y_higher_prime" if not m.group(1).endswith("*") and not m.group(1).endswith("_") else m.group(0), norm)
     norm = re.sub(r"([a-zA-Z0-9_\)\]])\s*y_double_prime\b", lambda m: m.group(1) + "*y_double_prime" if not m.group(1).endswith("*") and not m.group(1).endswith("_") else m.group(0), norm)
-    norm = re.sub(r"([a-zA-Z0-9_\)\]])\s*y_prime\b", lambda m: m.group(1) + "*y_prime" if not m.group(1).endswith("*") and not m.group(1).endswith("_") and not m.group(1).endswith("double") else m.group(0), norm)
+    norm = re.sub(r"([a-zA-Z0-9_\)\]])\s*y_prime\b", lambda m: m.group(1) + "*y_prime" if not m.group(1).endswith("*") and not m.group(1).endswith("_") and not m.group(1).endswith("double") and not m.group(1).endswith("higher") else m.group(0), norm)
     norm = re.sub(r"([a-zA-Z0-9_\)\]])\s*y\b", lambda m: m.group(1) + "*y" if not m.group(1).endswith("*") and not m.group(1).endswith("_") and not m.group(1).endswith("prime") and not m.group(1).endswith("d") else m.group(0), norm)
 
     return norm
+
+
+def detect_ode_order(raw: str, indep_var: str = "t", dep_var: str = "y") -> int:
+    """Detect the highest derivative order in an ordinary differential equation string.
+
+    Returns:
+        0: No derivatives found (ordinary algebraic equation or expression).
+        1: First-order differential equation (contains y', dy/dt, M dx + N dy = 0).
+        2: Second-order differential equation (contains y'', d2y/dt2, etc.).
+        >=3: Higher-order differential equation (contains y''', d3y/dt3, etc.).
+    """
+    clean = raw.strip()
+    if not clean:
+        return 0
+
+    # 1. Clean out intervals like 't > 0'
+    eq_without_int, _ = extract_interval_from_string(clean)
+
+    # 2. Clean out initial conditions so initial derivatives like y'(0)=2 in a second order IVP
+    # (e.g. y'' + 4y = 4t, y(0)=1, y'(0)=2) don't confuse the equation's own highest order.
+    eq_pure, _, _, _ = extract_second_order_ics_from_string(eq_without_int)
+    eq_pure, _ = extract_initial_condition_from_string(eq_pure)
+    eq_pure = eq_pure.strip()
+
+    c_indep = indep_var.strip() if indep_var else "t"
+    c_dep = dep_var.strip() if dep_var else "y"
+
+    esc_dep = re.escape(c_dep)
+    esc_indep = re.escape(c_indep)
+    var_pat = r"(?:" + esc_indep + r"|[a-zA-Z])"
+
+    # A. Check Higher Order (>= 3)
+    higher_order_patterns = [
+        r"\b" + esc_dep + r"'{3,}",
+        r'\b' + esc_dep + r'"{2,}',
+        r"\b" + esc_dep + r"['\"]{3,}",
+        r"\b" + esc_dep + r"\^\{?\((?:[3-9]|\d{2,})\)\}?",
+        r"\\frac\{\s*d\^?\{?(?:[3-9]|\d{2,})\}?\s*" + esc_dep + r"\s*\}\{\s*d\s*" + var_pat + r"\^?\{?(?:[3-9]|\d{2,})\}?\s*\}",
+        r"\bd(?:\^?(?:[3-9]|\d{2,}))\s*" + esc_dep + r"\s*/\s*d\s*" + var_pat + r"(?:\^?(?:[3-9]|\d{2,}))\b",
+        r"\bd(?:[3-9]|\d{2,})\s*" + esc_dep + r"\s*/\s*d\s*" + var_pat + r"(?:[3-9]|\d{2,})\b",
+        r"\bdiff\s*\(\s*" + esc_dep + r"\s*,\s*" + var_pat + r"\s*,\s*(?:[3-9]|\d{2,})\s*\)",
+    ]
+    for pat in higher_order_patterns:
+        if re.search(pat, eq_pure):
+            return 3
+
+    # B. Check Second Order (= 2)
+    second_order_patterns = [
+        r"\b" + esc_dep + r"''(?!')",
+        r'\b' + esc_dep + r'"(?!"|\')',
+        r"\b" + esc_dep + r"\^\{?''\}?",
+        r"\b" + esc_dep + r"\^\{?\\prime\\prime\}?",
+        r"\b" + esc_dep + r"\^?\{?\(2\)\}?",
+        r"\\frac\{\s*d\^?\{?2\}?\s*" + esc_dep + r"\s*\}\{\s*d\s*" + var_pat + r"\^?\{?2\}?\s*\}",
+        r"\bd(?:\^2|2)\s*" + esc_dep + r"\s*/\s*d\s*" + var_pat + r"(?:\^2|2)\b",
+        r"\bdiff\s*\(\s*" + esc_dep + r"\s*,\s*" + var_pat + r"\s*,\s*2\s*\)",
+    ]
+    for pat in second_order_patterns:
+        if re.search(pat, eq_pure):
+            return 2
+
+    norm = normalize_ode_equation_string(eq_pure, indep_var=c_indep, dep_var=c_dep)
+    if "y_double_prime" in norm:
+        return 2
+
+    # C. Check First Order (= 1)
+    first_order_patterns = [
+        r"\b" + esc_dep + r"'(?!')",
+        r"\b" + esc_dep + r"\^\{?\\prime\}?",
+        r"\b" + esc_dep + r"\^?\{?\(1\)\}?",
+        r"\\frac\{\s*d\s*" + esc_dep + r"\s*\}\{\s*d\s*" + var_pat + r"\s*\}",
+        r"\bd\s*" + esc_dep + r"\s*/\s*d\s*" + var_pat + r"\b",
+        r"\bdiff\s*\(\s*" + esc_dep + r"\s*,\s*" + var_pat + r"\s*(?:,\s*1\s*)?\)",
+    ]
+    for pat in first_order_patterns:
+        if re.search(pat, eq_pure):
+            return 1
+
+    if re.search(r"\bd" + esc_dep + r"\b", eq_pure) and re.search(r"\bd[a-zA-Z]\b", eq_pure):
+        return 1
+
+    if "y_prime" in norm:
+        return 1
+
+    return 0
+
+
+def validate_ode_order(raw: str, expected_order: int, indep_var: str = "t", dep_var: str = "y") -> None:
+    """Validate that the differential equation in raw matches the expected order (1 or 2).
+
+    Raises:
+        InvalidInputError: If order is mismatched or unsupported higher-order, with
+        actionable, educational Vietnamese guidance.
+    """
+    clean = raw.strip()
+    if not clean:
+        raise InvalidInputError("Phương trình không được để trống. Vui lòng nhập dữ liệu trước khi thực hiện.")
+
+    eq_without_int, _ = extract_interval_from_string(clean)
+    eq_pure, _, _, _ = extract_second_order_ics_from_string(eq_without_int)
+    eq_pure, _ = extract_initial_condition_from_string(eq_pure)
+    eq_pure = eq_pure.strip()
+
+    c_indep = indep_var.strip() if indep_var else "t"
+    c_dep = dep_var.strip() if dep_var else "y"
+
+    # Step 0: Immediate check for unsupported higher-order ODEs (order >= 3)
+    detected = detect_ode_order(eq_pure, indep_var=c_indep, dep_var=c_dep)
+    if detected >= 3:
+        raise InvalidInputError(
+            "Phương trình không đúng cấp: Bạn đang nhập phương trình vi phân cấp cao (cấp 3 trở lên), "
+            "nhưng ứng dụng hiện tại chỉ hỗ trợ phương trình vi phân cấp 1 và cấp 2."
+        )
+
+    # Step 1: Preliminary syntax check
+    # We normalize equation and run parse_safe_expression with extended allowed variables
+    # so genuine syntax errors (unbalanced parenthesis, invalid operators) are raised first.
+    norm_eq = normalize_ode_equation_string(eq_pure, indep_var=c_indep, dep_var=c_dep)
+    if "=" in norm_eq:
+        parts = norm_eq.split("=")
+        if len(parts) != 2:
+            raise InvalidInputError("Phương trình chỉ được chứa đúng một dấu '=' (Must contain exactly one '=').")
+        lhs_raw, rhs_raw = parts[0].strip(), parts[1].strip()
+        if not lhs_raw or not rhs_raw:
+            raise InvalidInputError("Hai vế của phương trình không được để trống (LHS and RHS cannot be empty).")
+    else:
+        lhs_raw = norm_eq
+        rhs_raw = "0"
+
+    allowed_vars = {c_indep, c_dep, "y_prime", "y_double_prime", "y_higher_prime", "x", "t"} | ALLOWED_ODE_PARAMETERS
+    parse_safe_expression(lhs_raw, target_variable=c_indep, allowed_variables=allowed_vars, evaluate=False)
+    parse_safe_expression(rhs_raw, target_variable=c_indep, allowed_variables=allowed_vars, evaluate=False)
+
+    # Step 2: Context-aware order check
+    if expected_order == 1:
+        if detected == 2:
+            raise InvalidInputError(
+                "Phương trình không đúng cấp: Bạn đang nhập phương trình vi phân cấp 2, nhưng không gian làm việc hiện tại chỉ hỗ trợ phương trình cấp 1. "
+                "Vui lòng quay lại danh mục toán học và chọn Phương trình vi phân cấp 2."
+            )
+        elif detected == 0:
+            raise InvalidInputError(
+                "Phương trình không chứa đạo hàm cấp 1 y' hoặc dy/dt. "
+                "Vui lòng nhập phương trình vi phân cấp 1 hoặc chuyển sang danh mục giải phương trình đại số."
+            )
+    elif expected_order == 2:
+        if detected == 1:
+            raise InvalidInputError(
+                "Phương trình không đúng cấp: Bạn đang nhập phương trình vi phân cấp 1, nhưng không gian làm việc hiện tại chỉ hỗ trợ phương trình vi phân cấp 2 (không chứa đạo hàm cấp 2). "
+                "Vui lòng chuyển sang không gian làm việc Phương trình vi phân cấp 1."
+            )
+        elif detected == 0:
+            raise InvalidInputError(
+                "Phương trình không chứa đạo hàm cấp 2 y'' hoặc d2y/dt2 (No second-order derivative found in equation). "
+                "Vui lòng nhập phương trình vi phân cấp 2."
+            )
 
 
 def parse_initial_condition(
@@ -262,38 +444,80 @@ def parse_initial_condition(
     return t0_expr, y0_expr
 
 
+def extract_source_domain_constraints(
+    exprs: list[sp.Expr] | tuple[sp.Expr, ...],
+    var: sp.Symbol,
+    dep_var: sp.Symbol,
+) -> tuple[tuple[str, ...], tuple[sp.Expr, ...], tuple[SourceDomainConstraint, ...]]:
+    """Extract domain restrictions, denominators, and structured constraints before simplification."""
+    restrictions: list[str] = []
+    denominators: list[sp.Expr] = []
+    constraints: list[SourceDomainConstraint] = []
+    seen_denoms: set[str] = set()
+    seen_constraints: set[tuple[str, str]] = set()
+    target_syms = {var, dep_var}
+    diff_syms = {sp.Symbol(f"d{var.name}"), sp.Symbol(f"d{dep_var.name}")}
+
+    def _record_constraint(relation: Literal["ne", "ge", "gt"], expr_val: sp.Expr, desc: str) -> None:
+        key = (relation, str(expr_val))
+        if key not in seen_constraints:
+            seen_constraints.add(key)
+            constraints.append(SourceDomainConstraint(relation=relation, expr=expr_val, description=desc))
+
+    for expr in exprs:
+        for node in sp.preorder_traversal(expr):
+            if isinstance(node, sp.Pow):
+                b, e = node.as_base_exp()
+                e_simp = sp.simplify(e)
+                if e_simp.is_negative:
+                    b_simp = sp.simplify(b)
+                    b_str = str(b_simp)
+                    if b_str not in seen_denoms and b_simp != 1:
+                        seen_denoms.add(b_str)
+                        denominators.append(b_simp)
+                        if b_simp.free_symbols & target_syms:
+                            desc = f"Điều kiện xác định ban đầu: {b_simp} khác 0 (mẫu số)."
+                            restrictions.append(desc)
+                            _record_constraint("ne", b_simp, desc)
+                        elif not (b_simp.free_symbols & diff_syms) and (
+                            bool(b_simp.free_symbols) or b_simp.is_zero is not False
+                        ):
+                            desc = f"Điều kiện xác định ban đầu: {b_simp} khác 0 (mẫu số)."
+                            _record_constraint("ne", b_simp, desc)
+                if e_simp.is_Rational and e_simp.q % 2 == 0:
+                    b_simp = sp.simplify(b)
+                    if b_simp.free_symbols & target_syms:
+                        desc = f"Điều kiện xác định ban đầu: {b_simp} >= 0 (căn bậc chẵn)."
+                        restrictions.append(desc)
+                        _record_constraint("ge", b_simp, desc)
+                    elif not (b_simp.free_symbols & diff_syms) and (
+                        bool(b_simp.free_symbols) or b_simp.is_nonnegative is not True
+                    ):
+                        desc = f"Điều kiện xác định ban đầu: {b_simp} >= 0 (căn bậc chẵn)."
+                        _record_constraint("ge", b_simp, desc)
+            elif isinstance(node, sp.log):
+                arg_simp = sp.simplify(node.args[0])
+                if arg_simp.free_symbols & target_syms:
+                    desc = f"Điều kiện xác định ban đầu: {arg_simp} > 0 (logarit)."
+                    restrictions.append(desc)
+                    _record_constraint("gt", arg_simp, desc)
+                elif not (arg_simp.free_symbols & diff_syms) and (
+                    bool(arg_simp.free_symbols) or arg_simp.is_positive is not True
+                ):
+                    desc = f"Điều kiện xác định ban đầu: {arg_simp} > 0 (logarit)."
+                    _record_constraint("gt", arg_simp, desc)
+
+    return tuple(dict.fromkeys(restrictions)), tuple(denominators), tuple(constraints)
+
+
 def extract_source_domain_info(
     exprs: list[sp.Expr] | tuple[sp.Expr, ...],
     var: sp.Symbol,
     dep_var: sp.Symbol,
 ) -> tuple[tuple[str, ...], tuple[sp.Expr, ...]]:
     """Extract domain restrictions and original denominators from unsimplified ASTs before simplification."""
-    restrictions: list[str] = []
-    denominators: list[sp.Expr] = []
-    seen_denoms: set[str] = set()
-
-    for expr in exprs:
-        for node in sp.preorder_traversal(expr):
-            if isinstance(node, sp.Pow):
-                b, e = node.as_base_exp()
-                if e.is_negative:
-                    b_simp = sp.simplify(b)
-                    b_str = str(b_simp)
-                    if b_str not in seen_denoms and b_simp != 1:
-                        seen_denoms.add(b_str)
-                        denominators.append(b_simp)
-                        if var in b_simp.free_symbols or dep_var in b_simp.free_symbols:
-                            restrictions.append(f"Điều kiện xác định ban đầu: {b_simp} khác 0 (mẫu số).")
-                elif e.is_Rational and e.q % 2 == 0:
-                    b_simp = sp.simplify(b)
-                    if var in b_simp.free_symbols or dep_var in b_simp.free_symbols:
-                        restrictions.append(f"Điều kiện xác định ban đầu: {b_simp} >= 0 (căn bậc chẵn).")
-            elif isinstance(node, sp.log):
-                arg_simp = sp.simplify(node.args[0])
-                if var in arg_simp.free_symbols or dep_var in arg_simp.free_symbols:
-                    restrictions.append(f"Điều kiện xác định ban đầu: {arg_simp} > 0 (logarit).")
-
-    return tuple(dict.fromkeys(restrictions)), tuple(denominators)
+    restrictions, denominators, _ = extract_source_domain_constraints(exprs, var, dep_var)
+    return restrictions, denominators
 
 
 def parse_ode_input(
@@ -390,18 +614,35 @@ def parse_ode_input(
         lhs_raw = norm_eq
         rhs_raw = "0"
 
-    allowed_vars = {clean_indep, clean_dep, "y_prime", "x", "t"} | ALLOWED_ODE_PARAMETERS
+    allowed_vars = {clean_indep, clean_dep, "y_prime", "y_double_prime", "y_higher_prime", "x", "t"} | ALLOWED_ODE_PARAMETERS
 
     lhs_expr = parse_safe_expression(lhs_raw, target_variable=clean_indep, allowed_variables=allowed_vars, evaluate=False)
     rhs_expr = parse_safe_expression(rhs_raw, target_variable=clean_indep, allowed_variables=allowed_vars, evaluate=False)
 
     # Extract source-domain information before simplify or cancellation
-    orig_restrictions, orig_denoms = extract_source_domain_info([lhs_expr, rhs_expr], t_sym, y_sym)
+    orig_restrictions, orig_denoms, orig_constraints = extract_source_domain_constraints(
+        [lhs_expr, rhs_expr], t_sym, y_sym
+    )
     orig_restrictions_list = list(orig_restrictions)
     orig_denoms_list = list(orig_denoms)
     leading_coeffs_list: list[sp.Expr] = []
 
     standard_expr = sp.simplify(lhs_expr - rhs_expr)
+
+    # Context-aware equation order detection and validation for First-Order ODE
+    yp_higher_sym = sp.Symbol("y_higher_prime")
+    if yp_higher_sym in standard_expr.free_symbols or detect_ode_order(eq_str, clean_indep, clean_dep) >= 3:
+        raise InvalidInputError(
+            "Phương trình không đúng cấp: Bạn đang nhập phương trình vi phân cấp cao (cấp 3 trở lên), "
+            "nhưng ứng dụng hiện tại chỉ hỗ trợ phương trình vi phân cấp 1 và cấp 2."
+        )
+
+    yp2_sym = sp.Symbol("y_double_prime")
+    if yp2_sym in standard_expr.free_symbols or detect_ode_order(eq_str, clean_indep, clean_dep) == 2:
+        raise InvalidInputError(
+            "Phương trình không đúng cấp: Bạn đang nhập phương trình vi phân cấp 2, nhưng không gian làm việc hiện tại chỉ hỗ trợ phương trình cấp 1. "
+            "Vui lòng quay lại danh mục toán học và chọn Phương trình vi phân cấp 2."
+        )
 
     # Detect classical degree-0 homogeneous ODE: y' = F(y/x)
     is_classical_homog = False
@@ -445,6 +686,7 @@ def parse_ode_input(
             original_domain_restrictions=tuple(orig_restrictions_list),
             original_denominators=tuple(orig_denoms_list),
             leading_coeffs=tuple(leading_coeffs_list),
+            original_domain_constraints=orig_constraints,
         )
 
     # standard_expr = A(t)*y_prime + rem(t, y) = 0
@@ -476,6 +718,7 @@ def parse_ode_input(
             original_domain_restrictions=tuple(orig_restrictions_list),
             original_denominators=tuple(orig_denoms_list),
             leading_coeffs=tuple(leading_coeffs_list),
+            original_domain_constraints=orig_constraints,
         )
 
     # Check linearity of rem_expr in y: rem_expr = B(t)*y - C(t)
@@ -498,6 +741,7 @@ def parse_ode_input(
             original_domain_restrictions=tuple(orig_restrictions_list),
             original_denominators=tuple(orig_denoms_list),
             leading_coeffs=tuple(leading_coeffs_list),
+            original_domain_constraints=orig_constraints,
         )
 
     B_coeff = rem_expr.coeff(y_sym, 1)
@@ -523,6 +767,7 @@ def parse_ode_input(
             original_domain_restrictions=tuple(orig_restrictions_list),
             original_denominators=tuple(orig_denoms_list),
             leading_coeffs=tuple(leading_coeffs_list),
+            original_domain_constraints=orig_constraints,
         )
 
     # Standard linear form: y' + p(t)*y = g(t)
@@ -556,6 +801,7 @@ def parse_ode_input(
         original_domain_restrictions=tuple(orig_restrictions_list),
         original_denominators=tuple(orig_denoms_list),
         leading_coeffs=tuple(leading_coeffs_list),
+        original_domain_constraints=orig_constraints,
     )
 
 
@@ -792,21 +1038,35 @@ def parse_second_order_ode_input(
         lhs_raw = norm_eq
         rhs_raw = "0"
 
-    allowed_vars = {clean_indep, clean_dep, "y_prime", "y_double_prime", "x", "t"} | ALLOWED_ODE_PARAMETERS
+    allowed_vars = {clean_indep, clean_dep, "y_prime", "y_double_prime", "y_higher_prime", "x", "t"} | ALLOWED_ODE_PARAMETERS
 
     lhs_expr = parse_safe_expression(lhs_raw, target_variable=clean_indep, allowed_variables=allowed_vars, evaluate=False)
     rhs_expr = parse_safe_expression(rhs_raw, target_variable=clean_indep, allowed_variables=allowed_vars, evaluate=False)
 
     # Extract source-domain information before simplify or cancellation
-    orig_restrictions, orig_denoms = extract_source_domain_info([lhs_expr, rhs_expr], t_sym, y_sym)
+    orig_restrictions, orig_denoms, orig_constraints = extract_source_domain_constraints(
+        [lhs_expr, rhs_expr], t_sym, y_sym
+    )
     orig_restrictions_list = list(orig_restrictions)
     orig_denoms_list = list(orig_denoms)
     leading_coeffs_list: list[sp.Expr] = []
 
     standard_expr = sp.simplify(lhs_expr - rhs_expr)
 
-    # 3. Check for presence of second derivative
+    # 3. Check for higher-order and presence of second derivative
+    yp_higher_sym = sp.Symbol("y_higher_prime")
+    if yp_higher_sym in standard_expr.free_symbols or detect_ode_order(eq_str, clean_indep, clean_dep) >= 3:
+        raise InvalidInputError(
+            "Phương trình không đúng cấp: Bạn đang nhập phương trình vi phân cấp cao (cấp 3 trở lên), "
+            "nhưng ứng dụng hiện tại chỉ hỗ trợ phương trình vi phân cấp 1 và cấp 2."
+        )
+
     if yp2_sym not in standard_expr.free_symbols:
+        if yp_sym in standard_expr.free_symbols or detect_ode_order(eq_str, clean_indep, clean_dep) == 1:
+            raise InvalidInputError(
+                "Phương trình không đúng cấp: Bạn đang nhập phương trình vi phân cấp 1, nhưng không gian làm việc hiện tại chỉ hỗ trợ phương trình vi phân cấp 2 (không chứa đạo hàm cấp 2). "
+                "Vui lòng chuyển sang không gian làm việc Phương trình vi phân cấp 1."
+            )
         raise InvalidInputError(
             "Phương trình không chứa đạo hàm cấp 2 y'' hoặc d2y/dt2 (No second-order derivative found in equation)."
         )
@@ -819,10 +1079,10 @@ def parse_second_order_ode_input(
         )
 
     expanded = sp.expand(standard_expr)
-    a_coeff = expanded.coeff(yp2_sym, 1)
+    a_coeff = sp.simplify(expanded.coeff(yp2_sym, 1))
     rem1 = expanded.coeff(yp2_sym, 0)
 
-    if sp.simplify(a_coeff) == 0:
+    if a_coeff == 0:
         raise InvalidInputError("Hệ số của đạo hàm cấp hai y'' bằng 0; không phải phương trình cấp hai (a = 0).")
 
     if y_sym in a_coeff.free_symbols or yp_sym in a_coeff.free_symbols or yp2_sym in a_coeff.free_symbols:
@@ -832,7 +1092,7 @@ def parse_second_order_ode_input(
     if deg_yp is None or deg_yp > 1:
         raise InvalidInputError("Phương trình phi tuyến đối với đạo hàm cấp một y' (Nonlinear ODE in y').")
 
-    b_coeff = rem1.coeff(yp_sym, 1)
+    b_coeff = sp.simplify(rem1.coeff(yp_sym, 1))
     rem2 = rem1.coeff(yp_sym, 0)
 
     if y_sym in b_coeff.free_symbols or yp_sym in b_coeff.free_symbols or yp2_sym in b_coeff.free_symbols:
@@ -842,7 +1102,7 @@ def parse_second_order_ode_input(
     if deg_y is None or deg_y > 1:
         raise InvalidInputError("Phương trình phi tuyến đối với hàm y (Nonlinear ODE in y).")
 
-    c_coeff = rem2.coeff(y_sym, 1)
+    c_coeff = sp.simplify(rem2.coeff(y_sym, 1))
     rem3 = rem2.coeff(y_sym, 0)
 
     if y_sym in c_coeff.free_symbols or yp_sym in c_coeff.free_symbols or yp2_sym in c_coeff.free_symbols:
@@ -888,6 +1148,7 @@ def parse_second_order_ode_input(
         original_domain_restrictions=tuple(orig_restrictions_list),
         original_denominators=tuple(orig_denoms_list),
         leading_coeffs=tuple(leading_coeffs_list),
+        original_domain_constraints=orig_constraints,
     )
 
 

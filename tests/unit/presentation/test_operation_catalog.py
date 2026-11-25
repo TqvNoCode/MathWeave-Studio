@@ -9,7 +9,15 @@ from math_app.presentation.components.operation_catalog import (
 
 
 def test_operation_counts_by_domain():
-    # Total available operations
+    # Total operations inventory: 33 defined operations
+    assert len(OPERATIONS) == 33
+    # Main menu cards displayed on Screen A: exactly 23
+    assert len(MAIN_OPERATIONS) == 23
+    # Secondary operations / workflow tools: exactly 10
+    secondary_ops = [o for o in OPERATIONS if not o.is_menu_card]
+    assert len(secondary_ops) == 10
+
+    # Total available operations in calculus
     calculus_all = [o for o in OPERATIONS if "Giải tích (Calculus)" == o.domain]
     assert len(calculus_all) == 11
 
@@ -82,6 +90,10 @@ def test_ode_operations_configured():
     assert "y'" in ode_op.math_icon
 
     # Subtypes
+    homo_op = get_operation_by_type(ProblemType.ODE_FIRST_ORDER_HOMOGENEOUS)
+    assert homo_op.is_menu_card is False
+    assert "thuần nhất" in homo_op.title.lower() or "homogeneous" in homo_op.title.lower()
+
     sep_op = get_operation_by_type(ProblemType.ODE_SEPARABLE)
     assert sep_op.is_menu_card is False
     assert "tách biến" in sep_op.title.lower()
@@ -99,6 +111,9 @@ def test_ode_operations_configured():
     assert so_op.is_menu_card is True
     assert "cấp 2" in so_op.title or "Second-Order" in so_op.title
     assert "y''" in so_op.math_icon
+    assert "g(t)" in so_op.math_icon
+    assert "initial_condition" in so_op.extra_fields
+    assert "method_preference" in so_op.extra_fields
 
     ivp_op = get_operation_by_type(ProblemType.ODE_SECOND_ORDER_IVP)
     assert ivp_op.is_menu_card is False

@@ -6,7 +6,12 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from math_app.domain.models import ProblemType, SolutionStatus, VerificationStatus
+from math_app.domain.models import (
+    DomainCompleteness,
+    ProblemType,
+    SolutionStatus,
+    VerificationStatus,
+)
 from math_app.domain.step_content import ExpressionStepContent
 
 
@@ -128,12 +133,21 @@ class SolutionStep:
     rule_name_vi: str = ""
     equation_latex: str = ""
     assumptions: tuple[str, ...] = ()
+    internal_step_id: int | None = None
+    display_step_number: int | None = None
+
+    @property
+    def presentation_step_number(self) -> int:
+        """Sequential display number for the presentation layer."""
+        if self.display_step_number is not None:
+            return self.display_step_number
+        return self.step_number
 
     @property
     def display_rule_name(self) -> str:
         """User-facing Vietnamese rule name without English labels."""
         raw = self.rule_name_vi or self.rule_name
-        clean = re.sub(r"\s*\([A-Za-z0-9_\s/+-]+\)$", "", raw).strip()
+        clean = re.sub(r"\s+\([A-Za-z0-9_\s/+-]{2,}\)$", "", raw).strip()
         if clean in VIETNAMESE_RULE_NAMES:
             return VIETNAMESE_RULE_NAMES[clean]
         if self.rule_name in VIETNAMESE_RULE_NAMES:
@@ -144,7 +158,7 @@ class SolutionStep:
     def display_title(self) -> str:
         """User-facing Vietnamese step title without English labels."""
         if self.title:
-            return re.sub(r"\s*\([A-Za-z0-9_\s/+-]+\)$", "", self.title).strip()
+            return re.sub(r"\s+\([A-Za-z0-9_\s/+-]{2,}\)$", "", self.title).strip()
         rn = self.display_rule_name
         if rn.lower().startswith("áp dụng") or rn.lower().startswith("tính") or rn.lower().startswith("khử") or rn.lower().startswith("bổ sung"):
             return rn
@@ -177,6 +191,28 @@ class BranchSolution:
     domain_interval: tuple[Any, Any] | None = None
     domain_restrictions: tuple[str, ...] = ()
     verification: VerificationResult | None = None
+    extension_status: str | None = None
+    extension_details: str | None = None
+    left_open: bool = True
+    right_open: bool = True
+    domain_set: Any = None
+    singular_exclusions: tuple[Any, ...] = ()
+    initial_condition_status: str | None = None
+
+    @property
+    def interval_notation_latex(self) -> str:
+        """Academic LaTeX notation for the branch domain interval, preserving open/closed brackets."""
+        if self.domain_interval is None:
+            return ""
+        from math_app.rendering.latex.formatter import expr_to_latex
+        import sympy as sp
+
+        start_val, end_val = self.domain_interval
+        start_str = "-\\infty" if start_val == -sp.oo else expr_to_latex(start_val)
+        end_str = "+\\infty" if end_val == sp.oo else expr_to_latex(end_val)
+        left_br = "(" if (self.left_open or start_val == -sp.oo) else "["
+        right_br = ")" if (self.right_open or end_val == sp.oo) else "]"
+        return f"{left_br}{start_str}, {end_str}{right_br}"
 
 
 @dataclass(frozen=True)
@@ -194,3 +230,6 @@ class SolutionResponse:
     warnings: tuple[str, ...] = ()
     execution_time_ms: float = 0.0
     branch_solutions: tuple[BranchSolution, ...] = ()
+    original_domain_latex: str = ""
+    normalized_domain_latex: str = ""
+    domain_completeness: DomainCompleteness | None = None

@@ -18,9 +18,10 @@ def math_html(latex_str: str, block: bool = False, is_icon: bool = False) -> str
 def ui_math(latex_str: str, block: bool = False, classes: str = "", is_icon: bool = False) -> ui.html:
     """Render a LaTeX mathematical formula inside a NiceGUI HTML element."""
     html_content = math_html(latex_str, block=block, is_icon=is_icon)
+    base_cls = "min-w-0 max-w-full overflow-x-auto" if block else "min-w-0 max-w-full inline-block align-middle"
+    full_classes = f"{base_cls} {classes}".strip() if classes else base_cls
     element = ui.html(html_content)
-    if classes:
-        element.classes(classes)
+    element.classes(full_classes)
     return element
 
 

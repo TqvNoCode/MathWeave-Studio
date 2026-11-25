@@ -206,6 +206,8 @@ class SafeASTToSymPy(ast.NodeVisitor):
             "log": sp.log,
             "ln": sp.log,
             "sqrt": sp.sqrt,
+            "abs": sp.Abs,
+            "Abs": sp.Abs,
         }
         f = func_map[func_name]
         return f(arg) if self.evaluate else f(arg, evaluate=False)

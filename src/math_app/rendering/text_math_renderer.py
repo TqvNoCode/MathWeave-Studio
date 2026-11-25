@@ -14,6 +14,26 @@ MATH_DELIMITER_REGEX = re.compile(
 )
 
 
+def is_pure_latex_math(s: str) -> bool:
+    """Check if a string represents a pure LaTeX mathematical expression rather than mixed prose."""
+    cleaned = s.strip()
+    if not cleaned:
+        return False
+    if cleaned.startswith("$") and cleaned.endswith("$"):
+        cleaned = cleaned[1:-1].strip()
+    # If contains Vietnamese diacritics, it is natural language text
+    if re.search(r"[àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđĐ]", cleaned, re.IGNORECASE):
+        return False
+    # If contains natural words of 3+ letters not preceded by a backslash
+    words = re.findall(r"(?<!\\)\b[a-zA-Z]{3,}\b", cleaned)
+    allowed_math_identifiers = {
+        "sin", "cos", "tan", "cot", "exp", "log", "ln", "det", "lim", "inf",
+        "max", "min", "sec", "csc", "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh"
+    }
+    unrecognized = [w for w in words if w.lower() not in allowed_math_identifiers]
+    return len(unrecognized) == 0
+
+
 def convert_latex_to_mathml(latex_str: str, block: bool = False, is_icon: bool = False) -> str:
     """Convert LaTeX string to styled MathML HTML snippet with KaTeX data attributes."""
     cleaned = latex_str.strip()
@@ -248,7 +268,91 @@ def delimit_unwrapped_math_in_text(text: str) -> str:
 
     current = _apply_to_text_chunks(current, step_exponents)
 
-    # 12. Unwrapped LaTeX math expressions (e.g. \cos{\left(x \right)}, -\tan{\left(x \right)}, \partial)
+    # 12. Standard ODE general solution expressions: y(t) = y_c(t) + y_p(t)
+    def step_ode_eq(chunk: str) -> str:
+        return re.sub(
+            r"(?<![a-zA-Z0-9_\$\\])(y\([a-zA-Z]\)\s*=\s*y_c\([a-zA-Z]\)\s*\+\s*y_p\([a-zA-Z]\))(?![a-zA-Z0-9_\$\\])",
+            r"$\1$",
+            chunk,
+        )
+
+    current = _apply_to_text_chunks(current, step_ode_eq)
+
+    # 13. ODE residuals: R(t) = 0, R(t) \equiv 0, R(x) = 0
+    def step_ode_res(chunk: str) -> str:
+        return re.sub(
+            r"(?<![a-zA-Z0-9_\$\\])(R\([a-zA-Z]\)\s*(?:\\equiv|=|==)\s*0)(?![a-zA-Z0-9_\$\\])",
+            r"$\1$",
+            chunk,
+        )
+
+    current = _apply_to_text_chunks(current, step_ode_res)
+
+    # 14. Integrating factor mu(t) or \mu(t)
+    def step_ode_mu(chunk: str) -> str:
+        return re.sub(
+            r"(?<![a-zA-Z0-9_\$\\])(\\mu\([a-zA-Z]\)|\bmu\([a-zA-Z]\))(?![a-zA-Z0-9_\$\\])",
+            lambda m: f"${m.group(1).replace('mu(', r'\mu(')}$",
+            chunk,
+        )
+
+    current = _apply_to_text_chunks(current, step_ode_mu)
+
+    # 15. ODE solution functions: y_c(t), y_p(t), y_1(t), y_2(t), y(t)
+    def step_ode_funcs(chunk: str) -> str:
+        return re.sub(
+            r"(?<![a-zA-Z0-9_\$\\])(y_[cp12]\([a-zA-Z]\)|y\([a-zA-Z]\))(?![a-zA-Z0-9_\$\\])",
+            r"$\1$",
+            chunk,
+        )
+
+    current = _apply_to_text_chunks(current, step_ode_funcs)
+
+    # 16. ODE constants, trial coefficients, and fundamental solutions: C_1, C_2 or A_0, B_0 or y_1, y_2
+    def step_ode_consts(chunk: str) -> str:
+        def _repl_pairs(m: re.Match[str]) -> str:
+            txt = m.group(1)
+            txt = re.sub(r"\b([CABy])([012cp])\b", r"\1_\2", txt)
+            return f"${txt}$"
+
+        c = re.sub(
+            r"(?<![a-zA-Z0-9_\$\\])([CABy]_?[012cp]\s*,\s*[CABy]_?[012cp])(?![a-zA-Z0-9_\$\\])",
+            _repl_pairs,
+            chunk,
+        )
+
+        def _repl_single(m: re.Match[str]) -> str:
+            txt = m.group(1)
+            txt = re.sub(r"^([CABy])([012cp])$", r"\1_\2", txt)
+            return f"${txt}$"
+
+        c = re.sub(
+            r"(?<![a-zA-Z0-9_\$\\])(C_[12]|C[12]|A_[01]|A[01]|B_[01]|B[01]|y_1|y_2|y1|y2|y_c|y_p|yc|yp)(?![a-zA-Z0-9_\$\\])",
+            _repl_single,
+            c,
+        )
+        return c
+
+    current = _apply_to_text_chunks(current, step_ode_consts)
+
+    # 17. Unwrapped equivalence and implication expressions
+    def step_ode_equiv_implies(chunk: str) -> str:
+        # e.g. R(t) \equiv 0, y_p(t) \equiv 0, A \equiv B
+        c = re.sub(
+            r"(?<![a-zA-Z0-9_\$\\])([a-zA-Z0-9_\(\)]+\s*\\equiv\s*[a-zA-Z0-9_\(\)]+)(?![a-zA-Z0-9_\$\\])",
+            r"$\1$",
+            chunk,
+        )
+        # Standalone \equiv or \implies
+        return re.sub(
+            r"(?<![a-zA-Z0-9_\$\\])(\\equiv|\\implies)(?![a-zA-Z0-9_\$\\])",
+            r"$\1$",
+            c,
+        )
+
+    current = _apply_to_text_chunks(current, step_ode_equiv_implies)
+
+    # 18. Unwrapped LaTeX math expressions (e.g. \cos{\left(x \right)}, -\tan{\left(x \right)}, \partial, \mu \cdot y', etc.)
     def step_unwrapped_latex(chunk: str) -> str:
         pattern = re.compile(
             r"(?<![a-zA-Z0-9\$\\])("
@@ -259,14 +363,25 @@ def delimit_unwrapped_math_in_text(text: str) -> str:
                 r"\[[^\[\]]*\]|"
                 r"\([^()]*\)|"
                 r"\^[a-zA-Z0-9{}]|_\{?[a-zA-Z0-9]+\}?|"
-                r"\s*[\+\-\*\/=,]\s*|"
+                r"\s*(?:[\+\-\*\/=<>~]|\\cdot|\\implies|\\equiv|\\neq|\\le|\\ge)\s*|"
                 r"\s*\\[a-zA-Z]+|"
-                r"\s+[0-9a-zA-Z]\b|"
-                r"\b[0-9a-zA-Z]\b"
+                r"\s+[0-9a-zA-Z]+(?:\\?'|')*|"
+                r"\b[0-9a-zA-Z]+(?:\\?'|')*"
             r")*"
             r")(?![a-zA-Z0-9\$\\])"
         )
-        subbed = pattern.sub(r"$\1$", chunk)
+
+        def repl_unwrapped(m: re.Match[str]) -> str:
+            val = m.group(1).rstrip()
+            trailing_punct = ""
+            while val and val[-1] in ",.;:!?":
+                trailing_punct = val[-1] + trailing_punct
+                val = val[:-1].rstrip()
+            if not val:
+                return trailing_punct
+            return f"${val}${trailing_punct}"
+
+        subbed = pattern.sub(repl_unwrapped, chunk)
         return re.sub(r"\$(\s*)(.*?)\s*\$", r"\1$\2$", subbed)
 
     current = _apply_to_text_chunks(current, step_unwrapped_latex)
@@ -279,40 +394,73 @@ def render_math_in_text_html(text: str) -> str:
 
     - Plaintext segments are strictly HTML-escaped.
     - Mathematical segments ($...$, $$...$$, \\(...\\), \\[...]\\) are converted to MathML with KaTeX attributes.
+    - Eliminates orphan punctuation marks appearing on their own lines.
+    - Preserves inline and trailing punctuation marks adjacent to mathematical formulas.
+    - Markdown bold (**...**) and italic (*...*) cleanly wrap around text and math without leaking asterisks.
+    - Mathematical expressions containing * or _ are strictly protected from markdown parsing.
     - Newlines in prose are preserved with <br/>.
     - Complete output is verified against unsafe HTML payloads (XSS).
     """
     if not text:
         return ""
 
-    # Delimit any remaining unwrapped math
-    normalized_text = delimit_unwrapped_math_in_text(text)
-    tokens = MATH_DELIMITER_REGEX.split(normalized_text)
-    out: list[str] = []
+    # Delimit any unwrapped math
+    clean_text = delimit_unwrapped_math_in_text(text)
 
-    for token in tokens:
-        if not token:
-            continue
+    # Sanitize orphan punctuation marks on independent lines before processing
+    clean_text = re.sub(r"\$\$\s*\.+", "$$", clean_text)
+    clean_text = re.sub(r"(?m)^\s*[\.,;:]\s*$", "", clean_text)
+    clean_text = re.sub(r"\n\s*[\.,;:]\s*(?=\n|$)", "\n", clean_text)
+
+    # Protect math tokens by extracting them into placeholders
+    math_placeholders: list[str] = []
+
+    def repl_math(m: re.Match[str]) -> str:
+        token = m.group(0)
         if token.startswith("$$") and token.endswith("$$"):
             code = token[2:-2]
-            out.append(convert_latex_to_mathml(code, block=True))
+            rendered = convert_latex_to_mathml(code, block=True)
         elif token.startswith(r"\[") and token.endswith(r"\]"):
             code = token[2:-2]
-            out.append(convert_latex_to_mathml(code, block=True))
+            rendered = convert_latex_to_mathml(code, block=True)
         elif token.startswith("$") and token.endswith("$"):
             code = token[1:-1]
-            out.append(convert_latex_to_mathml(code, block=False))
+            rendered = convert_latex_to_mathml(code, block=False)
         elif token.startswith(r"\(") and token.endswith(r"\)"):
             code = token[2:-2]
-            out.append(convert_latex_to_mathml(code, block=False))
+            rendered = convert_latex_to_mathml(code, block=False)
         else:
-            # Plain text token: safely escape HTML entities
-            escaped_text = html.escape(token)
-            # Preserve line breaks
-            escaped_text = escaped_text.replace("\n", "<br/>")
-            out.append(escaped_text)
+            return token
 
-    full_html = "".join(out)
+        idx = len(math_placeholders)
+        math_placeholders.append(rendered)
+        return f"\x00MATH_{idx}\x00"
+
+    prose_with_placeholders = MATH_DELIMITER_REGEX.sub(repl_math, clean_text)
+
+    # Plain text: safely escape HTML entities
+    escaped_prose = html.escape(prose_with_placeholders)
+
+    # Render markdown bold (**text**) and italic (*text*) into safe HTML elements
+    # Since math was replaced with \x00MATH_idx\x00, asterisks in math expressions are completely protected!
+    # And bold/italic formatting across math formulas works seamlessly without leaking asterisks.
+    escaped_prose = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped_prose)
+    escaped_prose = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<em>\1</em>", escaped_prose)
+
+    # Preserve line breaks
+    escaped_prose = escaped_prose.replace("\n", "<br/>")
+
+    # Clean up orphan dots strictly isolated by line breaks
+    escaped_prose = re.sub(r"<br/>\s*[\.,;:]\s*<br/>", "<br/>", escaped_prose)
+
+    # Restore pre-rendered MathML/KaTeX snippets
+    def restore_math(m: re.Match[str]) -> str:
+        idx = int(m.group(1))
+        if 0 <= idx < len(math_placeholders):
+            return math_placeholders[idx]
+        return m.group(0)
+
+    full_html = re.sub(r"\x00MATH_(\d+)\x00", restore_math, escaped_prose)
 
     # Secondary XSS safeguard: strip or reject dangerous HTML elements
     if re.search(r"<(?:script|iframe|object|embed|style)", full_html, re.IGNORECASE) or re.search(r"\bon\w+\s*=", full_html, re.IGNORECASE):

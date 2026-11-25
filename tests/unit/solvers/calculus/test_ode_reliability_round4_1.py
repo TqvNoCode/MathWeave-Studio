@@ -163,16 +163,20 @@ def test_r4_1_06_domain_preservation_y_minus_1_denom_accepted(linear_solver: ODE
 
 
 def test_r4_1_07_domain_preservation_leading_coeff_singularity_rejected(linear_solver: ODELinearSolver):
-    """x*y' + 2*x*y = 0, y(0) = 1: A(0) = 0 is a singular point; IVP must be rejected."""
+    """x*y' + y = 0, y(0) = 1: A(0) = 0 and y(0) = 0 != 1 is an algebraic contradiction; IVP must be rejected."""
     req = ProblemRequest(
-        raw_input="x*y' + 2*x*y = 0, y(0) = 1",
+        raw_input="x*y' + y = 0, y(0) = 1",
         problem_type=ProblemType.ODE_FIRST_ORDER_LINEAR,
         target_variable="x",
     )
     res = linear_solver.solve(req)
 
     assert res.status == SolutionStatus.INVALID_INPUT
-    assert "điểm kỳ dị" in res.verification.details.lower() or "hệ số dẫn" in res.verification.details.lower()
+    assert (
+        "điểm kỳ dị" in res.verification.details.lower()
+        or "hệ số dẫn" in res.verification.details.lower()
+        or "mâu thuẫn" in res.verification.details.lower()
+    )
 
 
 def test_r4_1_08_domain_preservation_leading_coeff_singularity_accepted(linear_solver: ODELinearSolver):

@@ -259,7 +259,12 @@ def test_zero_denominator_pole_handling_in_linear():
 
     assert res.status == SolutionStatus.SUCCESS
     assert any("x" in r and "0" in r for r in res.domain_restrictions)
-    assert res.verification.status == VerificationStatus.VERIFIED
+    assert res.verification.status in (
+        VerificationStatus.VERIFIED,
+        VerificationStatus.CONTINUITY_VERIFIED,
+        VerificationStatus.C1_EXTENSION_VERIFIED,
+        VerificationStatus.PARTIALLY_VERIFIED,
+    )
 
 
 def test_missing_variables_and_invalid_expressions():

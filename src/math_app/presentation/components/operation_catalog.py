@@ -369,19 +369,23 @@ OPERATIONS: list[OperationDef] = [
         problem_type=ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
         title="Phương trình vi phân cấp 2 (Second-Order)",
         domain="Phương trình vi phân (Differential Equations)",
-        description="Giải phương trình vi phân tuyến tính thuần nhất cấp 2 hệ số hằng: ay'' + by' + cy = 0.",
+        description="Giải phương trình vi phân tuyến tính cấp 2 thuần nhất và không thuần nhất, hệ số hằng; hỗ trợ phương pháp hệ số bất định, biến thiên hằng số và bài toán Cauchy.",
         icon="insights",
-        math_icon=r"ay'' + by' + cy = 0",
-        default_input="y'' + 5*y' + 6*y = 0",
+        math_icon=r"ay'' + by' + cy = g(t)",
+        default_input="y'' - 3*y' - 4*y = 3*exp(2*t)",
         target_var="t",
-        extra_fields=("initial_condition",),
+        extra_fields=("initial_condition", "method_preference"),
         examples=(
-            ("Nghiệm thực phân biệt", "y'' + 5*y' + 6*y = 0"),
-            ("Nghiệm phức liên hợp", "y'' + 9*y = 0"),
-            ("Phức có phần thực", "y'' + 2*y' + 5*y = 0"),
-            ("Nghiệm kép", "y'' - 2*y' + y = 0"),
-            ("Nghiệm triệt tiêu", "y'' = 0"),
-            ("Hệ số hữu tỉ", "4*y'' - 4*y' + y = 0"),
+            ("Hệ số bất định (Đa thức)", "y'' + y' - 2*y = 2*t"),
+            ("Hệ số bất định (Mũ)", "y'' - 3*y' - 4*y = 3*exp(2*t)"),
+            ("Cộng hưởng mũ", "y'' - 3*y' - 4*y = 3*exp(4*t)"),
+            ("Cộng hưởng lượng giác", "y'' + 4*y = cos(2*t)"),
+            ("Biến thiên hằng số (tan)", "y'' + y = tan(t)"),
+            ("Biến thiên hằng số (ln)", "y'' + y = log(t)"),
+            ("Biến thiên hằng số (1/t)", "y'' + y = 1/t"),
+            ("Bài toán Cauchy (IVP)", "y'' - 3*y' - 4*y = 3*exp(2*t), y(0) = 1, y'(0) = 0"),
+            ("Thuần nhất (Delta > 0)", "y'' + 5*y' + 6*y = 0"),
+            ("Thuần nhất (Phức)", "y'' + 4*y = 0"),
         ),
         is_menu_card=True,
     ),
@@ -389,16 +393,19 @@ OPERATIONS: list[OperationDef] = [
         problem_type=ProblemType.ODE_SECOND_ORDER_IVP,
         title="Bài toán Cauchy cấp 2 (Second-Order IVP)",
         domain="Phương trình vi phân (Differential Equations)",
-        description="Giải phương trình vi phân cấp 2 kèm 2 điều kiện ban đầu: y(t0) = y0 và y'(t0) = v0.",
+        description="Giải bài toán Cauchy cho phương trình vi phân cấp 2 thuần nhất hoặc không thuần nhất kèm hai điều kiện ban đầu: y(t0) = y0 và y'(t0) = v0.",
         icon="alt_route",
         math_icon=r"y(t_0)=y_0,\, y'(t_0)=v_0",
-        default_input="y'' + 5*y' + 6*y = 0, y(0) = 2, y'(0) = 3",
+        default_input="y'' - 3*y' - 4*y = 3*exp(2*t), y(0) = 1, y'(0) = 0",
         target_var="t",
-        extra_fields=("initial_condition",),
+        extra_fields=("initial_condition", "method_preference"),
         examples=(
-            ("Mẫu chuẩn tắc", "y'' + 5*y' + 6*y = 0, y(0) = 2, y'(0) = 3"),
-            ("Dao động điều hòa", "y'' + 9*y = 0, y(0) = 2, y'(0) = 3"),
-            ("Nghiệm kép", "y'' - 2*y' + y = 0, y(0) = 1, y'(0) = 4"),
+            ("IVP Hệ số bất định", "y'' - 3*y' - 4*y = 3*exp(2*t), y(0) = 1, y'(0) = 0"),
+            ("IVP Biến thiên hằng số (tan)", "y'' + y = tan(t), y(0) = 1, y'(0) = 2"),
+            ("IVP Biến thiên hằng số (ln)", "y'' + y = log(t), y(1) = 0, y'(1) = 1"),
+            ("IVP Thuần nhất chuẩn tắc", "y'' + 5*y' + 6*y = 0, y(0) = 2, y'(0) = 3"),
+            ("IVP Dao động điều hòa", "y'' + 9*y = 0, y(0) = 2, y'(0) = 3"),
+            ("IVP Nghiệm kép", "y'' - 2*y' + y = 0, y(0) = 1, y'(0) = 4"),
         ),
         is_menu_card=False,
     ),
@@ -571,3 +578,49 @@ def get_operation_by_type(problem_type: ProblemType) -> OperationDef:
         if op.problem_type == problem_type:
             return op
     return OPERATIONS[0]
+
+
+def get_second_order_examples(
+    category: str = "HOMOGENEOUS",
+    mode: str = "GENERAL",
+) -> list[tuple[str, str]]:
+    """Return contextual example problems for second-order ODE interface based on
+    classification category ('HOMOGENEOUS' or 'NONHOMOGENEOUS') and problem mode ('GENERAL' or 'CAUCHY_IVP').
+    """
+    cat = category.strip().upper()
+    m = mode.strip().upper()
+    if cat in ("HOMOGENEOUS", "THUẦN NHẤT", "THUAN_NHAT"):
+        if m in ("CAUCHY_IVP", "IVP", "CAUCHY"):
+            return [
+                ("Dao động điều hòa: y'' + 4y = 0, y(0)=0, y'(0)=2", "y'' + 4*y = 0, y(0) = 0, y'(0) = 2"),
+                ("Nghiệm thực: y'' - 3y' + 2y = 0, y(0)=1, y'(0)=0", "y'' - 3*y' + 2*y = 0, y(0) = 1, y'(0) = 0"),
+                ("Tắt dần: y'' + 2y' + 2y = 0, y(0)=1, y'(0)=1", "y'' + 2*y' + 2*y = 0, y(0) = 1, y'(0) = 1"),
+                ("Nghiệm kép: y'' - 4y' + 4y = 0, y(0)=2, y'(0)=1", "y'' - 4*y' + 4*y = 0, y(0) = 2, y'(0) = 1"),
+            ]
+        else:
+            return [
+                ("Nghiệm thực phân biệt: y'' - 3y' - 4y = 0", "y'' - 3*y' - 4*y = 0"),
+                ("Nghiệm kép thực: y'' + 4y' + 4y = 0", "y'' + 4*y' + 4*y = 0"),
+                ("Nghiệm thuần ảo: y'' + 4y = 0", "y'' + 4*y = 0"),
+                ("Nghiệm phức liên hợp: y'' + 2y' + 5y = 0", "y'' + 2*y' + 5*y = 0"),
+                ("Đối xứng r = ±1: y'' - y = 0", "y'' - y = 0"),
+                ("Bậc hai thuần túy: y'' = 0", "y'' = 0"),
+            ]
+    else:  # NONHOMOGENEOUS
+        if m in ("CAUCHY_IVP", "IVP", "CAUCHY"):
+            return [
+                ("IVP Mũ: y'' - 3y' - 4y = 3e^(2t), y(0)=1, y'(0)=0", "y'' - 3*y' - 4*y = 3*exp(2*t), y(0) = 1, y'(0) = 0"),
+                ("IVP Đa thức: y'' + 4y = 4t, y(0)=1, y'(0)=2", "y'' + 4*y = 4*t, y(0) = 1, y'(0) = 2"),
+                ("IVP Lượng giác: y'' + y = tan(t), y(0)=1, y'(0)=0", "y'' + y = tan(t), y(0) = 1, y'(0) = 0"),
+                ("IVP Cộng hưởng: y'' - 2y' + y = t*e^t, y(0)=0, y'(0)=1", "y'' - 2*y' + y = t*exp(t), y(0) = 0, y'(0) = 1"),
+            ]
+        else:
+            return [
+                ("Đa thức mũ: y'' - 3y' - 4y = 3e^(2t)", "y'' - 3*y' - 4*y = 3*exp(2*t)"),
+                ("Cộng hưởng đơn mũ: y'' - 3y' - 4y = 2e^(-t)", "y'' - 3*y' - 4*y = 2*exp(-t)"),
+                ("Cộng hưởng điều hòa: y'' + 4y = 3cos(2t)", "y'' + 4*y = 3*cos(2*t)"),
+                ("Cộng hưởng bội hai: y'' - 2y' + y = t*e^t", "y'' - 2*y' + y = t*exp(t)"),
+                ("Biến thiên hằng số (tan): y'' + y = tan(t)", "y'' + y = tan(t)"),
+                ("Biến thiên hằng số (ln): y'' + y = ln(t)", "y'' + y = ln(t)"),
+                ("Hàm đặc biệt: y'' + y = 1/t", "y'' + y = 1/t"),
+            ]

@@ -69,6 +69,7 @@ MathWeave Studio giải quyết vấn đề này bằng cách kết hợp:
 - **Thừa số tích phân ($\mu(x)$ / $\mu(y)$):** Chuyển đổi phương trình không toàn phần về toàn phần.
 - **Phương trình vi phân cấp 2 hệ số hằng ($ay'' + by' + cy = 0$):** Phân tích đa thức đặc trưng ($ar^2 + br + c = 0$), phân loại biệt thức ($\Delta > 0$ hai nghiệm thực phân biệt, $\Delta < 0$ nghiệm phức liên hợp qua công thức Euler, $\Delta = 0$ nghiệm kép với thừa số nhân $t$), xây dựng hệ nghiệm cơ bản và kiểm chứng độc lập.
 - **Phương trình vi phân cấp 2 không thuần nhất ($ay'' + by' + cy = g(t)$):** Tìm nghiệm riêng qua Phương pháp Hệ số bất định (MUC) với nhân tử cộng hưởng $t^s$, và Phương pháp Biến thiên hằng số (VoP) qua tích phân Wronskian.
+- **Phương trình vi phân Euler–Cauchy thuần nhất ($a t^2 y'' + b t y' + c y = 0$):** Phân tích phương trình đặc trưng chỉ số qua ba trường hợp nghiệm thực phân biệt, nghiệm kép ($\ln|t|$) và nghiệm phức liên hợp ($\cos(\beta\ln|t|), \sin(\beta\ln|t|)$) với phân nhánh liên thông ($t > 0$, $t < 0$) và bảo vệ điểm kỳ dị $t = 0$.
 - **Bài toán Cauchy cấp 2 (Second-Order IVP):** Hệ hai điều kiện ban đầu $y(t_0) = y_0$ và $y'(t_0) = v_0$ cho cả phương trình thuần nhất và không thuần nhất ($y = y_h + y_p$), giải hệ đại số $2 \times 2$ tìm $C_1, C_2$ và kiểm chứng độc lập.
 - **Phân tích miền kỳ dị & Bài toán Cauchy tại điểm kỳ dị:** Phân rã miền xác định thành các nhánh chính quy liên thông, thừa số tích phân neo chuẩn tắc ($\mu_{t_0}(t) = e^{\int_{t_0}^t p(s)ds}$) tránh tích phân xuyên điểm cực, biện luận tương thích đại số và kiểm chứng nối trơn $C^1$ qua điểm kỳ dị.
 - **Phương pháp hạ bậc (Reduction of Order):** Dẫn xuất nghiệm cơ bản thứ hai $y_2(t) = v(t)y_1(t)$ từ nghiệm đã biết $y_1(t)$ qua phương trình vi phân cấp một $u = v'$ và công thức tích phân $u(t) = \frac{e^{-\int p(t)dt}}{y_1(t)^2}$, kèm phát hiện điểm kỳ dị và miền xác định.
@@ -87,7 +88,7 @@ MathWeave Studio giải quyết vấn đề này bằng cách kết hợp:
 - **Phân nhánh & Nối nghiệm kỳ dị:** Phân tích tương thích đại số và giới hạn một phía qua giao diện điểm kỳ dị mà không gán hằng số tích phân tùy tiện.
 
 ### Không gian làm việc & Trải nghiệm giao diện
-- **Không gian làm việc chuyên biệt:** Giao diện tối ưu cho Giải tích, Đại số tuyến tính, PTVP Cấp 1 và Cấp 2 kèm nhận diện tự động cấp phương trình.
+- **Không gian làm việc chuyên biệt & Hệ thống thiết kế thống nhất:** Giao diện đồng bộ, dễ tiếp cận cho toàn bộ 34 nghiệp vụ Giải tích, Đại số tuyến tính và PTVP Cấp 1/Cấp 2 kèm nhận diện tự động theo phương trình và tùy chọn ghi đè phân loại thủ công.
 - **Danh mục bài toán & Liên kết sâu:** Tìm kiếm nhanh dạng toán, thẻ khởi chạy nhanh và tự động điền bài toán qua tham số URL (`?op=ode&eq=...`).
 - **Luồng giải sư phạm 6 giai đoạn:** Trình diễn giải bài bản theo từng giai đoạn (Chuẩn hóa $\to$ Nghiệm thuần nhất $\to$ Nghiệm riêng $\to$ Nghiệm tổng quát $\to$ Điều kiện Cauchy $\to$ Kiểm chứng độc lập).
 
@@ -138,10 +139,10 @@ MathWeave Studio được thiết kế để chạy dưới dạng **ứng dụn
 
 ### Ứng dụng Desktop Độc lập trên Windows
 
-Tải về các gói phân phối chính thức cho Windows tại **[Bản phát hành MathWeave Studio v0.1.1](https://github.com/TqvNoCode/MathWeave-Studio/releases/tag/v0.1.1)**:
-- **Tệp thực thi độc lập Portable:** [`MathWeave-Studio-Portable-Unsigned-Dev.exe`](https://github.com/TqvNoCode/MathWeave-Studio/releases/download/v0.1.1/MathWeave-Studio-Portable-Unsigned-Dev.exe) — Tệp đơn lẻ mở chạy trực tiếp ngay lập tức không cần cài đặt.
-- **Bộ cài đặt Windows Setup:** [`MathWeave-Studio-Setup-Unsigned-Dev.exe`](https://github.com/TqvNoCode/MathWeave-Studio/releases/download/v0.1.1/MathWeave-Studio-Setup-Unsigned-Dev.exe) — Trình cài đặt tiêu chuẩn thiết lập biểu tượng Start Menu và màn hình Desktop kèm tính năng gỡ cài đặt sạch sẽ.
-- **Mã kiểm tra tính toàn vẹn:** [`SHA256SUMS.txt`](https://github.com/TqvNoCode/MathWeave-Studio/releases/download/v0.1.1/SHA256SUMS.txt)
+Tải về các gói phân phối chính thức cho Windows tại **[Trang Phát hành GitHub MathWeave Studio](https://github.com/TqvNoCode/MathWeave-Studio/releases/latest)** ([Tất cả bản phát hành](https://github.com/TqvNoCode/MathWeave-Studio/releases)):
+- **Tệp thực thi độc lập Portable:** `MathWeave-Studio-Portable-Unsigned-Dev.exe` — Tệp đơn lẻ mở chạy trực tiếp ngay lập tức không cần cài đặt.
+- **Bộ cài đặt Windows Setup:** `MathWeave-Studio-Setup-Unsigned-Dev.exe` — Trình cài đặt tiêu chuẩn thiết lập biểu tượng Start Menu và màn hình Desktop kèm tính năng gỡ cài đặt sạch sẽ.
+- **Mã kiểm tra tính toàn vẹn:** `SHA256SUMS.txt` (được đính kèm cùng các tệp phát hành).
 
 Nhấp đúp vào tệp để mở MathWeave Studio trực tiếp trong cửa sổ ứng dụng desktop mà không cần cài đặt Python hay uv.
 

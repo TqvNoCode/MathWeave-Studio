@@ -277,6 +277,104 @@ def _renumber_steps(
     return renumbered
 
 
+_SUCCESS_VERIFICATION_STATUSES = frozenset({
+    VerificationStatus.VERIFIED,
+    VerificationStatus.VERIFIED_ON_BRANCH,
+    VerificationStatus.VERIFIED_GLOBALLY,
+    VerificationStatus.CONTINUITY_VERIFIED,
+    VerificationStatus.C1_EXTENSION_VERIFIED,
+})
+
+
+def _resolve_stage4_stage_meta(
+    response: SolutionResponse,
+    clean_var: str,
+    verified_subtitle: str,
+    verified_summary_latex: str,
+    verified_summary_label: str = "Phần dư toán học:",
+    *,
+    is_wronskian: bool = False,
+) -> tuple[str, str, str, bool, str, str]:
+    """Return honest Stage-4 metadata derived from ``response.verification.status``."""
+    v_status = response.verification.status if response.verification else None
+    if v_status in _SUCCESS_VERIFICATION_STATUSES:
+        return (
+            verified_subtitle,
+            "Kiểm chứng",
+            "emerald-7",
+            True,
+            verified_summary_latex,
+            verified_summary_label,
+        )
+    if v_status == VerificationStatus.FAILED:
+        return (
+            "Phát hiện sai lệch khi kiểm chứng độc lập; cần rà soát lại điều kiện hoặc miền nghiệm",
+            "Kiểm chứng thất bại",
+            "rose-7",
+            False,
+            r"\text{Kiểm chứng thất bại}" if is_wronskian else f"R({clean_var}) \\not\\equiv 0",
+            "Trạng thái kiểm chứng:",
+        )
+    return (
+        "Chưa hoàn tất xác minh ký hiệu tự động trên miền nghiệm tổng quát",
+        "Chưa kiểm chứng",
+        "amber-7",
+        False,
+        r"\text{Cần đối chiếu thủ công}" if is_wronskian else f"R({clean_var})\\text{{ (chưa kiểm chứng)}}",
+        "Trạng thái kiểm chứng:",
+    )
+
+
+def _build_stage4_summary(
+    response: SolutionResponse,
+    clean_var: str,
+    verified_subtitle: str,
+    verified_summary_latex: str,
+    steps: tuple[ODEPedagogicalStep, ...],
+    *,
+    title: str = "Giai đoạn 4: Kiểm chứng toán học độc lập",
+    verified_summary_label: str = "Phần dư toán học:",
+    is_wronskian: bool = False,
+) -> ODEStageSummary:
+    """Construct Stage 4 summary with verification status respected honestly."""
+    subtitle, badge_text, badge_color, is_completed, summary_latex, summary_label = _resolve_stage4_stage_meta(
+        response,
+        clean_var,
+        verified_subtitle,
+        verified_summary_latex,
+        verified_summary_label,
+        is_wronskian=is_wronskian,
+    )
+    return ODEStageSummary(
+        stage_index=4,
+        title=title,
+        subtitle=subtitle,
+        icon="looks_4",
+        badge_text=badge_text,
+        badge_color=badge_color,
+        is_completed=is_completed,
+        is_applicable=True,
+        summary_latex=summary_latex,
+        summary_label=summary_label,
+        steps=steps,
+        transition_note="",
+    )
+
+
+def _is_wronskian_dependent(response: SolutionResponse, w_latex: str) -> bool:
+    """Return True when the computed Wronskian indicates linear dependence (W == 0)."""
+    combined = (
+        f"{response.final_result} {response.final_latex} "
+        f"{response.verification.details if response.verification else ''}"
+    ).lower()
+    w_clean = re.sub(r"\s+", "", w_latex)
+    if w_clean in {"0", "0=0", "0.0"}:
+        return True
+    if "phụ thuộc" in combined or "linearly dependent" in combined:
+        return True
+    return bool(re.search(r"w\s*(?:\([^)]*\))?\s*=\s*0(?:\s|$|[.,;])", response.final_result.lower()))
+
+
 def _synthesize_verification_step(
     response: SolutionResponse,
     clean_var: str,
@@ -285,12 +383,21 @@ def _synthesize_verification_step(
     has_ivp: bool = False,
 ) -> ODEPedagogicalStep:
     """Synthesize an authoritative, pedagogically sound independent verification step."""
+    v_status = response.verification.status if response.verification else None
+    is_verified = v_status in _SUCCESS_VERIFICATION_STATUSES
+    is_failed = v_status == VerificationStatus.FAILED
+
     details = response.verification.details if response.verification else ""
     if not details:
-        details = (
-            f"Thế nghiệm vào phương trình vi phân và các điều kiện ban đầu, "
-            f"phần dư R({clean_var}) triệt tiêu đồng nhất bằng phương pháp ký hiệu."
-        )
+        if is_failed:
+            details = "Kiểm chứng độc lập phát hiện nghiệm chưa thỏa mãn đầy đủ phương trình hoặc điều kiện ban đầu."
+        elif not is_verified:
+            details = "Chưa hoàn tất xác minh ký hiệu tự động trên miền nghiệm."
+        else:
+            details = (
+                f"Thế nghiệm vào phương trình vi phân và các điều kiện ban đầu, "
+                f"phần dư R({clean_var}) triệt tiêu đồng nhất bằng phương pháp ký hiệu."
+            )
 
     clean_details = standardize_ode_notation(details)
     clean_final = standardize_ode_notation(response.final_latex)
@@ -318,8 +425,21 @@ def _synthesize_verification_step(
     purpose_str = (
         f"Kiểm tra tính đúng đắn toán học: thế nghiệm $y({clean_var})$ vào phương trình vi phân"
         + (" và các điều kiện Cauchy ban đầu," if has_ivp else ",")
-        + f" chứng minh phần dư $R({clean_var}) \\equiv 0$."
+        + f" kiểm tra phần dư $R({clean_var})$."
     )
+
+    if is_failed:
+        eq_latex = f"R({clean_var}) \\not\\equiv 0"
+        inter_result = "Kiểm chứng thất bại"
+        exec_prefix = f"Thế nghiệm $y({clean_var})$ vào hai vế phương trình. Phát hiện sai lệch:"
+    elif not is_verified:
+        eq_latex = f"R({clean_var})\\text{{ (chưa xác nhận)}}"
+        inter_result = "Chưa hoàn tất kiểm chứng"
+        exec_prefix = f"Thế nghiệm $y({clean_var})$ vào phương trình. Trạng thái xác minh:"
+    else:
+        eq_latex = f"R({clean_var}) = 0"
+        inter_result = f"R({clean_var}) = 0"
+        exec_prefix = f"Thế nghiệm $y({clean_var})$ vào hai vế phương trình. Kết quả đánh giá độc lập:"
 
     return ODEPedagogicalStep(
         step_number=step_number,
@@ -328,12 +448,12 @@ def _synthesize_verification_step(
         content=response.steps[-1].content if response.steps else None,
         title="Kiểm chứng toán học độc lập",
         rule_name_vi="Kiểm chứng toán học",
-        equation_latex=f"R({clean_var}) = 0",
+        equation_latex=eq_latex,
         assumptions=(),
         purpose=purpose_str,
         math_basis=mb,
-        execution=f"Thế nghiệm $y({clean_var})$ vào hai vế phương trình. Kết quả đánh giá độc lập: {clean_details}",
-        intermediate_result=f"R({clean_var}) = 0",
+        execution=f"{exec_prefix} {clean_details}",
+        intermediate_result=inter_result,
         stage_index=4,
         stage_name="Kiểm chứng độc lập",
     )
@@ -541,19 +661,12 @@ def _build_first_order_linear_flow(
             steps=tuple(renumbered[3]),
             transition_note="Để đảm bảo tính chính xác toán học tuyệt đối, ta tiến hành kiểm chứng độc lập bằng cách thế nghiệm vừa tìm được vào phương trình ban đầu.",
         ),
-        ODEStageSummary(
-            stage_index=4,
-            title="Giai đoạn 4: Kiểm chứng toán học độc lập",
-            subtitle=f"Chứng minh phần dư $R({clean_var}) = y' + p({clean_var})y - g({clean_var}) \\equiv 0$" + (" và thỏa điều kiện Cauchy" if has_ivp else ""),
-            icon="looks_4",
-            badge_text="Kiểm chứng",
-            badge_color="emerald-7",
-            is_completed=True,
-            is_applicable=True,
-            summary_latex=f"R({clean_var}) = y' + p({clean_var})y - g({clean_var}) \\equiv 0",
-            summary_label="Phần dư toán học:",
-            steps=tuple(renumbered[4]),
-            transition_note="",
+        _build_stage4_summary(
+            response,
+            clean_var,
+            f"Chứng minh phần dư $R({clean_var}) = y' + p({clean_var})y - g({clean_var}) \\equiv 0$" + (" và thỏa điều kiện Cauchy" if has_ivp else ""),
+            f"R({clean_var}) = y' + p({clean_var})y - g({clean_var}) \\equiv 0",
+            tuple(renumbered[4]),
         ),
     ]
     return tuple(stages)
@@ -737,19 +850,12 @@ def _build_first_order_separable_flow(
             steps=tuple(renumbered[3]),
             transition_note="Tiến hành kiểm chứng độc lập nghiệm vừa tìm được để đảm bảo tính đúng đắn toán học.",
         ),
-        ODEStageSummary(
-            stage_index=4,
-            title="Giai đoạn 4: Kiểm chứng toán học độc lập",
-            subtitle=f"Kiểm tra tính đúng đắn của nghiệm qua phần dư $R({clean_var}) \\equiv 0$",
-            icon="looks_4",
-            badge_text="Kiểm chứng",
-            badge_color="emerald-7",
-            is_completed=True,
-            is_applicable=True,
-            summary_latex=f"R({clean_var}) \\equiv 0",
-            summary_label="Phần dư toán học:",
-            steps=tuple(renumbered[4]),
-            transition_note="",
+        _build_stage4_summary(
+            response,
+            clean_var,
+            f"Kiểm tra tính đúng đắn của nghiệm qua phần dư $R({clean_var}) \\equiv 0$",
+            f"R({clean_var}) \\equiv 0",
+            tuple(renumbered[4]),
         ),
     ]
     return tuple(stages)
@@ -960,19 +1066,13 @@ def _build_first_order_exact_flow(
             steps=tuple(renumbered[3]),
             transition_note="Tiến hành kiểm chứng độc lập gradient của hàm thế vừa tìm được.",
         ),
-        ODEStageSummary(
-            stage_index=4,
-            title="Giai đoạn 4: Kiểm chứng toán học độc lập",
-            subtitle="Kiểm tra gradient $\\nabla F = (M, N)$ và xác nhận $dF = 0$",
-            icon="looks_4",
-            badge_text="Kiểm chứng",
-            badge_color="emerald-7",
-            is_completed=True,
-            is_applicable=True,
-            summary_latex="\\nabla F = (M, N) \\implies dF \\equiv 0",
-            summary_label="Kiểm chứng vi phân:",
-            steps=tuple(renumbered[4]),
-            transition_note="",
+        _build_stage4_summary(
+            response,
+            clean_var,
+            "Kiểm tra gradient $\\nabla F = (M, N)$ và xác nhận $dF = 0$",
+            "\\nabla F = (M, N) \\implies dF \\equiv 0",
+            tuple(renumbered[4]),
+            verified_summary_label="Kiểm chứng vi phân:",
         ),
     ]
     return tuple(stages)
@@ -1150,19 +1250,13 @@ def _build_first_order_integrating_factor_flow(
             steps=tuple(renumbered[3]),
             transition_note="Tiến hành kiểm chứng độc lập tính đúng đắn toán học của nghiệm vừa tìm được.",
         ),
-        ODEStageSummary(
-            stage_index=4,
-            title="Giai đoạn 4: Kiểm chứng toán học độc lập",
-            subtitle="Kiểm tra gradient $\\nabla F = (\\mu M, \\mu N)$",
-            icon="looks_4",
-            badge_text="Kiểm chứng",
-            badge_color="emerald-7",
-            is_completed=True,
-            is_applicable=True,
-            summary_latex="\\nabla F = (\\mu M, \\mu N) \\implies dF \\equiv 0",
-            summary_label="Kiểm chứng vi phân:",
-            steps=tuple(renumbered[4]),
-            transition_note="",
+        _build_stage4_summary(
+            response,
+            clean_var,
+            "Kiểm tra gradient $\\nabla F = (\\mu M, \\mu N)$",
+            "\\nabla F = (\\mu M, \\mu N) \\implies dF \\equiv 0",
+            tuple(renumbered[4]),
+            verified_summary_label="Kiểm chứng vi phân:",
         ),
     ]
     return tuple(stages)
@@ -1332,19 +1426,12 @@ def _build_first_order_homogeneous_flow(
             steps=tuple(renumbered[3]),
             transition_note="Tiến hành kiểm chứng độc lập tính đúng đắn toán học của nghiệm vừa tìm được.",
         ),
-        ODEStageSummary(
-            stage_index=4,
-            title="Giai đoạn 4: Kiểm chứng toán học độc lập",
-            subtitle="Thế nghiệm vào phương trình vi phân kiểm tra phần dư",
-            icon="looks_4",
-            badge_text="Kiểm chứng",
-            badge_color="emerald-7",
-            is_completed=True,
-            is_applicable=True,
-            summary_latex="R(x) \\equiv 0",
-            summary_label="Phần dư toán học:",
-            steps=tuple(renumbered[4]),
-            transition_note="",
+        _build_stage4_summary(
+            response,
+            clean_var,
+            "Thế nghiệm vào phương trình vi phân kiểm tra phần dư",
+            f"R({clean_var}) \\equiv 0",
+            tuple(renumbered[4]),
         ),
     ]
     return tuple(stages)
@@ -1830,19 +1917,12 @@ def _build_second_order_flow(
             steps=tuple(renumbered[3]),
             transition_note="Tiến hành kiểm chứng toán học độc lập bằng cách thế nghiệm vào phương trình vi phân và các điều kiện ban đầu.",
         ),
-        ODEStageSummary(
-            stage_index=4,
-            title="Giai đoạn 4: Kiểm chứng toán học độc lập",
-            subtitle=f"Kiểm tra phần dư $R({clean_var}) = L[y] - g({clean_var}) \\equiv 0$" + (" và thỏa mãn điều kiện Cauchy" if has_ivp else ""),
-            icon="looks_4",
-            badge_text="Kiểm chứng",
-            badge_color="emerald-7",
-            is_completed=True,
-            is_applicable=True,
-            summary_latex=f"R({clean_var}) = L[y({clean_var})] - g({clean_var}) \\equiv 0",
-            summary_label="Phần dư toán học:",
-            steps=tuple(renumbered[4]),
-            transition_note="",
+        _build_stage4_summary(
+            response,
+            clean_var,
+            f"Kiểm tra phần dư $R({clean_var}) = L[y] - g({clean_var}) \\equiv 0$" + (" và thỏa mãn điều kiện Cauchy" if has_ivp else ""),
+            f"R({clean_var}) = L[y({clean_var})] - g({clean_var}) \\equiv 0",
+            tuple(renumbered[4]),
         ),
     ]
     return tuple(stages)
@@ -2032,19 +2112,13 @@ def _build_reduction_of_order_flow(
             steps=tuple(renumbered[3]),
             transition_note="Tiến hành kiểm chứng độc lập tính đúng đắn và độc lập tuyến tính của hệ nghiệm cơ bản.",
         ),
-        ODEStageSummary(
-            stage_index=4,
-            title="Giai đoạn 4: Kiểm chứng toán học độc lập",
-            subtitle="Kiểm tra $W(y_1, y_2) \\ne 0$ và nghiệm thỏa mãn phương trình vi phân",
-            icon="looks_4",
-            badge_text="Kiểm chứng",
-            badge_color="emerald-7",
-            is_completed=True,
-            is_applicable=True,
-            summary_latex="W(y_1, y_2) \\ne 0 \\implies L[y] \\equiv 0",
-            summary_label="Kiểm chứng Wronskian:",
-            steps=tuple(renumbered[4]),
-            transition_note="",
+        _build_stage4_summary(
+            response,
+            clean_var,
+            "Kiểm tra $W(y_1, y_2) \\ne 0$ và nghiệm thỏa mãn phương trình vi phân",
+            "W(y_1, y_2) \\ne 0 \\implies L[y] \\equiv 0",
+            tuple(renumbered[4]),
+            verified_summary_label="Kiểm chứng Wronskian:",
         ),
     ]
     return tuple(stages)
@@ -2163,24 +2237,43 @@ def _build_wronskian_flow(
                 )
             )
 
+    is_dependent = _is_wronskian_dependent(response, w_latex)
     if not stg_map[4]:
         total_so_far = sum(len(steps) for steps in stg_map.values())
-        synth_verify = ODEPedagogicalStep(
-            step_number=total_so_far + 1,
-            rule_name="Kiểm chứng toán học độc lập",
-            description=f"Định thức Wronskian {w_latex} khác không trên miền xác định; khẳng định hai nghiệm độc lập tuyến tính.",
-            content=response.steps[-1].content if response.steps else None,
-            title="Kiểm chứng độc lập tuyến tính",
-            rule_name_vi="Kiểm chứng toán học",
-            equation_latex=f"{w_latex} \\not\\equiv 0",
-            assumptions=(),
-            purpose=f"Kiểm tra tính khác không của định thức Wronskian $W(y_1, y_2)({clean_var})$.",
-            math_basis="Định lý Wronskian: $W(y_1, y_2) \\not\\equiv 0 \\iff y_1, y_2$ độc lập tuyến tính.",
-            execution=f"Đánh giá định thức: {response.verification.details if response.verification else 'Khác 0 trên miền xác định.'}",
-            intermediate_result=r"W(y_1, y_2) \ne 0",
-            stage_index=4,
-            stage_name="Kiểm chứng độc lập",
-        )
+        if is_dependent:
+            synth_verify = ODEPedagogicalStep(
+                step_number=total_so_far + 1,
+                rule_name="Kiểm chứng toán học độc lập",
+                description=f"Định thức Wronskian {w_latex} triệt tiêu đồng nhất trên miền xác định; hệ hàm số phụ thuộc tuyến tính.",
+                content=response.steps[-1].content if response.steps else None,
+                title="Kết luận phụ thuộc tuyến tính",
+                rule_name_vi="Kiểm chứng toán học",
+                equation_latex=r"W(y_1, y_2) \equiv 0",
+                assumptions=(),
+                purpose=f"Kiểm tra điều kiện triệt tiêu của định thức Wronskian $W(y_1, y_2)({clean_var})$.",
+                math_basis="Nếu $W(y_1, y_2) \\equiv 0$ trên khoảng $I$ đối với cặp nghiệm hoặc hàm tỉ lệ, hệ hàm phụ thuộc tuyến tính.",
+                execution=f"Đánh giá định thức: {response.verification.details if response.verification else 'Bằng 0 trên miền xác định.'}",
+                intermediate_result=r"W(y_1, y_2) \equiv 0",
+                stage_index=4,
+                stage_name="Kiểm chứng độc lập",
+            )
+        else:
+            synth_verify = ODEPedagogicalStep(
+                step_number=total_so_far + 1,
+                rule_name="Kiểm chứng toán học độc lập",
+                description=f"Định thức Wronskian {w_latex} khác không trên miền xác định; khẳng định hai nghiệm độc lập tuyến tính.",
+                content=response.steps[-1].content if response.steps else None,
+                title="Kiểm chứng độc lập tuyến tính",
+                rule_name_vi="Kiểm chứng toán học",
+                equation_latex=f"{w_latex} \\not\\equiv 0",
+                assumptions=(),
+                purpose=f"Kiểm tra tính khác không của định thức Wronskian $W(y_1, y_2)({clean_var})$.",
+                math_basis="Định lý Wronskian: $W(y_1, y_2) \\not\\equiv 0 \\iff y_1, y_2$ độc lập tuyến tính.",
+                execution=f"Đánh giá định thức: {response.verification.details if response.verification else 'Khác 0 trên miền xác định.'}",
+                intermediate_result=r"W(y_1, y_2) \ne 0",
+                stage_index=4,
+                stage_name="Kiểm chứng độc lập",
+            )
         stg_map[4].append(synth_verify)
 
     renumbered = _renumber_steps(stg_map)
@@ -2228,19 +2321,19 @@ def _build_wronskian_flow(
             steps=tuple(renumbered[3]),
             transition_note="Kiểm chứng độc lập toán học và đưa ra kết luận.",
         ),
-        ODEStageSummary(
-            stage_index=4,
+        _build_stage4_summary(
+            response,
+            clean_var,
+            "Khẳng định hệ hàm số phụ thuộc tuyến tính ($W \\equiv 0$)"
+            if _is_wronskian_dependent(response, w_latex)
+            else "Khẳng định tính chất độc lập tuyến tính của hệ hàm số",
+            r"W(y_1, y_2) \equiv 0"
+            if _is_wronskian_dependent(response, w_latex)
+            else f"{w_latex} \\not\\equiv 0",
+            tuple(renumbered[4]),
             title="Giai đoạn 4: Kết luận toán học độc lập",
-            subtitle="Khẳng định tính chất độc lập tuyến tính của hệ hàm số",
-            icon="looks_4",
-            badge_text="Kiểm chứng",
-            badge_color="emerald-7",
-            is_completed=True,
-            is_applicable=True,
-            summary_latex=f"{w_latex} \\not\\equiv 0",
-            summary_label="Kết luận:",
-            steps=tuple(renumbered[4]),
-            transition_note="",
+            verified_summary_label="Kết luận:",
+            is_wronskian=True,
         ),
     ]
     return tuple(stages)
@@ -3111,19 +3204,12 @@ def _build_generic_ode_flow(
             steps=tuple(renumbered[3]),
             transition_note="Tiến hành kiểm chứng toán học độc lập.",
         ),
-        ODEStageSummary(
-            stage_index=4,
-            title="Giai đoạn 4: Kiểm chứng toán học độc lập",
-            subtitle="Kiểm tra tính đúng đắn của nghiệm giải tích",
-            icon="looks_4",
-            badge_text="Kiểm chứng",
-            badge_color="emerald-7",
-            is_completed=True,
-            is_applicable=True,
-            summary_latex=f"R({clean_var}) \\equiv 0",
-            summary_label="Phần dư toán học:",
-            steps=tuple(renumbered[4]),
-            transition_note="",
+        _build_stage4_summary(
+            response,
+            clean_var,
+            "Kiểm tra tính đúng đắn của nghiệm giải tích",
+            f"R({clean_var}) \\equiv 0",
+            tuple(renumbered[4]),
         ),
     ]
     return tuple(stages)

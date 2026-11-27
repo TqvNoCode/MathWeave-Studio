@@ -280,14 +280,14 @@ def render_domain_restrictions(
     if not parsed_items:
         return
 
-    with ui.column().classes("w-full p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl gap-2"):
-        with ui.row().classes("items-center gap-2"):
-            ui.icon("rule", size="1.2rem").classes("text-amber-800")
+    with ui.column().classes("w-full p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl gap-2 min-w-0 max-w-full"):
+        with ui.row().classes("items-center gap-2 flex-wrap"):
+            ui.icon("rule", size="1.2rem").classes("text-amber-800 shrink-0")
             ui.label("Điều kiện xác định của bài toán:").classes(
                 "text-xs font-bold text-amber-950 uppercase tracking-wider"
             )
 
         for desc, formula in parsed_items:
-            with ui.column().classes("w-full pl-3 py-1 gap-1 border-l-2 border-amber-400"):
-                ui.label(desc).classes("text-xs font-medium text-amber-900")
+            with ui.column().classes("w-full pl-3 py-1 gap-1 border-l-2 border-amber-400 min-w-0 math-scroll-box"):
+                ui.label(desc).classes("text-xs font-medium text-amber-900 break-words")
                 ui_math(formula, block=False, classes="text-base font-semibold text-amber-950 py-0.5")

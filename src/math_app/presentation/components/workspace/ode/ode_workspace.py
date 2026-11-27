@@ -16,9 +16,16 @@ from math_app.presentation.components.operation_catalog import (
     get_operation_by_type,
     get_second_order_examples,
 )
-from math_app.presentation.components.shared.primary_button import primary_button
-from math_app.presentation.components.shared.section_card import section_card
-from math_app.presentation.components.shared.status_badge import status_badge
+from math_app.presentation.components.shared import (
+    get_primary_action_spec,
+    primary_button,
+    render_example_chips,
+    render_feedback_card,
+    render_loading_card,
+    render_workspace_header,
+    section_card,
+    status_badge,
+)
 from math_app.presentation.components.solution_view import render_solution_view
 from math_app.presentation.components.workspace.ode.first_order_classifier import (
     classify_first_order_ode,
@@ -48,9 +55,30 @@ from math_app.presentation.components.workspace.ode.ode_state import (
     split_first_order_equation_clauses,
     split_second_order_equation_clauses,
 )
+from math_app.presentation.components.workspace.ode.second_order_classifier import (
+    classify_second_order_ode,
+)
 from math_app.presentation.components.workspace.variable_selector import (
     render_adaptive_variable_selector,
 )
+from math_app.presentation.design_system.tokens import INTERACTION
+
+
+def detect_second_order_classification(
+    raw_equation: str,
+    target_var: str = "t",
+) -> tuple[ODEClassification | str, str] | None:
+    """Detect whether a typed equation belongs to Order 1 or a specific Second-Order ODE family.
+
+    Reuses ``second_order_classifier`` (backed by read-only ``ode_parser``) conservatively;
+    returns ``None`` when the input is incomplete, ambiguous, or unsupported without raising.
+    """
+    summary = classify_second_order_ode(raw_equation, target_var=target_var)
+    if summary.status == "ORDER_1_MISMATCH":
+        return ("ORDER_1_MISMATCH", summary.badge_label)
+    if summary.status == "DETECTED" and summary.detected_classification is not None:
+        return (summary.detected_classification, summary.badge_label)
+    return None
 
 
 def render_ode_validation_card(
@@ -198,6 +226,7 @@ def render_ode_workspace(
     initial_eq: str | None = None,
     initial_ic: str | None = None,
     auto_solve: bool = False,
+    on_title_change: Callable[[str], None] | None = None,
 ) -> None:
     """Render unified Academic Blue workspace for all Differential Equations operations."""
     # Initialize state from incoming OperationDef
@@ -208,46 +237,61 @@ def render_ode_workspace(
         state = state.with_mode(ODEMode.CAUCHY_IVP).with_initial_condition(initial_ic)
     is_submitting = False
     is_manual_override = False
+    is_override_panel_open = False
 
-    with section_card("p-5 md:p-6 gap-5"):
+    def _so_input_meta(st: ODEState) -> tuple[str, str]:
+        if st.classification == ODEClassification.WRONSKIAN:
+            return (
+                "Hai hàm số y1, y2 (phân tách bởi dấu phẩy)",
+                "Ví dụ: cos(t), sin(t) hoặc exp(t), t*exp(t)",
+            )
+        if st.classification == ODEClassification.REDUCTION_OF_ORDER:
+            return (
+                "Phương trình vi phân cấp 2 (ví dụ: 2*t^2*y'' + 3*t*y' - y = 0)",
+                "2*t^2*y'' + 3*t*y' - y = 0",
+            )
+        return (
+            f"Phương trình ({st.classification.math_subtitle_for_var(st.target_var)})",
+            st.equation,
+        )
+
+    with section_card("p-4 sm:p-5 md:p-6 gap-5 min-w-0"):
         # Interactive ODE Container
-        interactive_container = ui.column().classes("w-full gap-4")
+        interactive_container = ui.column().classes("w-full gap-4 min-w-0")
+        solve_btn_ref: list[Any] = [None]
 
         def render_content() -> None:
-            nonlocal state, is_manual_override
+            nonlocal state, is_manual_override, is_override_panel_open
             interactive_container.clear()
             ic_input_ref: list[Any] = [None]
 
-            # Dynamic Operation Identity & Header (F3)
-            active_op = get_operation_by_type(state.problem_type) or current_op
-
             with interactive_container:
-                # Section A: Dynamic Header & Operation Identity
-                with ui.row().classes("items-center justify-between w-full pb-3 border-b border-slate-100 flex-wrap gap-2"):
-                    with ui.row().classes("items-center gap-3"):
-                        if active_op.math_icon:
-                            with ui.row().classes(
-                                "px-3 py-1.5 min-w-[3rem] rounded-lg bg-blue-50 text-blue-800 items-center justify-center overflow-visible shadow-xs"
-                            ):
-                                ui_math(
-                                    active_op.math_icon,
-                                    block=False,
-                                    classes="math-icon text-base font-bold select-none pointer-events-none",
-                                    is_icon=True,
-                                )
-                        else:
-                            ui.icon(active_op.icon or "functions", size="1.4rem").classes("text-blue-600")
+                # Section A: Dynamic Header & Operation Identity (updatable in-place without destroying eq_input)
+                header_container = ui.column().classes("w-full min-w-0")
 
-                        with ui.column().classes("gap-0"):
-                            ui.label(active_op.title).classes("text-base md:text-lg font-bold text-slate-900")
-                            ui.label(active_op.description).classes("text-xs text-slate-500 line-clamp-1")
+                def render_header() -> OperationDef:
+                    active = get_operation_by_type(state.problem_type) or current_op
+                    if on_title_change is not None:
+                        on_title_change(active.title)
+                    header_container.clear()
+                    with header_container:
+                        render_workspace_header(
+                            title=active.title,
+                            description=active.description,
+                            badge_text=state.order.display_label,
+                            math_icon=active.math_icon,
+                            icon=active.icon or "functions",
+                        )
+                    return active
 
-                    status_badge(state.order.display_label, variant="info")
+                active_op = render_header()
 
                 # Hidden order selector preserving programmatic compatibility while eliminating visual duplication
                 with ui.column().classes("hidden"):
                     def handle_order_change(new_order: ODEOrder) -> None:
-                        nonlocal state, is_manual_override
+                        nonlocal state, is_manual_override, is_override_panel_open
+                        is_manual_override = False
+                        is_override_panel_open = False
                         state = state.with_order(new_order)
                         results_container.clear()
                         render_content()
@@ -261,177 +305,451 @@ def render_ode_workspace(
                     results_container.clear()
                     render_content()
 
+                def handle_reset() -> None:
+                    nonlocal state, is_manual_override, is_override_panel_open
+                    is_manual_override = False
+                    is_override_panel_open = False
+                    state = state.reset()
+                    results_container.clear()
+                    render_content()
+
                 # =============================================================
-                # BRANCH A: Second-Order ODE Workflow (Preserved 100%)
+                # BRANCH A: Second-Order ODE — Equation-First Workflow
                 # =============================================================
                 if state.order == ODEOrder.SECOND_ORDER:
-                    # 1. Classification Selection (Step 1)
-                    render_ode_classification_selector(state.order, state.classification, handle_classification_change)
+                    # Auto-align initial deep-linked equation before initial render if not manually overridden
+                    if not is_manual_override and state.classification != ODEClassification.WRONSKIAN:
+                        init_clf = classify_second_order_ode(
+                            state.equation,
+                            target_var=state.target_var,
+                            current_classification=state.classification,
+                            known_solution=state.known_solution,
+                        )
+                        if (
+                            init_clf.status == "DETECTED"
+                            and init_clf.detected_classification is not None
+                            and init_clf.detected_classification != state.classification
+                        ):
+                            state = state.with_classification(
+                                init_clf.detected_classification,
+                                preserve_equation=True,
+                            )
+                            active_op = render_header()
 
-                    # 2. Equation & Variable Inputs (Step 2)
-                    with ui.column().classes("w-full gap-3 mt-1"):
+                    # 1. Equation & Variable Inputs FIRST (NHẬP BÀI TOÁN)
+                    with ui.column().classes("w-full gap-3 mt-1 min-w-0"):
                         with ui.row().classes("items-center gap-2"):
-                            ui.badge("BƯỚC 2", color="primary").classes("text-xs font-bold")
-                            ui.label("NHẬP PHƯƠNG TRÌNH & BIẾN SỐ:").classes(
+                            ui.icon("edit_note", size="1.15rem").classes("text-blue-600")
+                            ui.label("NHẬP BÀI TOÁN").classes(
                                 "text-xs font-bold text-slate-700 uppercase tracking-wider"
                             )
 
-                        with ui.row().classes("w-full items-center gap-3 flex-wrap md:flex-nowrap"):
-                            if state.classification == ODEClassification.WRONSKIAN:
-                                input_label = "Hai hàm số y1, y2 (phân tách bởi dấu phẩy)"
-                                input_ph = "Ví dụ: cos(t), sin(t) hoặc exp(t), t*exp(t)"
-                            elif state.classification == ODEClassification.REDUCTION_OF_ORDER:
-                                input_label = "Phương trình vi phân cấp 2 (ví dụ: 2*t^2*y'' + 3*t*y' - y = 0)"
-                                input_ph = "2*t^2*y'' + 3*t*y' - y = 0"
-                            else:
-                                input_label = f"Phương trình ({state.classification.math_subtitle_for_var(state.target_var)})"
-                                input_ph = state.equation
+                        input_label, input_ph = _so_input_meta(state)
 
-                            eq_input = ui.input(
+                        eq_input = (
+                            ui.input(
                                 label=input_label,
                                 placeholder=input_ph,
                                 value=state.equation,
-                            ).classes("flex-1 text-base font-mono min-w-[280px]")
+                            )
+                            .classes("w-full text-base font-mono")
+                            .props("clearable")
+                        )
 
-                            def handle_eq_change(e: Any) -> None:
-                                nonlocal state
-                                state = state.with_equation(e.value or "")
-
-                            eq_input.on_value_change(handle_eq_change)
-
+                        with ui.row().classes("w-full items-center gap-3 flex-wrap min-w-0"):
                             var_input = ui.input(
-                                label="Biến số độc lập",
+                                label="Biến số",
                                 value=state.target_var,
-                            ).classes("w-36 text-base font-mono")
-
-                            def handle_var_change(e: Any) -> None:
-                                nonlocal state
-                                state = state.with_target_var(e.value or "t")
-
-                            var_input.on_value_change(handle_var_change)
+                            ).classes("w-full sm:w-36 text-base font-mono")
 
                             # Adaptive Variable Selector Chips
                             render_adaptive_variable_selector(active_op, var_input)
 
+                    # Separate lightweight summary container (updates on every keystroke)
+                    # from controls container (only rebuilds when classification or mode changes,
+                    # preserving example chips, mode buttons, and radio elements in-place).
+                    so_y1_container = ui.column().classes("w-full min-w-0")
+                    so_summary_container = ui.column().classes("w-full min-w-0")
+                    so_controls_container = ui.column().classes("w-full gap-4 min-w-0")
+                    so_rendered_cls: list[ODEClassification | None] = [None]
+
+                    def render_so_summary_card() -> None:
+                        nonlocal state, is_manual_override, is_override_panel_open
+                        so_summary_container.clear()
+                        summary = classify_second_order_ode(
+                            state.equation,
+                            target_var=state.target_var,
+                            current_classification=state.classification,
+                            known_solution=state.known_solution,
+                        )
+                        with so_summary_container:
+                            with ui.card().classes(
+                                "w-full p-3.5 md:p-4 border border-blue-200 bg-blue-50/40 rounded-xl shadow-xs gap-2.5 min-w-0"
+                            ):
+                                with ui.row().classes("items-center justify-between w-full flex-wrap gap-2"):
+                                    with ui.row().classes("items-center gap-2 flex-wrap min-w-0"):
+                                        ui.icon("analytics", size="1.15rem").classes("text-blue-600 shrink-0")
+                                        ui.label("PHÂN TÍCH TỰ ĐỘNG").classes(
+                                            "text-xs font-bold text-slate-800 uppercase tracking-wider"
+                                        )
+                                        status_badge(state.classification.display_label, variant="info")
+                                        status_badge(
+                                            "Ghi đè thủ công" if is_manual_override else "Tự động nhận diện",
+                                            variant="warning" if is_manual_override else "neutral",
+                                        )
+
+                                    with ui.row().classes("items-center gap-1.5 flex-wrap"):
+                                        if is_manual_override:
+                                            def _restore_auto_detect() -> None:
+                                                nonlocal state, is_manual_override
+                                                is_manual_override = False
+                                                changed = _sync_so_auto_classification()
+                                                results_container.clear()
+                                                render_so_summary_card()
+                                                if changed:
+                                                    render_so_controls()
+
+                                            ui.button(
+                                                "Bật lại tự động",
+                                                icon="auto_fix_high",
+                                                on_click=_restore_auto_detect,
+                                            ).props(
+                                                'flat dense no-caps aria-label="Khôi phục tự động nhận diện phân loại phương trình"'
+                                            ).classes(
+                                                f"text-xs text-blue-700 font-semibold rounded-lg px-2 py-1 {INTERACTION.FOCUS_RING}"
+                                            )
+
+                                        override_toggle_btn = (
+                                            ui.button(
+                                                "Ẩn tùy chọn phân loại" if is_override_panel_open else "Đổi phân loại thủ công",
+                                                icon="unfold_less" if is_override_panel_open else "tune",
+                                            )
+                                            .props(
+                                                f'outline dense no-caps aria-expanded="{"true" if is_override_panel_open else "false"}" '
+                                                'aria-label="Mở rộng hoặc thu gọn tùy chọn phân loại phương trình cấp 2 thủ công"'
+                                            )
+                                            .classes(
+                                                f"text-xs text-blue-700 border-blue-200 bg-white rounded-lg px-2.5 py-1 font-semibold {INTERACTION.FOCUS_RING}"
+                                            )
+                                        )
+
+                                # Concise canonical form & method summary
+                                with ui.row().classes(
+                                    "w-full items-center justify-between bg-white border border-slate-200 rounded-lg px-3 py-2.5 gap-3 flex-wrap min-w-0"
+                                ):
+                                    with ui.column().classes("gap-1 min-w-0 flex-1"):
+                                        if summary.canonical_form_latex:
+                                            ui_math(
+                                                summary.canonical_form_latex,
+                                                block=False,
+                                                classes="text-sm md:text-base font-bold text-slate-900",
+                                            )
+                                        ui.label(summary.method_hint).classes(
+                                            "text-xs text-slate-600 leading-relaxed"
+                                        )
+
+                                # Order-1 mismatch or manual-override mismatch helper banner
+                                if summary.status == "ORDER_1_MISMATCH":
+                                    with ui.row().classes(
+                                        "w-full items-center justify-between p-2.5 bg-amber-50 border border-amber-300 rounded-lg flex-wrap gap-2 min-w-0"
+                                    ):
+                                        with ui.row().classes("items-center gap-2 min-w-0 flex-1"):
+                                            ui.icon("swap_vertical_circle", size="1.15rem").classes("text-amber-700 shrink-0")
+                                            ui_math_text(
+                                                f"Phương trình vừa nhập thuộc **{summary.badge_label}**, khác với không gian Cấp 2 hiện tại.",
+                                                classes="text-xs font-semibold text-amber-950",
+                                            )
+                                        ui.button(
+                                            "Chuyển sang PTVP cấp 1",
+                                            icon="arrow_forward",
+                                            on_click=lambda: handle_switch_order(ODEOrder.FIRST_ORDER),
+                                        ).props("unelevated dense no-caps").classes(
+                                            "bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs px-3 py-1.5 rounded-lg shadow-xs shrink-0"
+                                        )
+                                elif (
+                                    is_manual_override
+                                    and summary.status == "DETECTED"
+                                    and summary.detected_classification is not None
+                                    and summary.detected_classification != state.classification
+                                ):
+                                    det_cls = summary.detected_classification
+                                    det_lbl = summary.badge_label
+
+                                    def _sync_manual_override(dc: ODEClassification = det_cls) -> None:
+                                        nonlocal state, is_manual_override
+                                        is_manual_override = False
+                                        state = state.with_classification(dc, preserve_equation=True)
+                                        new_lbl, _ = _so_input_meta(state)
+                                        eq_input._props["label"] = new_lbl
+                                        eq_input.update()
+                                        render_header()
+                                        results_container.clear()
+                                        render_so_summary_card()
+                                        render_so_controls()
+
+                                    with ui.row().classes(
+                                        "w-full items-center justify-between p-2.5 bg-amber-50 border border-amber-300 rounded-lg flex-wrap gap-2 min-w-0"
+                                    ):
+                                        with ui.row().classes("items-center gap-2 min-w-0 flex-1"):
+                                            ui.icon("sync_problem", size="1.15rem").classes("text-amber-700 shrink-0")
+                                            ui_math_text(
+                                                f"Phương trình vừa nhập có dạng **{det_lbl}**, khác với phân loại thủ công hiện tại (**{state.classification.display_label}**).",
+                                                classes="text-xs font-semibold text-amber-950",
+                                            )
+                                        ui.button(
+                                            f"Đồng bộ sang {det_lbl}",
+                                            icon="sync",
+                                            on_click=_sync_manual_override,
+                                        ).props("unelevated dense no-caps").classes(
+                                            "bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs px-3 py-1.5 rounded-lg shadow-xs shrink-0"
+                                        )
+
+                                # Expandable Manual Classification Override Panel (Secondary Control)
+                                override_panel = ui.column().classes("w-full gap-2 pt-2 border-t border-blue-100 min-w-0")
+                                override_panel.set_visibility(is_override_panel_open)
+                                with override_panel:
+                                    render_ode_classification_selector(
+                                        state.order,
+                                        state.classification,
+                                        handle_classification_change,
+                                        show_heading=False,
+                                    )
+
+                                def _toggle_override_panel() -> None:
+                                    nonlocal is_override_panel_open
+                                    is_override_panel_open = not is_override_panel_open
+                                    override_panel.set_visibility(is_override_panel_open)
+                                    override_toggle_btn.props(
+                                        f'icon={"unfold_less" if is_override_panel_open else "tune"} '
+                                        f'aria-expanded={"true" if is_override_panel_open else "false"}'
+                                    )
+                                    override_toggle_btn.set_text(
+                                        "Ẩn tùy chọn phân loại" if is_override_panel_open else "Đổi phân loại thủ công"
+                                    )
+
+                                override_toggle_btn.on_click(_toggle_override_panel)
+
+                    def render_so_controls() -> None:
+                        nonlocal state
+                        so_y1_container.clear()
+                        so_controls_container.clear()
+                        ic_input_ref[0] = None
+                        so_rendered_cls[0] = state.classification
+
+                        summary = classify_second_order_ode(
+                            state.equation,
+                            target_var=state.target_var,
+                            current_classification=state.classification,
+                            known_solution=state.known_solution,
+                        )
+
                         # Specialized Known Solution input for Reduction of Order
                         if state.classification == ODEClassification.REDUCTION_OF_ORDER:
-                            with ui.row().classes("w-full items-center gap-3"):
-                                y1_input = ui.input(
-                                    label="Nghiệm đã biết y₁(t) (tùy chọn nếu đã viết trong phương trình)",
-                                    placeholder="Ví dụ: 1/t hoặc exp(t)",
-                                    value=state.known_solution,
-                                ).classes("w-full text-base font-mono")
+                            with so_y1_container:
+                                with ui.row().classes("w-full items-center gap-3 min-w-0"):
+                                    y1_input = ui.input(
+                                        label="Nghiệm đã biết y₁(t) (tùy chọn nếu đã viết trong phương trình)",
+                                        placeholder="Ví dụ: 1/t hoặc exp(t)",
+                                        value=state.known_solution,
+                                    ).classes("w-full text-base font-mono")
 
-                                def handle_known_sol_change(e: Any) -> None:
-                                    nonlocal state
-                                    state = state.with_known_solution(e.value or "")
-
-                                y1_input.on_value_change(handle_known_sol_change)
-
-                    # 4. Problem Mode Selection (Step 4: General vs Cauchy IVP)
-                    def handle_mode_change(new_mode: ODEMode) -> None:
-                        nonlocal state
-                        state = state.with_mode(new_mode)
-                        results_container.clear()
-                        render_content()
-
-                    def handle_ic_change(new_ic: str) -> None:
-                        nonlocal state
-                        state = state.with_initial_condition(new_ic)
-
-                    render_ode_mode_selector(
-                        state.order,
-                        state.classification,
-                        state.mode,
-                        state.initial_condition,
-                        handle_mode_change,
-                        handle_ic_change,
-                        on_ic_input_created=lambda inp: ic_input_ref.__setitem__(0, inp),
-                    )
-
-                    # 5. Method Selection (Step 5: Nonhomogeneous Second-Order)
-                    def handle_method_change(new_pref: ODEMethodPreference) -> None:
-                        nonlocal state
-                        state = state.with_method_preference(new_pref)
-
-                    render_ode_method_selector(
-                        state.order,
-                        state.classification,
-                        state.method_preference,
-                        handle_method_change,
-                    )
-
-                    # 6. Example Chips
-                    if state.classification in {
-                        ODEClassification.SECOND_ORDER_HOMOGENEOUS,
-                        ODEClassification.SECOND_ORDER_NONHOMOGENEOUS,
-                    }:
-                        cat_str = "HOMOGENEOUS" if state.classification == ODEClassification.SECOND_ORDER_HOMOGENEOUS else "NONHOMOGENEOUS"
-                        mode_str = "CAUCHY_IVP" if state.mode == ODEMode.CAUCHY_IVP else "GENERAL"
-                        ex_list = get_second_order_examples(cat_str, mode_str)
-                    else:
-                        ex_list = DEFAULT_CONFIGS.get(state.classification, {}).get("examples", ())
-
-                    if ex_list:
-                        with ui.row().classes("items-center gap-2 pt-1 flex-wrap"):
-                            ui.label("Ví dụ mẫu:").classes("text-xs text-slate-500 font-semibold")
-                            for label, val in ex_list:
-                                def make_so_example_callback(example_val: str) -> Callable[[], None]:
-                                    def _apply() -> None:
+                                    def handle_known_sol_change(e: Any) -> None:
                                         nonlocal state
-                                        clean_e, y_ic_ex, yp_ic_ex, _, _ = split_second_order_equation_clauses(example_val)
-                                        if state.mode == ODEMode.CAUCHY_IVP and y_ic_ex and yp_ic_ex:
-                                            ic_comb = f"{y_ic_ex}, {yp_ic_ex}"
-                                            state = state.with_equation(clean_e).with_initial_condition(ic_comb)
-                                            eq_input.set_value(clean_e)
-                                            if ic_input_ref[0] is not None:
-                                                ic_input_ref[0].set_value(ic_comb)
-                                        else:
-                                            has_split_support = state.classification in {
-                                                ODEClassification.SECOND_ORDER_HOMOGENEOUS,
-                                                ODEClassification.SECOND_ORDER_NONHOMOGENEOUS,
-                                                ODEClassification.EULER_CAUCHY,
-                                            }
-                                            target_eq = clean_e if (state.mode == ODEMode.GENERAL and has_split_support) else example_val
-                                            state = state.with_equation(target_eq)
-                                            if state.mode == ODEMode.GENERAL:
-                                                state = state.with_initial_condition("")
-                                                if ic_input_ref[0] is not None:
-                                                    ic_input_ref[0].set_value("")
-                                            eq_input.set_value(target_eq)
+                                        state = state.with_known_solution(e.value or "")
                                         results_container.clear()
-                                    return _apply
 
-                                ui.chip(
-                                    label,
-                                    on_click=make_so_example_callback(val),
-                                ).classes(
-                                    "cursor-pointer hover:bg-blue-100 text-xs px-2.5 py-0.5 rounded-full font-mono bg-slate-100 border border-slate-200 text-slate-800 transition-colors"
+                                    y1_input.on_value_change(handle_known_sol_change)
+                                    y1_input.on("keydown.enter", handle_submit)
+
+                        with so_controls_container:
+                            # 3. Problem Mode Selection (General vs Cauchy IVP)
+                            def handle_mode_change(new_mode: ODEMode) -> None:
+                                nonlocal state
+                                state = state.with_mode(new_mode)
+                                render_header()
+                                results_container.clear()
+                                render_so_controls()
+
+                            def handle_ic_change(new_ic: str) -> None:
+                                nonlocal state
+                                state = state.with_initial_condition(new_ic)
+                                results_container.clear()
+
+                            render_ode_mode_selector(
+                                state.order,
+                                state.classification,
+                                state.mode,
+                                state.initial_condition,
+                                handle_mode_change,
+                                handle_ic_change,
+                                on_ic_input_created=lambda inp: ic_input_ref.__setitem__(0, inp),
+                            )
+                            if ic_input_ref[0] is not None:
+                                ic_input_ref[0].on("keydown.enter", handle_submit)
+
+                            # 4. Method Selection (only for Nonhomogeneous — avoids duplicating Homogeneous/Euler summary)
+                            if state.classification == ODEClassification.SECOND_ORDER_NONHOMOGENEOUS:
+                                def handle_method_change(new_pref: ODEMethodPreference) -> None:
+                                    nonlocal state
+                                    state = state.with_method_preference(new_pref)
+
+                                render_ode_method_selector(
+                                    state.order,
+                                    state.classification,
+                                    state.method_preference,
+                                    handle_method_change,
+                                    recommended_method_hint=summary.recommended_nonhomo_method,
                                 )
 
+                            # 5. Contextual Example Chips
+                            if state.classification in {
+                                ODEClassification.SECOND_ORDER_HOMOGENEOUS,
+                                ODEClassification.SECOND_ORDER_NONHOMOGENEOUS,
+                            }:
+                                cat_str = (
+                                    "HOMOGENEOUS"
+                                    if state.classification == ODEClassification.SECOND_ORDER_HOMOGENEOUS
+                                    else "NONHOMOGENEOUS"
+                                )
+                                mode_str = "CAUCHY_IVP" if state.mode == ODEMode.CAUCHY_IVP else "GENERAL"
+                                ex_list = get_second_order_examples(cat_str, mode_str)
+                            else:
+                                ex_list = DEFAULT_CONFIGS.get(state.classification, {}).get("examples", ())
+
+                            if ex_list:
+                                def _apply_so_example(example_val: str) -> None:
+                                    nonlocal state
+                                    clean_e, y_ic_ex, yp_ic_ex, _, _ = split_second_order_equation_clauses(example_val)
+                                    if state.mode == ODEMode.CAUCHY_IVP and y_ic_ex and yp_ic_ex:
+                                        ic_comb = f"{y_ic_ex}, {yp_ic_ex}"
+                                        state = state.with_equation(clean_e).with_initial_condition(ic_comb)
+                                        eq_input.set_value(clean_e)
+                                        if ic_input_ref[0] is not None:
+                                            ic_input_ref[0].set_value(ic_comb)
+                                    else:
+                                        has_split_support = state.classification in {
+                                            ODEClassification.SECOND_ORDER_HOMOGENEOUS,
+                                            ODEClassification.SECOND_ORDER_NONHOMOGENEOUS,
+                                            ODEClassification.EULER_CAUCHY,
+                                        }
+                                        target_eq = (
+                                            clean_e
+                                            if (state.mode == ODEMode.GENERAL and has_split_support)
+                                            else example_val
+                                        )
+                                        state = state.with_equation(target_eq)
+                                        if state.mode == ODEMode.GENERAL:
+                                            state = state.with_initial_condition("")
+                                            if ic_input_ref[0] is not None:
+                                                ic_input_ref[0].set_value("")
+                                        eq_input.set_value(target_eq)
+                                    results_container.clear()
+                                    render_so_summary_card()
+
+                                render_example_chips(ex_list, on_select=_apply_so_example, label="Ví dụ mẫu:")
+
+                            # 6. Action Row: Reset & Solve (stays synced with detected/active classification)
+                            cur_active_op = get_operation_by_type(state.problem_type) or current_op
+                            with ui.row().classes(
+                                "w-full items-center justify-between pt-3 border-t border-slate-100 flex-wrap gap-2"
+                            ):
+                                ui.button("Nhập lại", icon="refresh", on_click=handle_reset).props(
+                                    'flat dense no-caps aria-label="Khôi phục phương trình mặc định"'
+                                ).classes(
+                                    "text-xs text-slate-600 font-semibold hover:text-slate-900 rounded-lg px-2 py-1"
+                                )
+
+                                action_spec = get_primary_action_spec(cur_active_op.problem_type)
+                                solve_btn = primary_button(
+                                    text=action_spec.label,
+                                    icon=action_spec.icon,
+                                    aria_label=action_spec.aria_label,
+                                )
+                                solve_btn_ref[0] = solve_btn
+                                solve_btn.on_click(handle_submit)
+
+                    def _sync_so_auto_classification() -> bool:
+                        nonlocal state
+                        if is_manual_override or state.classification == ODEClassification.WRONSKIAN:
+                            return False
+                        detected_summary = classify_second_order_ode(
+                            state.equation,
+                            target_var=state.target_var,
+                            current_classification=state.classification,
+                            known_solution=state.known_solution,
+                        )
+                        if (
+                            detected_summary.status == "DETECTED"
+                            and detected_summary.detected_classification is not None
+                            and detected_summary.detected_classification != state.classification
+                        ):
+                            state = state.with_classification(
+                                detected_summary.detected_classification,
+                                preserve_equation=True,
+                            )
+                            new_lbl, _ = _so_input_meta(state)
+                            eq_input._props["label"] = new_lbl
+                            eq_input.update()
+                            render_header()
+                            return True
+                        return False
+
+                    def handle_eq_change(e: Any) -> None:
+                        nonlocal state
+                        state = state.with_equation(e.value or "")
+                        results_container.clear()
+                        cls_changed = _sync_so_auto_classification()
+                        render_so_summary_card()
+                        if cls_changed or so_rendered_cls[0] != state.classification:
+                            render_so_controls()
+
+                    def handle_var_change(e: Any) -> None:
+                        nonlocal state
+                        state = state.with_target_var(e.value or "t")
+                        new_lbl, _ = _so_input_meta(state)
+                        eq_input._props["label"] = new_lbl
+                        eq_input.update()
+                        results_container.clear()
+                        cls_changed = _sync_so_auto_classification()
+                        render_so_summary_card()
+                        if cls_changed or so_rendered_cls[0] != state.classification:
+                            render_so_controls()
+
+                    eq_input.on_value_change(handle_eq_change)
+                    var_input.on_value_change(handle_var_change)
+                    eq_input.on("keydown.enter", handle_submit)
+                    var_input.on("keydown.enter", handle_submit)
+
+                    render_so_summary_card()
+                    render_so_controls()
+
                 # =============================================================
-                # BRANCH B: First-Order Guided Classification Workflow (UX3.6)
+                # BRANCH B: First-Order Guided Classification Workflow (Semantic Sections)
                 # =============================================================
                 else:
-                    # STEP 1: Equation & Variable Inputs
-                    with ui.column().classes("w-full gap-3 mt-1"):
+                    # SECTION: NHẬP BÀI TOÁN
+                    with ui.column().classes("w-full gap-3 mt-1 min-w-0"):
                         with ui.row().classes("items-center gap-2"):
-                            ui.badge("BƯỚC 1", color="primary").classes("text-xs font-bold")
-                            ui.label("NHẬP PHƯƠNG TRÌNH & BIẾN SỐ:").classes(
+                            ui.icon("edit_note", size="1.15rem").classes("text-blue-600")
+                            ui.label("NHẬP BÀI TOÁN").classes(
                                 "text-xs font-bold text-slate-700 uppercase tracking-wider"
                             )
 
-                        with ui.row().classes("w-full items-center gap-3 flex-wrap md:flex-nowrap"):
-                            eq_input = ui.input(
+                        eq_input = (
+                            ui.input(
                                 label=f"Phương trình ({state.classification.math_subtitle_for_var(state.target_var)})",
                                 placeholder=state.equation,
                                 value=state.equation,
-                            ).classes("flex-1 text-base font-mono min-w-[280px]")
+                            )
+                            .classes("w-full text-base font-mono")
+                            .props("clearable")
+                        )
 
+                        with ui.row().classes("w-full items-center gap-3 flex-wrap min-w-0"):
                             var_input = ui.input(
-                                label="Biến số độc lập",
+                                label="Biến số",
                                 value=state.target_var,
-                            ).classes("w-36 text-base font-mono")
+                            ).classes("w-full sm:w-36 text-base font-mono")
 
                             # Adaptive Variable Selector Chips
                             render_adaptive_variable_selector(active_op, var_input)
@@ -446,6 +764,7 @@ def render_ode_workspace(
                         def handle_fo_ic_change(new_ic: str) -> None:
                             nonlocal state
                             state = state.with_initial_condition(new_ic)
+                            results_container.clear()
 
                         render_ode_mode_selector(
                             state.order,
@@ -460,38 +779,28 @@ def render_ode_workspace(
                         # Example Chips for First-Order
                         ex_list = DEFAULT_CONFIGS.get(state.classification, {}).get("examples", ())
                         if ex_list:
-                            with ui.row().classes("items-center gap-2 pt-1 flex-wrap"):
-                                ui.label("Ví dụ mẫu:").classes("text-xs text-slate-500 font-semibold")
-                                for label, val in ex_list:
-                                    def make_fo_example_callback(example_val: str) -> Callable[[], None]:
-                                        def _apply() -> None:
-                                            nonlocal state
-                                            clean_e, inline_ic, _ = split_first_order_equation_clauses(example_val)
-                                            if state.mode == ODEMode.CAUCHY_IVP and inline_ic:
-                                                state = state.with_equation(clean_e).with_initial_condition(inline_ic)
-                                                eq_input.set_value(clean_e)
-                                                if ic_input_ref[0] is not None:
-                                                    ic_input_ref[0].set_value(inline_ic)
-                                            else:
-                                                target_eq = clean_e if state.mode == ODEMode.GENERAL else example_val
-                                                state = state.with_equation(target_eq)
-                                                if state.mode == ODEMode.GENERAL:
-                                                    state = state.with_initial_condition("")
-                                                    if ic_input_ref[0] is not None:
-                                                        ic_input_ref[0].set_value("")
-                                                eq_input.set_value(target_eq)
-                                            results_container.clear()
-                                            update_guided_classification_panel()
-                                        return _apply
+                            def _apply_fo_example(example_val: str) -> None:
+                                nonlocal state
+                                clean_e, inline_ic, _ = split_first_order_equation_clauses(example_val)
+                                if state.mode == ODEMode.CAUCHY_IVP and inline_ic:
+                                    state = state.with_equation(clean_e).with_initial_condition(inline_ic)
+                                    eq_input.set_value(clean_e)
+                                    if ic_input_ref[0] is not None:
+                                        ic_input_ref[0].set_value(inline_ic)
+                                else:
+                                    target_eq = clean_e if state.mode == ODEMode.GENERAL else example_val
+                                    state = state.with_equation(target_eq)
+                                    if state.mode == ODEMode.GENERAL:
+                                        state = state.with_initial_condition("")
+                                        if ic_input_ref[0] is not None:
+                                            ic_input_ref[0].set_value("")
+                                    eq_input.set_value(target_eq)
+                                results_container.clear()
+                                update_guided_classification_panel()
 
-                                    ui.chip(
-                                        label,
-                                        on_click=make_fo_example_callback(val),
-                                    ).classes(
-                                        "cursor-pointer hover:bg-blue-100 text-xs px-2.5 py-0.5 rounded-full font-mono bg-slate-100 border border-slate-200 text-slate-800 transition-colors"
-                                    )
+                            render_example_chips(ex_list, on_select=_apply_fo_example, label="Ví dụ mẫu:")
 
-                    # Dynamic Container for Guided Classification Steps 2, 3, 4
+                    # Dynamic Container for Semantic Analysis Sections (PHÂN TÍCH TỰ ĐỘNG, CƠ SỞ PHÂN LOẠI, PHƯƠNG PHÁP ĐỀ XUẤT)
                     guided_container = ui.column().classes("w-full")
 
                     def handle_fo_classification_change(new_cls: ODEClassification) -> None:
@@ -546,6 +855,7 @@ def render_ode_workspace(
                     def handle_fo_eq_change(e: Any) -> None:
                         nonlocal state
                         state = state.with_equation(e.value or "")
+                        results_container.clear()
                         update_guided_classification_panel()
 
                     def handle_fo_var_change(e: Any) -> None:
@@ -554,6 +864,7 @@ def render_ode_workspace(
                         state = state.with_target_var(new_var)
                         eq_input._props["label"] = f"Phương trình ({state.classification.math_subtitle_for_var(new_var)})"
                         eq_input.update()
+                        results_container.clear()
                         update_guided_classification_panel()
 
                     eq_input.on_value_change(handle_fo_eq_change)
@@ -562,31 +873,33 @@ def render_ode_workspace(
                     # Initial rendering of guided classification panel
                     update_guided_classification_panel()
 
-                # 7. Action Row: Reset & Solve (Shared across all ODEs)
-                with ui.row().classes("w-full items-center justify-between pt-3 border-t border-slate-100 flex-wrap gap-2"):
-                    def handle_reset() -> None:
-                        nonlocal state, is_manual_override
-                        is_manual_override = False
-                        state = state.reset()
-                        results_container.clear()
-                        render_content()
+                    # Action Row: Reset & Solve (First-Order)
+                    with ui.row().classes("w-full items-center justify-between pt-3 border-t border-slate-100 flex-wrap gap-2"):
+                        ui.button("Nhập lại", icon="refresh", on_click=handle_reset).props(
+                            'flat dense no-caps aria-label="Khôi phục phương trình mặc định"'
+                        ).classes(
+                            "text-xs text-slate-600 font-semibold hover:text-slate-900 rounded-lg px-2 py-1"
+                        )
 
-                    ui.button("Nhập lại", icon="refresh", on_click=handle_reset).props("flat dense no-caps").classes(
-                        "text-xs text-slate-500 font-semibold hover:text-slate-800"
-                    )
+                        action_spec = get_primary_action_spec(active_op.problem_type)
+                        solve_btn = primary_button(
+                            text=action_spec.label,
+                            icon=action_spec.icon,
+                            aria_label=action_spec.aria_label,
+                        )
+                        solve_btn_ref[0] = solve_btn
+                        solve_btn.on_click(handle_submit)
 
-                    solve_btn = primary_button(
-                        text="GIẢI PHƯƠNG TRÌNH",
-                        icon="calculate",
-                    )
-                    solve_btn.on_click(handle_submit)
-
-                    # Enter key submits from equation and variable inputs
-                    eq_input.on("keydown.enter", handle_submit)
-                    var_input.on("keydown.enter", handle_submit)
+                        # Enter key submits from equation, variable, and optional IC inputs
+                        eq_input.on("keydown.enter", handle_submit)
+                        var_input.on("keydown.enter", handle_submit)
+                        if ic_input_ref[0] is not None:
+                            ic_input_ref[0].on("keydown.enter", handle_submit)
 
         def handle_switch_order(new_order: ODEOrder) -> None:
-            nonlocal state
+            nonlocal state, is_manual_override, is_override_panel_open
+            is_manual_override = False
+            is_override_panel_open = False
             state = state.with_order(new_order, preserve_equation=True)
             results_container.clear()
             render_content()
@@ -596,8 +909,32 @@ def render_ode_workspace(
             if is_submitting:
                 return
             is_submitting = True
+            if solve_btn_ref[0] is not None:
+                solve_btn_ref[0].disable()
             try:
                 results_container.clear()
+
+                # Auto-align Second-Order classification to detected category unless manual override was chosen
+                if (
+                    state.order == ODEOrder.SECOND_ORDER
+                    and not is_manual_override
+                    and state.classification != ODEClassification.WRONSKIAN
+                ):
+                    so_clf = classify_second_order_ode(
+                        state.equation,
+                        target_var=state.target_var,
+                        current_classification=state.classification,
+                        known_solution=state.known_solution,
+                    )
+                    if (
+                        so_clf.status == "DETECTED"
+                        and so_clf.detected_classification is not None
+                        and so_clf.detected_classification != state.classification
+                    ):
+                        state = state.with_classification(
+                            so_clf.detected_classification,
+                            preserve_equation=True,
+                        )
 
                 # Auto-align First-Order classification to detected category unless manual override was chosen
                 if state.order == ODEOrder.FIRST_ORDER and not is_manual_override:
@@ -624,7 +961,10 @@ def render_ode_workspace(
                                 ProblemType.ODE_INTEGRATING_FACTOR: ODEClassification.INTEGRATING_FACTOR,
                             }
                             if clf_check.target_problem_type in pt_to_cls:
-                                state = state.with_classification(pt_to_cls[clf_check.target_problem_type])
+                                state = state.with_classification(
+                                    pt_to_cls[clf_check.target_problem_type],
+                                    preserve_equation=True,
+                                )
 
                 try:
                     req = state.build_problem_request()
@@ -640,21 +980,18 @@ def render_ode_workspace(
 
                 # Loading indicator
                 with results_container:
-                    with ui.card().classes("w-full p-6 border border-slate-200 bg-white rounded-xl shadow-xs text-center items-center justify-center"):
-                        ui.spinner("dots", size="2.5rem", color="primary")
-                        ui.label("Đang giải phương trình vi phân và thực hiện kiểm định độc lập...").classes(
-                            "text-sm font-medium text-slate-600 mt-2"
-                        )
+                    render_loading_card("Đang giải phương trình vi phân và thực hiện kiểm định độc lập...")
 
                 try:
                     resp: SolutionResponse = await asyncio.to_thread(use_case.execute, req, 8.0)
                 except Exception as exc:
                     results_container.clear()
                     with results_container:
-                        with ui.card().classes("w-full p-4 border border-red-200 bg-red-50 text-red-900 rounded-xl"):
-                            with ui.row().classes("items-center gap-2"):
-                                ui.icon("error", color="negative")
-                                ui.label(f"Lỗi thực thi hệ thống: {exc}").classes("text-sm font-semibold")
+                        render_feedback_card(
+                            title="Lỗi thực thi hệ thống",
+                            messages=[f"Lỗi thực thi hệ thống: {exc}"],
+                            variant="error",
+                        )
                     return
 
                 results_container.clear()
@@ -674,6 +1011,8 @@ def render_ode_workspace(
                     render_solution_view(resp, resolved_op, req.target_variable, req.parameters)
             finally:
                 is_submitting = False
+                if solve_btn_ref[0] is not None:
+                    solve_btn_ref[0].enable()
 
         # Results & Analysis Container
         results_container = ui.column().classes("w-full gap-5")

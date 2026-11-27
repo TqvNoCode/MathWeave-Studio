@@ -172,8 +172,8 @@ def test_ux3_7_1_recommended_method_visible_and_justified():
             if isinstance(el, (ui.label, ui.badge, ui.button)) and el.text
         ])
 
-        assert "BƯỚC 4" in all_text
-        assert "PHƯƠNG PHÁP GIẢI KHUYẾN NGHỊ:" in all_text
+        assert "BƯỚC 4" not in all_text
+        assert "PHƯƠNG PHÁP ĐỀ XUẤT" in all_text
         assert "TỐI ƯU SƯ PHẠM" in all_text
         assert clf_res.recommended_method_title in all_text
         # The reason is rendered via ui_math_text (custom component with math)
@@ -227,19 +227,17 @@ def test_ux3_7_1_second_order_workflow_completely_intact():
     with client:
         render_ode_workspace(op, mock_use_case)
 
-        # 1. Homogeneous Second-Order initial state
+        # 1. Homogeneous Second-Order initial state (Equation-First + semantic sections)
         all_text = " ".join([
             el.text for el in client.elements.values()
             if isinstance(el, (ui.label, ui.badge, ui.button)) and el.text
         ])
-        assert "BƯỚC 1" in all_text
-        assert "PHÂN LOẠI PHƯƠNG TRÌNH:" in all_text
-        assert "BƯỚC 2" in all_text
-        assert "NHẬP PHƯƠNG TRÌNH & BIẾN SỐ:" in all_text
-        assert "BƯỚC 3" in all_text
-        assert "CHỌN YÊU CẦU BÀI TOÁN:" in all_text
+        assert "NHẬP BÀI TOÁN" in all_text
+        assert "PHÂN TÍCH TỰ ĐỘNG" in all_text
+        assert "Đổi phân loại thủ công" in all_text
+        assert "YÊU CẦU BÀI TOÁN:" in all_text
 
-        # 2. Switch to Nonhomogeneous to verify Step 4 Method Selector appears
+        # 2. Switch to Nonhomogeneous via manual override to verify Method Selector appears
         nonhomog_btns = [
             el for el in client.elements.values()
             if isinstance(el, ui.button) and "Không thuần nhất" in el.text
@@ -253,8 +251,7 @@ def test_ux3_7_1_second_order_workflow_completely_intact():
             el.text for el in client.elements.values()
             if isinstance(el, (ui.label, ui.badge, ui.button)) and el.text
         ])
-        assert "BƯỚC 4" in all_text_after
-        assert "PHƯƠNG PHÁP TÌM NGHIỆM RIÊNG" in all_text_after
+        assert "PHƯƠNG PHÁP ĐỀ XUẤT — TÌM NGHIỆM RIÊNG" in all_text_after
         assert "Hệ số bất định" in all_text_after
         assert "Biến thiên hằng số" in all_text_after
 
@@ -318,7 +315,7 @@ def test_ux3_7_1_no_raw_latex_in_simplified_guided_view():
 # =============================================================================
 
 def test_ux3_7_1_no_layout_gaps_or_empty_containers():
-    """Verify card structure has exactly 3 step cards (Step 2, 3, 4) without empty containers."""
+    """Verify card structure has exactly 3 semantic analysis sections without numbered BƯỚC badges or ui.expansion."""
     clf_res = classify_first_order_ode("y' + 1/2*y = t + 2", target_var="t")
     state = ODEState.default_for_classification(ODEClassification.FIRST_ORDER_LINEAR)
 
@@ -326,12 +323,19 @@ def test_ux3_7_1_no_layout_gaps_or_empty_containers():
     with client:
         render_ode_guided_classification_view(clf_res, state)
 
-        # Gather top-level step badges inside the guided view
-        step_badges = [
+        # Ensure numbered BƯỚC badges are not used on system-generated analysis sections
+        numbered_badges = [
             el.text for el in client.elements.values()
             if isinstance(el, ui.badge) and el.text in {"BƯỚC 2", "BƯỚC 3", "BƯỚC 4"}
         ]
-        assert sorted(step_badges) == ["BƯỚC 2", "BƯỚC 3", "BƯỚC 4"]
+        assert numbered_badges == []
+
+        # Gather semantic analysis section headings inside the guided view
+        semantic_labels = [
+            el.text for el in client.elements.values()
+            if isinstance(el, ui.label) and el.text in {"PHÂN TÍCH TỰ ĐỘNG", "CƠ SỞ PHÂN LOẠI", "PHƯƠNG PHÁP ĐỀ XUẤT"}
+        ]
+        assert semantic_labels == ["PHÂN TÍCH TỰ ĐỘNG", "CƠ SỞ PHÂN LOẠI", "PHƯƠNG PHÁP ĐỀ XUẤT"]
 
         # Ensure no empty labels or blank expansion panels exist
         for el in client.elements.values():

@@ -9,7 +9,7 @@
 ; - Complete uninstaller registration
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.0"
+  #define MyAppVersion "0.3.0"
 #endif
 #ifndef MyAppPublisher
   #define MyAppPublisher "TqvNoCode"

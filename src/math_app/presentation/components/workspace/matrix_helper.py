@@ -74,8 +74,8 @@ def render_matrix_helper_panel(
 
                 (
                     ui.button(lbl, on_click=_apply)
-                    .props("outline dense no-caps")
-                    .classes("text-xs px-2.5 py-0.5 rounded-lg bg-white text-blue-800 border-blue-300 hover:bg-blue-100 font-mono transition-all cursor-pointer")
+                    .props(f'outline dense no-caps aria-label="Điền mẫu {lbl}"')
+                    .classes("text-xs px-2.5 py-1 min-h-[32px] rounded-lg bg-white text-blue-800 border-blue-300 hover:bg-blue-100 font-mono transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-500")
                 )
 
     return panel

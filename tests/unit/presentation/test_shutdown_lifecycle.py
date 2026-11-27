@@ -187,13 +187,20 @@ def test_clean_shutdown_after_page_load():
         last_error: Exception | None = None
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
-        # Dynamically determine the URL NiceGUI bound to
+        # Dynamically determine the URL NiceGUI bound to (skipping [STARTUP] header lines)
         url = "http://127.0.0.1:8080"
         if p.stdout is not None:
-            line = p.stdout.readline().decode("utf-8", errors="replace")
-            m = re.search(r"http://[^\s]+", line)
-            if m:
-                url = m.group(0).rstrip("/")
+            while time.monotonic() < readiness_deadline:
+                raw_line = p.stdout.readline(timeout=1.0)
+                if not raw_line:
+                    if p.poll() is not None:
+                        break
+                    continue
+                line = raw_line.decode("utf-8", errors="replace")
+                m = re.search(r"http://[^\s]+", line)
+                if m:
+                    url = m.group(0).rstrip("/")
+                    break
 
         target_url = f"{url}/"
         while time.monotonic() < readiness_deadline:

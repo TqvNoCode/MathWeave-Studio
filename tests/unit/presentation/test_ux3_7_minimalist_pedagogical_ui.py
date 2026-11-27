@@ -206,8 +206,9 @@ def test_mode_selector_numbering_first_order_no_step3_badge():
 
 
 def test_mode_selector_numbering_second_order_keeps_step3_badge():
-    """Verify that in Second-Order mode, 'BƯỚC 3' badge is preserved for Step 3 problem mode selection."""
+    """Verify that in Second-Order mode, mode selector uses consistent semantic heading without numbered BƯỚC badge."""
     rendered_badges: list[str] = []
+    rendered_labels: list[str] = []
 
     with ui.column() as container:
         render_ode_mode_selector(
@@ -219,15 +220,17 @@ def test_mode_selector_numbering_second_order_keeps_step3_badge():
             on_ic_change=lambda _: None,
         )
 
-    def _collect_badges(el):
-        if isinstance(el, ui.badge):
-            if hasattr(el, "_text") and el._text:
-                rendered_badges.append(el._text)
+    def _collect(el):
+        if isinstance(el, ui.badge) and getattr(el, "_text", None):
+            rendered_badges.append(el._text)
+        if isinstance(el, ui.label) and getattr(el, "_text", None):
+            rendered_labels.append(el._text)
         for child in getattr(el, "default_slot", []):
-            _collect_badges(child)
+            _collect(child)
 
-    _collect_badges(container)
-    assert "BƯỚC 3" in rendered_badges
+    _collect(container)
+    assert "BƯỚC 3" not in rendered_badges
+    assert "YÊU CẦU BÀI TOÁN:" in rendered_labels
 
 
 # ==============================================================================

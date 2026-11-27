@@ -488,12 +488,6 @@ def format_problem_statement_latex(
         except Exception:
             return raw_input
 
-            if addons:
-                return f"{eq_ltx}, \\quad " + ", \\quad ".join(addons)
-            return eq_ltx
-        except Exception:
-            return raw_input
-
     # 5d. Wronskian
     if op_type == ProblemType.WRONSKIAN:
         try:

@@ -17,7 +17,6 @@ from math_app.input.ode_parser import (
 )
 from math_app.presentation.components.catalog import render_operation_catalog
 from math_app.presentation.components.footer import AUTHOR_CREDIT, render_footer
-from math_app.presentation.components.math_view import ui_math
 from math_app.presentation.components.operation_catalog import (
     MAIN_OPERATIONS,
     OPERATIONS,
@@ -33,9 +32,13 @@ from math_app.presentation.components.shell import (
     restore_catalog_scroll,
 )
 from math_app.presentation.components.shared import (
+    get_primary_action_spec,
     primary_button,
+    render_example_chips,
+    render_feedback_card,
+    render_loading_card,
+    render_workspace_header,
     section_card,
-    status_badge,
 )
 from math_app.presentation.components.solution_view import render_solution_view
 from math_app.presentation.components.workspace import (
@@ -199,8 +202,10 @@ def create_app(use_case: SolveProblemUseCase) -> None:
         current_op: OperationDef = OPERATIONS[0]
         active_screen = "SCREEN_A"  # "SCREEN_A" (Catalog) or "SCREEN_B" (Problem Solving)
 
-        # Query parameter prefill support for direct navigation and genuine automated UI testing
-        auto_solve_req = False
+        # Query parameter prefill support (consumed once on initial load; cleared on navigation)
+        pending_eq: str | None = eq
+        pending_ic: str | None = ic
+        pending_auto_solve = False
         if eq is not None or op is not None:
             active_screen = "SCREEN_B"
             if op is not None:
@@ -214,7 +219,7 @@ def create_app(use_case: SolveProblemUseCase) -> None:
             elif eq is not None:
                 current_op = get_operation_by_type(ProblemType.ODE_FIRST_ORDER_LINEAR) or current_op
             if solve is not None and str(solve).lower() in ("1", "true", "yes"):
-                auto_solve_req = True
+                pending_auto_solve = True
 
         def open_about_dialog() -> None:
             """Display modal with MathWeave Studio application information and metadata."""
@@ -266,15 +271,21 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                         render_screen_b()
 
             def switch_to_operation(op: OperationDef) -> None:
-                nonlocal current_op, active_screen
+                nonlocal current_op, active_screen, pending_eq, pending_ic, pending_auto_solve
                 capture_catalog_scroll(screen_body.client)
+                pending_eq = None
+                pending_ic = None
+                pending_auto_solve = False
                 current_op = op
                 active_screen = "SCREEN_B"
                 render_current_screen()
                 reset_workspace_scroll(screen_body.client)
 
             def switch_to_catalog() -> None:
-                nonlocal active_screen
+                nonlocal active_screen, pending_eq, pending_ic, pending_auto_solve
+                pending_eq = None
+                pending_ic = None
+                pending_auto_solve = False
                 active_screen = "SCREEN_A"
                 render_current_screen()
                 restore_catalog_scroll(screen_body.client)
@@ -288,8 +299,14 @@ def create_app(use_case: SolveProblemUseCase) -> None:
 
             # ================= SCREEN B: PROBLEM SOLVING & RESULTS =================
             def render_screen_b() -> None:
-                is_calculus = current_op.is_calculus
+                nonlocal pending_eq, pending_ic, pending_auto_solve
+                req_eq, req_ic, req_auto = pending_eq, pending_ic, pending_auto_solve
+                pending_eq = None
+                pending_ic = None
+                pending_auto_solve = False
+
                 is_matrix_op = current_op.is_matrix
+                nav_title_updater: list[Any] = [None]
 
                 with ui.column().classes("w-full gap-5"):
                     # Shared High-Contrast Sticky Navigation Bar
@@ -305,6 +322,7 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                         on_back=switch_to_catalog,
                         math_icon=current_op.math_icon,
                         icon=current_op.icon,
+                        on_title_ready=lambda fn: nav_title_updater.__setitem__(0, fn),
                     )
 
                     # Definite Integration Subtype Selector Banner
@@ -349,38 +367,47 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                             use_case=use_case,
                             on_operation_switch=switch_to_operation,
                             on_back_to_catalog=switch_to_catalog,
-                            initial_eq=eq,
-                            initial_ic=ic,
-                            auto_solve=auto_solve_req,
+                            initial_eq=req_eq,
+                            initial_ic=req_ic,
+                            auto_solve=req_auto,
+                            on_title_change=lambda t: nav_title_updater[0](t) if nav_title_updater[0] is not None else None,
                         )
                     else:
                         # Unified Workspace Card for Calculus, Algebra & Linear Algebra
-                        with section_card("p-5 md:p-6 gap-5"):
+                        with section_card("p-4 sm:p-5 md:p-6 gap-5 min-w-0"):
                             # Section A: Header & Operation Identity
-                            with ui.row().classes("items-center justify-between w-full pb-3 border-b border-slate-100 flex-wrap gap-2"):
-                                with ui.row().classes("items-center gap-3"):
-                                    if current_op.math_icon:
-                                        with ui.row().classes(
-                                            "px-3 py-1.5 min-w-[3rem] rounded-lg bg-blue-50 text-blue-800 items-center justify-center overflow-visible shadow-xs"
-                                        ):
-                                            ui_math(
-                                                current_op.math_icon,
-                                                block=False,
-                                                classes="math-icon text-base font-bold select-none pointer-events-none",
-                                                is_icon=True,
-                                            )
-                                    else:
-                                        ui.icon(current_op.icon, size="1.4rem").classes("text-blue-600")
-
-                                    with ui.column().classes("gap-0"):
-                                        ui.label(current_op.title).classes("text-base md:text-lg font-bold text-slate-900")
-                                        ui.label(current_op.description).classes("text-xs text-slate-500 leading-snug")
-
-                                status_badge(current_op.domain, variant="info")
+                            render_workspace_header(
+                                title=current_op.title,
+                                description=current_op.description,
+                                badge_text=current_op.domain,
+                                math_icon=current_op.math_icon,
+                                icon=current_op.icon,
+                            )
 
                             # Dynamic Form Inputs
                             form_container = ui.column().classes("w-full gap-4")
                             extra_controls: dict[str, Any] = {}
+                            submit_handler_ref: list[Any] = [None]
+                            results_box_ref: list[Any] = [None]
+                            _bound_ctrl_ids: set[int] = set()
+
+                            def _bind_dynamic_input(ctrl: Any) -> Any:
+                                if ctrl is None or isinstance(ctrl, str):
+                                    return ctrl
+                                cid = id(ctrl)
+                                if cid in _bound_ctrl_ids:
+                                    return ctrl
+                                _bound_ctrl_ids.add(cid)
+                                if hasattr(ctrl, "on"):
+                                    ctrl.on(
+                                        "keydown.enter",
+                                        lambda: submit_handler_ref[0]() if submit_handler_ref[0] is not None else None,
+                                    )
+                                if hasattr(ctrl, "on_value_change"):
+                                    ctrl.on_value_change(
+                                        lambda: results_box_ref[0].clear() if results_box_ref[0] is not None else None
+                                    )
+                                return ctrl
 
                             with form_container:
                                 # 1. Main mathematical expression or matrix input
@@ -413,7 +440,7 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                                     ui.input(
                                         label=main_input_label,
                                         placeholder=current_op.default_input,
-                                        value=current_op.default_input,
+                                        value=req_eq if req_eq is not None else current_op.default_input,
                                     )
                                     .classes("w-full text-base font-mono")
                                     .props("clearable")
@@ -425,17 +452,17 @@ def create_app(use_case: SolveProblemUseCase) -> None:
 
                                 # 2. Derivative-specific repositioned order field
                                 if current_op.problem_type == ProblemType.DERIVATIVE:
-                                    with ui.row().classes("items-center gap-3 pt-1"):
+                                    with ui.row().classes("items-center gap-3 pt-1 flex-wrap"):
                                         order_input = ui.number(
                                             label="Cấp đạo hàm (n)",
                                             value=1,
                                             min=1,
                                             max=10,
                                             step=1,
-                                        ).classes("w-36 text-base")
+                                        ).classes("w-full sm:w-40 text-base")
                                         extra_controls["order"] = order_input
                                         ui.label("(n = 1: Đạo hàm bậc 1; n ≥ 2: Đạo hàm cấp cao)").classes(
-                                            "text-xs text-slate-400 self-center pt-2"
+                                            "text-xs text-slate-500 self-center"
                                         )
 
                                 # 3. Variable Selection: Adaptive for 1D/Algebra, Custom for Multivariable
@@ -450,12 +477,12 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                                 }
 
                                 if not is_matrix_op and not has_custom_multivar:
-                                    with ui.column().classes("w-full gap-2 pt-1"):
+                                    with ui.column().classes("w-full gap-2 pt-1 min-w-0"):
                                         with ui.row().classes("items-center gap-3 flex-wrap"):
                                             var_input = ui.input(
-                                                label="Biến số / biến vi phân",
+                                                label="Biến số",
                                                 value=current_op.target_var,
-                                            ).classes("w-36 text-base font-mono")
+                                            ).classes("w-full sm:w-36 text-base font-mono")
                                             extra_controls["target_var"] = var_input
                                             render_adaptive_variable_selector(current_op, var_input)
 
@@ -495,12 +522,12 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                                                 options=["Vô hướng (f ds)", "Trường vectơ (F·dr)"],
                                                 value="Vô hướng (f ds)",
                                                 label="Kiểu tích phân",
-                                            ).classes("w-52")
+                                            ).classes("w-full sm:w-52")
                                             line_orient = ui.select(
                                                 options=["Hướng thuận (+t)", "Hướng nghịch (-t)"],
                                                 value="Hướng thuận (+t)",
                                                 label="Định hướng cung C",
-                                            ).classes("w-44")
+                                            ).classes("w-full sm:w-44")
                                             extra_controls["line_mode"] = line_mode
                                             extra_controls["orientation"] = line_orient
 
@@ -535,17 +562,17 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                                                 options=["Vô hướng (f dS)", "Thông lượng vectơ (F·n dS)"],
                                                 value="Vô hướng (f dS)",
                                                 label="Kiểu tích phân mặt",
-                                            ).classes("w-56")
+                                            ).classes("w-full sm:w-56")
                                             surf_orient = ui.select(
                                                 options=["Pháp tuyến hướng lên (Upward / +k)", "Pháp tuyến hướng xuống (Downward / -k)"],
                                                 value="Pháp tuyến hướng lên (Upward / +k)",
                                                 label="Định hướng mặt S",
-                                            ).classes("w-60")
+                                            ).classes("w-full sm:w-60")
                                             surf_type = ui.select(
                                                 options=["Mặt đồ thị: z = g(x, y)", "Mặt tham số: r(u, v)"],
                                                 value="Mặt đồ thị: z = g(x, y)",
                                                 label="Hình học mặt S",
-                                            ).classes("w-56")
+                                            ).classes("w-full sm:w-56")
                                             extra_controls["surf_mode"] = surf_mode
                                             extra_controls["orientation"] = surf_orient
                                             extra_controls["surface_type"] = surf_type
@@ -610,6 +637,11 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                                                             extra_controls["u_max"] = u_max
                                                             extra_controls["v_min"] = v_min
                                                             extra_controls["v_max"] = v_max
+                                                    for dyn_k in (
+                                                        "param_x", "param_y", "param_z", "surface_expr",
+                                                        "u_var", "u_min", "u_max", "v_var", "v_min", "v_max",
+                                                    ):
+                                                        _bind_dynamic_input(extra_controls.get(dyn_k))
 
                                             update_surf_geo_fields()
                                             surf_type.on_value_change(lambda: update_surf_geo_fields())
@@ -627,7 +659,7 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                                                 options=["Tọa độ Descartes (x, y, z)", "Tọa độ trụ (r, θ, z)", "Tọa độ cầu (ρ, φ, θ)"],
                                                 value="Tọa độ Descartes (x, y, z)",
                                                 label="Hệ tọa độ",
-                                            ).classes("w-64")
+                                            ).classes("w-full sm:w-64")
                                             extra_controls["coord_system"] = coord_sel
 
                                         triple_bounds_box = ui.column().classes("w-full gap-2 mt-1")
@@ -695,6 +727,12 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                                                             extra_controls["y_max"] = y_max
                                                             extra_controls["z_min"] = z_min
                                                             extra_controls["z_max"] = z_max
+                                                    for dyn_k in (
+                                                        "x_min", "x_max", "y_min", "y_max", "z_min", "z_max",
+                                                        "th_min", "th_max", "r_min", "r_max",
+                                                        "phi_min", "phi_max", "rho_min", "rho_max",
+                                                    ):
+                                                        _bind_dynamic_input(extra_controls.get(dyn_k))
 
                                             update_triple_bounds()
                                             coord_sel.on_value_change(lambda: update_triple_bounds())
@@ -812,36 +850,28 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                                             extra_controls["direction"] = dir_select
 
                                         # Quick limit points toolbar
-                                        with ui.row().classes("items-center gap-1.5 pt-0.5 flex-wrap"):
-                                            ui.label("Điểm đặc biệt:").classes("text-xs text-slate-500 font-semibold")
-                                            limit_presets = [("0", "0"), ("+∞", "oo"), ("-∞", "-oo"), ("1", "1")]
-                                            for p_lbl, p_val in limit_presets:
-                                                ui.chip(
-                                                    p_lbl,
-                                                    on_click=lambda _, v=p_val: point_input.set_value(v),
-                                                ).classes(
-                                                    "cursor-pointer hover:bg-blue-100 text-xs px-2.5 py-0.5 rounded-full font-mono bg-slate-100 border border-slate-200 text-slate-800 transition-colors"
-                                                )
+                                        render_example_chips(
+                                            [("0", "0"), ("+∞", "oo"), ("-∞", "-oo"), ("1", "1")],
+                                            on_select=lambda v: point_input.set_value(v),
+                                            label="Điểm đặc biệt:",
+                                        )
 
                             # Section C: Example Chips
                             if current_op.examples:
-                                with ui.row().classes("items-center gap-2 pt-1 flex-wrap"):
-                                    ui.label("Ví dụ mẫu:").classes("text-xs text-slate-500 font-semibold")
-                                    for label, val in current_op.examples:
-                                        ui.chip(
-                                            label,
-                                            on_click=lambda _, v=val: expr_input.set_value(v),
-                                        ).classes(
-                                            "cursor-pointer hover:bg-blue-100 text-xs px-2.5 py-0.5 rounded-full font-mono bg-slate-100 border border-slate-200 text-slate-800 transition-colors"
-                                        )
+                                def _apply_example(val: str) -> None:
+                                    expr_input.set_value(val)
+                                    results_container.clear()
+
+                                render_example_chips(
+                                    current_op.examples,
+                                    on_select=_apply_example,
+                                    label="Ví dụ mẫu:",
+                                )
 
                             # Section D: Primary Action & Reset
-                            calc_button_label = "GIẢI PHƯƠNG TRÌNH" if is_calculus else "GIẢI PHÉP TOÁN MA TRẬN"
-                            btn_icon = (
-                                "calculate"
-                                if current_op.problem_type == ProblemType.SOLVE_EQUATION
-                                else ("grid_view" if is_matrix_op else "functions")
-                            )
+                            action_spec = get_primary_action_spec(current_op.problem_type)
+                            calc_button_label = action_spec.label
+                            btn_icon = action_spec.icon
 
                             with ui.row().classes("w-full items-center justify-between pt-3 border-t border-slate-100 flex-wrap gap-2"):
                                 def _handle_reset() -> None:
@@ -989,27 +1019,25 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                                         if "z_max" in extra_controls and hasattr(extra_controls["z_max"], "set_value"):
                                             extra_controls["z_max"].set_value("1")
 
-                                    # 15. Optional ODE controls
-                                    if "initial_condition" in extra_controls and hasattr(extra_controls["initial_condition"], "set_value"):
-                                        extra_controls["initial_condition"].set_value("")
-                                    if "y1" in extra_controls and hasattr(extra_controls["y1"], "set_value"):
-                                        extra_controls["y1"].set_value("")
-
-                                    # 16. Clear results container
+                                    # 15. Clear results container
                                     results_container.clear()
 
-                                ui.button("Nhập lại", icon="refresh", on_click=_handle_reset).props("flat dense no-caps").classes(
-                                    "text-xs text-slate-500 font-semibold hover:text-slate-800"
+                                ui.button("Nhập lại", icon="refresh", on_click=_handle_reset).props(
+                                    'flat dense no-caps aria-label="Khôi phục dữ liệu nhập mặc định"'
+                                ).classes(
+                                    "text-xs text-slate-600 font-semibold hover:text-slate-900 rounded-lg px-2 py-1"
                                 )
                                 solve_button = primary_button(
                                     text=calc_button_label,
                                     icon=btn_icon,
+                                    aria_label=action_spec.aria_label,
                                 )
 
                         # Results & Analysis Container for generic operations
-                        results_container = ui.column().classes("w-full gap-5")
+                        results_container = ui.column().classes("w-full gap-5 min-w-0")
+                        results_box_ref[0] = results_container
 
-                        # Submission handler with debounce flag
+                        # Submission handler with debounce & button lock
                         is_submitting = False
 
                         async def handle_submit() -> None:
@@ -1017,23 +1045,23 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                             if is_submitting:
                                 return
                             is_submitting = True
+                            solve_button.disable()
                             try:
                                 results_container.clear()
                                 raw_val = expr_input.value.strip()
 
                                 if not raw_val:
                                     with results_container:
-                                        with ui.card().classes("w-full p-4 border border-amber-200 bg-amber-50 text-amber-900 rounded-xl"):
-                                            with ui.row().classes("items-center gap-2"):
-                                                ui.icon("warning", color="warning")
-                                                ui.label("Dữ liệu không được để trống. Vui lòng nhập dữ liệu trước khi thực hiện.").classes("text-sm font-semibold")
+                                        render_feedback_card(
+                                            title="Dữ liệu đầu vào trống",
+                                            messages=["Dữ liệu không được để trống. Vui lòng nhập dữ liệu trước khi thực hiện."],
+                                            variant="warning",
+                                        )
                                     return
 
                                 # Loading indicator
                                 with results_container:
-                                    with ui.card().classes("w-full p-6 border border-slate-200 bg-white rounded-xl shadow-xs text-center items-center justify-center"):
-                                        ui.spinner("dots", size="2.5rem", color="primary")
-                                        ui.label("Đang giải toán và thực hiện kiểm định độc lập...").classes("text-sm font-medium text-slate-600 mt-2")
+                                    render_loading_card("Đang giải toán và thực hiện kiểm định độc lập...")
 
                                 # Request parameters
                                 params: dict[str, Any] = {}
@@ -1130,10 +1158,11 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                                 except Exception as exc:
                                     results_container.clear()
                                     with results_container:
-                                        with ui.card().classes("w-full p-4 border border-red-200 bg-red-50 text-red-900 rounded-xl"):
-                                            with ui.row().classes("items-center gap-2"):
-                                                ui.icon("error", color="negative")
-                                                ui.label(f"Lỗi thực thi hệ thống: {exc}").classes("text-sm font-semibold")
+                                        render_feedback_card(
+                                            title="Lỗi thực thi hệ thống",
+                                            messages=[f"Lỗi thực thi hệ thống: {exc}"],
+                                            variant="error",
+                                        )
                                     return
 
                                 results_container.clear()
@@ -1141,15 +1170,19 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                                     render_solution_view(response, current_op, target_var, params)
                             finally:
                                 is_submitting = False
+                                solve_button.enable()
 
+                        submit_handler_ref[0] = handle_submit
                         solve_button.on_click(handle_submit)
                         expr_input.on("keydown.enter", handle_submit)
                         expr_input.on("input", lambda: results_container.clear())
 
-                        # Support Enter key submission on all parameter controls
+                        # Clear stale results and support Enter submission across dynamic & static parameter controls
                         for ctrl in extra_controls.values():
-                            if hasattr(ctrl, "on"):
-                                ctrl.on("keydown.enter", handle_submit)
+                            _bind_dynamic_input(ctrl)
+
+                        if req_auto:
+                            ui.timer(0.2, handle_submit, once=True)
 
             # Initial Render
             render_current_screen()

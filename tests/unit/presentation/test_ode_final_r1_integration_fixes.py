@@ -309,7 +309,8 @@ def test_blocker3_deep_link_routing(op_param: str, expect_ode_workspace: bool) -
         assert "NHẬP PHƯƠNG TRÌNH" in all_text or "Cấp 1" in all_text or "Cấp 2" in all_text
         if op_param == "ode_euler_cauchy":
             assert "Euler–Cauchy" in all_text
-            assert "PHÂN LOẠI PHƯƠNG TRÌNH:" in all_text
+            assert "PHÂN TÍCH TỰ ĐỘNG" in all_text
+            assert "Đổi phân loại thủ công" in all_text
     else:
         assert "Biểu thức toán học f(x)" in all_text
 

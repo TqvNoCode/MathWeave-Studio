@@ -399,13 +399,15 @@ def test_ux3_2_screen_b_routes_all_five_first_order_operations_to_unified_worksp
         ]
         assert len(order_cards) == 2, f"Expected 2 order selection cards for {pt}"
 
-        # Verify First-Order guided workflow is rendered without manual override buttons
+        # Verify First-Order guided workflow renders semantic analysis sections without manual override buttons
         all_text = " ".join([
             el.text for el in client.elements.values()
             if isinstance(el, (ui.label, ui.badge, ui.button)) and el.text
         ])
-        assert "TỰ ĐỘNG PHÂN LOẠI TOÁN HỌC:" in all_text
-        assert "PHƯƠNG PHÁP GIẢI KHUYẾN NGHỊ:" in all_text
+        assert "NHẬP BÀI TOÁN" in all_text
+        assert "PHÂN TÍCH TỰ ĐỘNG" in all_text
+        assert "CƠ SỞ PHÂN LOẠI" in all_text
+        assert "PHƯƠNG PHÁP ĐỀ XUẤT" in all_text
 
         # Verify Solve button is "GIẢI PHƯƠNG TRÌNH"
         buttons = [el.text for el in client.elements.values() if isinstance(el, ui.button)]
@@ -460,7 +462,8 @@ def test_ux3_2_screen_b_second_order_returns_to_first_order_route():
                 listener.handler(None)
             break
 
-    # Screen B should now render the First-Order unified guided workspace
+    # Screen B should now render the First-Order unified guided workspace with semantic headers
     all_text = " ".join([el.text for el in client.elements.values() if isinstance(el, (ui.label, ui.badge, ui.button)) and el.text])
-    assert "TỰ ĐỘNG PHÂN LOẠI TOÁN HỌC:" in all_text
-    assert "PHƯƠNG PHÁP GIẢI KHUYẾN NGHỊ:" in all_text
+    assert "NHẬP BÀI TOÁN" in all_text
+    assert "PHÂN TÍCH TỰ ĐỘNG" in all_text
+    assert "PHƯƠNG PHÁP ĐỀ XUẤT" in all_text

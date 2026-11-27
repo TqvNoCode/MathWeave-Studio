@@ -23,6 +23,7 @@ from math_app.presentation.components.workspace.ode.ode_state import (
     ODEOrder,
     ODEState,
 )
+from math_app.presentation.design_system.tokens import INTERACTION
 
 
 def render_ode_guided_classification_view(
@@ -87,15 +88,15 @@ def render_ode_guided_classification_view(
     with ui.column().classes("w-full gap-4 mt-1"):
 
         # =====================================================================
-        # STEP 2: Automatic Classification & Canonical Form
+        # SECTION: PHÂN TÍCH TỰ ĐỘNG (Automatic Classification & Canonical Form)
         # =====================================================================
         with ui.card().classes(
-            "w-full p-4 md:p-5 border border-blue-200 bg-gradient-to-br from-blue-50/70 via-white to-slate-50/80 rounded-xl shadow-xs gap-3 min-w-0"
+            "w-full p-4 border border-blue-200 bg-blue-50/40 rounded-xl shadow-xs gap-3 min-w-0"
         ):
-            with ui.row().classes("items-center justify-between w-full flex-wrap gap-2 border-b border-blue-100 pb-2.5"):
+            with ui.row().classes("items-center justify-between w-full flex-wrap gap-2 border-b border-blue-100 pb-2"):
                 with ui.row().classes("items-center gap-2"):
-                    ui.badge("BƯỚC 2", color="primary").classes("text-xs font-bold")
-                    ui.label("TỰ ĐỘNG PHÂN LOẠI TOÁN HỌC:").classes(
+                    ui.icon("analytics", size="1.15rem").classes("text-blue-600")
+                    ui.label("PHÂN TÍCH TỰ ĐỘNG").classes(
                         "text-xs font-bold text-slate-800 uppercase tracking-wider"
                     )
                 with ui.row().classes("items-center gap-1.5 flex-wrap"):
@@ -104,11 +105,11 @@ def render_ode_guided_classification_view(
                         status_badge(f"Đồng thời là: {add_c['title']}", variant="neutral")
 
             # Canonical Form Box
-            with ui.row().classes("w-full items-center justify-between bg-white border border-slate-200 rounded-lg p-3 gap-3 flex-wrap"):
-                with ui.column().classes("gap-1 min-w-[200px]"):
+            with ui.row().classes("w-full items-center justify-between bg-white border border-slate-200 rounded-lg p-3 gap-3 flex-wrap min-w-0"):
+                with ui.column().classes("gap-1 min-w-0 flex-1"):
                     ui.label("Dạng chuẩn tắc tương ứng:").classes("text-xs font-semibold text-slate-500 uppercase")
                     ui_math(result.canonical_form_latex, block=False, classes="text-base md:text-lg font-bold text-slate-900")
-                with ui.badge(color="blue-1").classes("text-blue-900 text-xs px-2.5 py-1 rounded-md font-mono"):
+                with ui.badge(color="blue-1").classes("text-blue-900 text-xs px-2.5 py-1 rounded-md font-mono shrink-0"):
                     ui.label(f"Bậc đạo hàm: Cấp {result.detected_order}")
 
             # Variable and Parameter Roles
@@ -187,31 +188,50 @@ def render_ode_guided_classification_view(
                         ui_math(result.g_sep_latex or "1", block=False, classes="text-sm font-bold text-slate-800")
 
         # =====================================================================
-        # STEP 3: Explanation of Why the Classification is Valid
+        # SECTION: CƠ SỞ PHÂN LOẠI (Classification Reasoning — Progressive Disclosure)
         # =====================================================================
-        with ui.card().classes("w-full p-4 md:p-5 border border-slate-200 bg-white rounded-xl shadow-xs gap-2.5 min-w-0"):
-            with ui.row().classes("items-center gap-2 border-b border-slate-100 pb-2"):
-                ui.badge("BƯỚC 3", color="primary").classes("text-xs font-bold")
-                ui.label("CƠ SỞ VÀ LÝ LẼ PHÂN LOẠI TOÁN HỌC:").classes(
-                    "text-xs font-bold text-slate-800 uppercase tracking-wider"
+        with ui.card().classes("w-full p-3.5 md:p-4 border border-slate-200 bg-white rounded-xl shadow-xs gap-2 min-w-0"):
+            details_state = {"expanded": False}
+
+            with ui.row().classes("items-center justify-between w-full flex-wrap gap-2"):
+                with ui.row().classes("items-center gap-2"):
+                    ui.icon("fact_check", size="1.15rem").classes("text-blue-600")
+                    ui.label("CƠ SỞ PHÂN LOẠI").classes(
+                        "text-xs font-bold text-slate-800 uppercase tracking-wider"
+                    )
+                toggle_btn = (
+                    ui.button("Xem lý lẽ chi tiết", icon="unfold_more")
+                    .props('outline dense no-caps aria-expanded="false" aria-label="Mở rộng hoặc thu gọn cơ sở phân loại toán học"')
+                    .classes(f"text-xs text-blue-700 border-blue-200 rounded-lg px-2.5 py-1 {INTERACTION.FOCUS_RING}")
                 )
 
-            with ui.column().classes("gap-2 w-full pt-1"):
+            details_col = ui.column().classes("gap-2 w-full pt-2 border-t border-slate-100")
+            details_col.set_visibility(False)
+            with details_col:
                 for point in result.explanation_points:
                     with ui.row().classes("items-start gap-2"):
                         ui.icon("check_circle", size="1.1rem").classes("text-emerald-600 mt-0.5 shrink-0")
                         ui_math_text(point, classes="text-xs md:text-sm text-slate-700 leading-relaxed")
 
+            def _toggle_details() -> None:
+                details_state["expanded"] = not details_state["expanded"]
+                is_open = details_state["expanded"]
+                details_col.set_visibility(is_open)
+                toggle_btn.props(f'icon={"unfold_less" if is_open else "unfold_more"} aria-expanded={"true" if is_open else "false"}')
+                toggle_btn.set_text("Ẩn lý lẽ chi tiết" if is_open else "Xem lý lẽ chi tiết")
+
+            toggle_btn.on_click(_toggle_details)
+
         # =====================================================================
-        # STEP 4: Recommended Solving Method
+        # SECTION: PHƯƠNG PHÁP ĐỀ XUẤT (Recommended Solving Method)
         # =====================================================================
         with ui.card().classes(
-            "w-full p-4 md:p-5 border-2 border-blue-200 bg-gradient-to-r from-blue-50/90 via-sky-50/60 to-white rounded-xl shadow-xs gap-3 min-w-0"
+            "w-full p-3.5 md:p-4 border border-blue-200 bg-blue-50/40 rounded-xl shadow-xs gap-2.5 min-w-0"
         ):
-            with ui.row().classes("items-center justify-between w-full flex-wrap gap-2 border-b border-blue-200/80 pb-2.5"):
+            with ui.row().classes("items-center justify-between w-full flex-wrap gap-2 border-b border-blue-100 pb-2"):
                 with ui.row().classes("items-center gap-2"):
-                    ui.badge("BƯỚC 4", color="primary").classes("text-xs font-bold")
-                    ui.label("PHƯƠNG PHÁP GIẢI KHUYẾN NGHỊ:").classes(
+                    ui.icon("stars", size="1.15rem").classes("text-blue-600")
+                    ui.label("PHƯƠNG PHÁP ĐỀ XUẤT").classes(
                         "text-xs font-bold text-blue-950 uppercase tracking-wider"
                     )
                 with ui.badge(color="blue-2").classes("text-blue-900 text-xs px-2.5 py-0.5 rounded-full font-bold"):
@@ -219,6 +239,6 @@ def render_ode_guided_classification_view(
 
             with ui.column().classes("gap-1.5 w-full"):
                 with ui.row().classes("items-center gap-2"):
-                    ui.icon("stars", size="1.3rem").classes("text-blue-600")
+                    ui.icon("stars", size="1.25rem").classes("text-blue-600")
                     ui.label(result.recommended_method_title).classes("text-sm md:text-base font-bold text-blue-900")
-                ui_math_text(result.recommended_method_reason, classes="text-xs md:text-sm text-slate-700 leading-relaxed pl-7")
+                ui_math_text(result.recommended_method_reason, classes="text-xs md:text-sm text-slate-700 leading-relaxed sm:pl-7")

@@ -11,6 +11,8 @@ from math_app.presentation.components.operation_catalog import OperationDef
 def get_variable_pool_for_operation(op: OperationDef) -> list[str]:
     """Return the context-appropriate variable choices for a mathematical operation."""
     pt = op.problem_type
+    if pt.is_ode:
+        return ["t", "x"]
     if pt == ProblemType.PARTIAL_DERIVATIVE:
         return ["x", "y", "z"]
     if pt == ProblemType.SOLVE_EQUATION:
@@ -42,9 +44,9 @@ def render_adaptive_variable_selector(
 
     active_classes = "bg-blue-600 !bg-blue-600 text-white !text-white font-bold !font-bold shadow-xs"
     inactive_classes = "bg-white !bg-white text-slate-700 !text-slate-700 hover:!bg-blue-50 hover:!text-blue-700 border border-slate-300"
-    base_classes = "text-xs px-2.5 py-1 min-w-[32px] rounded-lg font-mono transition-all cursor-pointer"
+    base_classes = "text-xs px-2.5 py-1 min-w-[36px] min-h-[32px] rounded-lg font-mono transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-500"
 
-    with ui.row().classes("items-center gap-3 w-full flex-wrap pt-1") as row:
+    with ui.row().classes("items-center gap-3 flex-wrap pt-1 min-w-0") as row:
         with ui.row().classes("items-center gap-2"):
             ui.icon("tune", size="1.1rem").classes("text-slate-400")
             label_text = "Biến khảo sát:"

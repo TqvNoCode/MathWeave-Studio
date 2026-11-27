@@ -192,4 +192,24 @@ class TypographyTokens:
     CODE_INLINE: str = "font-mono text-xs font-medium bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded"
 
 
+# ---------------------------------------------------------------------------
+# 6. COMPONENT SURFACE & FOCUS TOKENS
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class InteractionTokens:
+    """Consistent keyboard focus ring and interactive chip surface tokens."""
+
+    FOCUS_RING: str = (
+        "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+    )
+    CHIP_SURFACE: str = (
+        "bg-slate-100 !bg-slate-100 hover:!bg-blue-50 text-slate-800 !text-slate-800 "
+        "hover:!text-blue-900 border border-slate-300 hover:!border-blue-400"
+    )
+    SUBSECTION_SURFACE: str = "w-full p-3.5 bg-slate-50/90 border border-slate-200 rounded-xl"
+    HIGHLIGHT_SURFACE: str = "w-full p-3.5 bg-blue-50/60 border border-blue-200 rounded-xl"
+
+
+INTERACTION = InteractionTokens()
 TYPOGRAPHY = TypographyTokens()

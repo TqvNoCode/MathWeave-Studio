@@ -287,7 +287,7 @@ def classify_first_order_ode(
             primary_title = "Phương trình vi phân tuyến tính không thuần nhất cấp 1"
             canon_latex = f"{dep_name}' + p({var_name}){dep_name} = g({var_name})"
             target_pt = ProblemType.ODE_FIRST_ORDER_LINEAR
-            explanation.append(f"Vế phải khác không: $g({var_name}) = {g_latex} \\neq 0$ (phương trình có ngoại lực/hàm cưỡng bức).")
+            explanation.append(f"Vế phải không triệt tiêu (không đồng nhất bằng không): $g({var_name}) = {g_latex} \\not\\equiv 0$ (phương trình có ngoại lực/hàm cưỡng bức).")
             explanation.append(f"Các thành phần trích xuất: $p({var_name}) = {p_latex}$ và $g({var_name}) = {g_latex}$.")
 
             rec_method_id = "INTEGRATING_FACTOR"
@@ -313,7 +313,7 @@ def classify_first_order_ode(
                 })
 
             guide.extend([
-                "Dấu hiệu nhận biết: Có dạng $y' + p(t)y = g(t)$. Số hạng tự do $g(t) \\neq 0$.",
+                "Dấu hiệu nhận biết: Có dạng $y' + p(t)y = g(t)$ với hàm tự do $g(t) \\not\\equiv 0$.",
                 "Quy tắc giải chuẩn: 1. Tìm $\\mu(t) = e^{\\int p(t)dt}$; 2. Nhân hai vế với $\\mu(t)$; 3. Tích phân hai vế: $\\mu(t)y = \\int \\mu(t)g(t)dt + C$.",
             ])
 

@@ -32,6 +32,7 @@ from math_app.presentation.components.operation_catalog import (
     get_operation_by_type,
     get_second_order_examples,
 )
+from math_app.presentation.components.shared import get_primary_action_spec
 from math_app.presentation.components.workspace.ode import (
     DEFAULT_CONFIGS,
     ODEClassification,
@@ -159,9 +160,10 @@ def test_category_a_all_nine_ode_operations_route_to_unified_workspace():
         ]
         assert len(order_cards) >= 2, f"Unified workspace order cards missing for {pt}"
 
-        # Solve button must be "GIẢI PHƯƠNG TRÌNH"
+        # Solve button must match module-specific primary action label
         buttons = [el.text for el in client.elements.values() if isinstance(el, ui.button)]
-        assert "GIẢI PHƯƠNG TRÌNH" in buttons, f"Unified solve button missing for {pt}"
+        expected_label = get_primary_action_spec(pt).label
+        assert expected_label in buttons, f"Expected solve button '{expected_label}' missing for {pt}"
 
         # Legacy wizard toolbar / step indicators must NOT exist
         labels = [el.text for el in client.elements.values() if isinstance(el, ui.label)]
@@ -178,11 +180,11 @@ def test_category_a_second_order_wizard_completely_unmounted():
     assert "← Quay lại danh mục" not in buttons
     assert "← Phương trình vi phân cấp 1" not in buttons
 
-    # The workspace must be render_ode_workspace with Academic Blue Step Badges
-    badges = [el.text for el in client.elements.values() if isinstance(el, ui.badge)]
-    assert "BƯỚC 1" in badges
-    assert "BƯỚC 2" in badges
-    assert "BƯỚC 3" in badges
+    # The workspace must be render_ode_workspace with semantic equation-first sections (no legacy wizard)
+    labels = [el.text for el in client.elements.values() if isinstance(el, ui.label) and el.text]
+    assert "NHẬP BÀI TOÁN" in labels
+    assert "PHÂN TÍCH TỰ ĐỘNG" in labels
+    assert "YÊU CẦU BÀI TOÁN:" in labels
 
 
 def test_category_a_step_1_order_switching_in_place():
@@ -208,10 +210,11 @@ def test_category_a_step_1_order_switching_in_place():
                 listener.handler(None)
             break
 
-    # Now First-Order workflow is visible
+    # Now First-Order workflow is visible with semantic analysis sections
     all_text_fo = " ".join([el.text for el in client.elements.values() if isinstance(el, (ui.label, ui.badge, ui.button)) and el.text])
-    assert "TỰ ĐỘNG PHÂN LOẠI TOÁN HỌC:" in all_text_fo
-    assert "PHƯƠNG PHÁP GIẢI KHUYẾN NGHỊ:" in all_text_fo
+    assert "NHẬP BÀI TOÁN" in all_text_fo
+    assert "PHÂN TÍCH TỰ ĐỘNG" in all_text_fo
+    assert "PHƯƠNG PHÁP ĐỀ XUẤT" in all_text_fo
 
     # Switch back to Cấp 2
     order_cards_fo = [
@@ -550,7 +553,7 @@ async def test_category_g_real_ui_submission_homogeneous_general():
     _navigate_to_op(client, ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF)
 
     # Click Solve button
-    solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == "GIẢI PHƯƠNG TRÌNH"][0]
+    solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == "GIẢI PHƯƠNG TRÌNH VI PHÂN CẤP 2"][0]
     for listener in list(solve_btn._event_listeners.values()):
         if listener.type in ("click", None):
             with client:
@@ -609,7 +612,7 @@ async def test_category_g_real_ui_submission_nonhomogeneous_cauchy_ivp():
         ic_input.set_value("y(0) = 1, y'(0) = 0")
 
     # Click Solve button
-    solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == "GIẢI PHƯƠNG TRÌNH"][0]
+    solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == "GIẢI PHƯƠNG TRÌNH VI PHÂN CẤP 2"][0]
     for listener in list(solve_btn._event_listeners.values()):
         if listener.type in ("click", None):
             with client:
@@ -645,7 +648,7 @@ async def test_category_g_real_ui_submission_reduction_of_order():
     _navigate_to_op(client, ProblemType.ODE_REDUCTION_OF_ORDER)
 
     # Click Solve button
-    solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == "GIẢI PHƯƠNG TRÌNH"][0]
+    solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == "GIẢI PHƯƠNG TRÌNH VI PHÂN CẤP 2"][0]
     for listener in list(solve_btn._event_listeners.values()):
         if listener.type in ("click", None):
             with client:
@@ -679,7 +682,7 @@ async def test_category_g_real_ui_submission_wronskian():
     _navigate_to_op(client, ProblemType.WRONSKIAN)
 
     # Click Solve button
-    solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == "GIẢI PHƯƠNG TRÌNH"][0]
+    solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == "TÍNH ĐỊNH THỨC WRONSKIAN"][0]
     for listener in list(solve_btn._event_listeners.values()):
         if listener.type in ("click", None):
             with client:

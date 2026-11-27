@@ -96,7 +96,7 @@ class ODEClassification(str, Enum):
             ODEClassification.EXACT: "Vi phân toàn phần (Exact)",
             ODEClassification.INTEGRATING_FACTOR: "Thừa số tích phân (μ)",
             ODEClassification.SECOND_ORDER_HOMOGENEOUS: "Thuần nhất: g(t) = 0",
-            ODEClassification.SECOND_ORDER_NONHOMOGENEOUS: "Không thuần nhất: g(t) ≠ 0",
+            ODEClassification.SECOND_ORDER_NONHOMOGENEOUS: "Không thuần nhất: g(t) ≢ 0",
             ODEClassification.EULER_CAUCHY: "Euler–Cauchy",
             ODEClassification.REDUCTION_OF_ORDER: "Hạ bậc nghiệm (y₂ = v·y₁)",
             ODEClassification.WRONSKIAN: "Định thức Wronskian",
@@ -397,8 +397,11 @@ class ODEState:
 
         cfg = DEFAULT_CONFIGS[new_classification]
 
-        # Never preserve equation when switching to or from an advanced tool (Wronskian, Reduction of Order)
-        if new_classification.is_advanced_tool or self.classification.is_advanced_tool:
+        # Never preserve equation when switching to or from Wronskian (non-ODE pair input)
+        if (
+            new_classification == ODEClassification.WRONSKIAN
+            or self.classification == ODEClassification.WRONSKIAN
+        ):
             preserve_equation = False
 
         # Preserve custom user equation if switching between homogeneous and nonhomogeneous or if explicitly requested
@@ -426,8 +429,8 @@ class ODEState:
             mode=ODEMode.GENERAL if new_classification.is_advanced_tool else self.mode,
             equation=eq_to_use,
             target_var=target_v,
-            initial_condition="" if self.mode == ODEMode.GENERAL else self.initial_condition,
-            known_solution="",
+            initial_condition="" if (self.mode == ODEMode.GENERAL or new_classification.is_advanced_tool) else self.initial_condition,
+            known_solution=self.known_solution if (preserve_equation and new_classification == ODEClassification.REDUCTION_OF_ORDER) else "",
             method_preference=self.method_preference,
             initial_condition_draft=self.initial_condition_draft or self.initial_condition,
         )

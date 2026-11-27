@@ -35,12 +35,13 @@ def status_badge(
         token = SEMANTIC.NEUTRAL
 
     base_classes = (
-        f"text-xs px-2.5 py-1 font-semibold {RADIUS.FULL} border inline-flex items-center gap-1"
+        f"text-xs px-2.5 py-1 font-semibold {RADIUS.FULL} border inline-flex items-center gap-1 "
+        "whitespace-normal max-w-full leading-snug text-left"
     )
     style = f"background-color: {token.bg}; border-color: {token.border}; color: {token.text};"
     combined_classes = f"{base_classes} {classes}".strip() if classes else base_classes
 
-    badge = ui.badge(text).classes(combined_classes).style(style)
+    badge = ui.badge(text, color=None).classes(combined_classes).style(style)
     if tooltip:
         with badge:
             ui.tooltip(tooltip)

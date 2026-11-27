@@ -228,6 +228,55 @@ def get_head_html() -> str:
         .prose-text {
             overflow-wrap: break-word;
             word-break: normal;
+            max-width: 100%;
+            min-width: 0;
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+
+        /* Accessibility: Visible Keyboard Focus Ring */
+        button:focus-visible,
+        a:focus-visible,
+        input:focus-visible,
+        [role="button"]:focus-visible,
+        .q-btn:focus-visible,
+        .q-chip:focus-visible {
+            outline: 2px solid #2563eb !important;
+            outline-offset: 2px !important;
+        }
+
+        /* Prevent unintended flex/grid horizontal overflow across narrow viewports */
+        .q-card, .nicegui-card, .nicegui-row, .nicegui-column {
+            min-width: 0;
+        }
+
+        .q-field {
+            min-width: 0;
+            max-width: 100%;
+        }
+
+        /* Allow long Vietnamese example chips to wrap cleanly instead of clipping */
+        .mw-example-chip.q-chip {
+            height: auto !important;
+            min-height: 28px;
+            max-width: 100%;
+            white-space: normal !important;
+            line-height: 1.35 !important;
+            padding-top: 0.25rem !important;
+            padding-bottom: 0.25rem !important;
+        }
+
+        .mw-example-chip .q-chip__content {
+            white-space: normal !important;
+            overflow-wrap: anywhere;
+        }
+
+        .math-scroll-box {
+            overflow-x: auto !important;
+            overflow-y: hidden !important;
+            max-width: 100%;
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 transparent;
         }
 
         /* Responsive typography for mobile (<=640px) and tablet (<=768px) */
@@ -241,6 +290,9 @@ def get_head_html() -> str:
             }
             .q-card, .nicegui-card {
                 padding: 0.75rem !important;
+            }
+            .mw-page-shell {
+                padding: 0.65rem !important;
             }
         }
 
@@ -274,9 +326,27 @@ def get_head_html() -> str:
             visibility: hidden !important;
         }
 
-        /* Ensure MathML formulas have natural line height without vertical clipping */
+        /* Ensure MathML formulas have natural line height without vertical clipping,
+           while keeping KaTeX's screen-reader-only .katex-mathml strictly clipped to 1px
+           so invisible MathML never expands document scrollWidth on narrow viewports. */
         .math-tex math, .math-block math, .math-inline math {
             overflow: visible !important;
+        }
+
+        .katex {
+            position: relative;
+        }
+
+        .katex .katex-mathml {
+            overflow: hidden !important;
+            max-width: 1px !important;
+            max-height: 1px !important;
+            left: 0 !important;
+            top: 0 !important;
+        }
+
+        .katex .katex-mathml math {
+            overflow: hidden !important;
         }
 
         .math-container::-webkit-scrollbar,

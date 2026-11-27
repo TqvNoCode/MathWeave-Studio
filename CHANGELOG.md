@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-27
+
 ### Added
 - **Second-Order Euler–Cauchy ODE Solver (ODE-EC1)**:
   - Implemented dedicated `ODEEulerCauchySolver` for homogeneous second-order Euler–Cauchy equations $a t^2 y''(t) + b t y'(t) + c y(t) = 0$ ($a \neq 0$).
@@ -21,6 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Integrated into second-order ODE workspace UI with a dedicated Euler–Cauchy classification card, problem request builder, and pedagogical solution flow enhancer.
   - Rejected nonhomogeneous Euler–Cauchy equations with clear explanations to maintain mathematical boundaries.
   - Added comprehensive test coverage across all root cases, domains, Cauchy IVPs, singular point edge cases, and UI workflows.
+- **Equation-First Second-Order ODE Workspace & Live Classifier (`second_order_classifier.py`)**:
+  - Users enter the differential equation directly (`NHẬP BÀI TOÁN`) while the workspace automatically classifies Homogeneous Constant-Coefficient, Nonhomogeneous Constant-Coefficient (MUC vs. VoP recommendation), Homogeneous Euler–Cauchy, Reduction of Order, and Order-1 mismatches.
+  - Added secondary expandable manual override (`Đổi phân loại thủ công`) and override-recovery controls (`Ghi đè thủ công` / `Bật lại tự động`).
+- **Unified UI/UX Design System & Accessibility Across All 34 Operations (`docs/UI_UX_DESIGN_SYSTEM.md`)**:
+  - Standardized Academic Blue palette, typography, shared feedback cards (`render_loading_card`, `render_feedback_card`, `render_empty_state_card`), workspace identity headers (`render_workspace_header`), module-specific primary CTA labels (`action_labels.py`), and semantic pre-solve ODE headers (`NHẬP BÀI TOÁN`, `PHÂN TÍCH TỰ ĐỘNG`, `CƠ SỞ PHÂN LOẠI`, `PHƯƠNG PHÁP ĐỀ XUẤT`).
+  - Hardened responsive layout across `360px`–`1440px`, high-contrast badges/buttons (`>= 5.02:1`), keyboard focus rings, and ARIA roles.
+
+### Fixed
+- **ODE & Workspace Presentation Fixes**: Preserved user equations during First-Order ODE auto-align submission (`preserve_equation=True`); enforced truthful non-green `VerificationStatus` in Stage-4 pedagogical builders and Wronskian outputs ($W \equiv 0$); synchronized sticky nav titles without icon duplication; cleared one-shot deep-link query params across catalog navigation; cleared stale results on input/parameter edits; deduplicated single-step conclusions; resolved `.katex-mathml` mobile horizontal overflow and Quasar color overrides.
+- **Shutdown Lifecycle Dynamic-Port Test Fix**: Updated `test_clean_shutdown_after_page_load` to scan stdout lines for NiceGUI's bound `http://` URL instead of reading only the `[STARTUP]` header line.
 
 ## [0.2.0] - 2026-11-25
 

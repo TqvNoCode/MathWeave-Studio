@@ -6,10 +6,61 @@ with on-demand expandable detailed reasoning for individual terms (Layer B).
 
 from __future__ import annotations
 
+import re
+
 from nicegui import ui
 
 from math_app.application.dtos import SolutionStep
 from math_app.presentation.components.math_view import ui_math, ui_math_text
+from math_app.presentation.components.shared.feedback_cards import render_empty_state_card
+
+
+def _strip_outer_box(s: str) -> str:
+    """Strip outer \\boxed{...} or \\fbox{...} only if its closing brace terminates the string."""
+    s = s.strip()
+    for prefix in (r"\boxed{", r"\fbox{"):
+        if s.startswith(prefix):
+            depth = 0
+            for idx, ch in enumerate(s):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        if idx == len(s) - 1:
+                            return s[len(prefix) : -1].strip()
+                        break
+    return s
+
+
+def _norm_formula(tex: str) -> str:
+    """Normalize LaTeX string for safe deduplication comparisons."""
+    s = tex.strip()
+    if s.startswith("$") and s.endswith("$") and len(s) >= 2:
+        s = s[1:-1].strip()
+    s = _strip_outer_box(s)
+    return (
+        re.sub(r"\s+", "", s)
+        .replace(r"\left", "")
+        .replace(r"\right", "")
+        .replace(r"\,", "")
+        .replace(r"\;", "")
+    )
+
+
+def _is_single_step_duplicate(step: SolutionStep, final_answer_latex: str) -> bool:
+    """Return True when a 1-step derivation already displays the exact final answer formula."""
+    last_tex = step.equation_latex or (step.content.latex_after if step.content else "")
+    norm_last = _norm_formula(last_tex)
+    norm_final = _norm_formula(final_answer_latex)
+    if norm_last == norm_final:
+        return True
+    if "=" in final_answer_latex:
+        final_rhs = _norm_formula(final_answer_latex.split("=", 1)[1])
+        last_rhs = _norm_formula(last_tex.split("=", 1)[1]) if "=" in last_tex else norm_last
+        if final_rhs and final_rhs == last_rhs:
+            return True
+    return False
 
 
 def render_substep_compact(substep: SolutionStep) -> None:
@@ -59,7 +110,7 @@ def render_substep_compact(substep: SolutionStep) -> None:
 
 def render_step(step: SolutionStep, display_index: int | None = None) -> None:
     """Render an individual main derivation step (Layer A) with optional Layer B details."""
-    card_classes = "w-full min-w-0 max-w-full p-5 my-2.5 shadow-xs border border-slate-200 rounded-xl bg-white gap-3"
+    card_classes = "w-full min-w-0 max-w-full p-4 md:p-5 my-2 shadow-xs border border-slate-200 rounded-xl bg-white gap-3"
     step_title = step.display_title
     rule_name_vi = step.display_rule_name
 
@@ -88,7 +139,7 @@ def render_step(step: SolutionStep, display_index: int | None = None) -> None:
 
         # 2. Concise Pedagogical Explanation in Vietnamese (Layer A)
         if step.description:
-            ui_math_text(step.description, classes="text-xs md:text-sm text-slate-700 leading-relaxed mt-1")
+            ui_math_text(step.description, classes="w-full max-w-full min-w-0 text-xs md:text-sm text-slate-700 leading-relaxed mt-1")
 
         # 3. Step Assumptions / Conditions (e.g. Với n != -1)
         if step.assumptions:
@@ -102,15 +153,15 @@ def render_step(step: SolutionStep, display_index: int | None = None) -> None:
         # 4. Continuous Mathematical Transformation (Layer A - Always Visible)
         if step.equation_latex:
             with ui.column().classes(
-                "w-full min-w-0 max-w-full bg-slate-50/90 rounded-xl p-4 my-1 border border-slate-200/80 items-start overflow-x-auto"
+                "w-full min-w-0 max-w-full bg-slate-50/90 rounded-xl p-3.5 md:p-4 my-1 border border-slate-200/80 items-start math-scroll-box"
             ):
                 ui_math(step.equation_latex, block=True, classes="text-base md:text-lg text-slate-900 font-medium py-1")
         else:
             with ui.column().classes(
-                "w-full min-w-0 max-w-full bg-slate-50/90 rounded-xl p-3.5 my-1 border border-slate-200/80 gap-2 overflow-x-auto"
+                "w-full min-w-0 max-w-full bg-slate-50/90 rounded-xl p-3.5 my-1 border border-slate-200/80 gap-2 math-scroll-box"
             ):
                 with ui.row().classes("items-center justify-between w-full flex-wrap gap-4 min-w-0"):
-                    with ui.column().classes("gap-1 min-w-[200px] flex-1 min-w-0 overflow-x-auto"):
+                    with ui.column().classes("gap-1 min-w-0 sm:min-w-[200px] flex-1 math-scroll-box"):
                         ui.label("Trước biến đổi:").classes(
                             "text-[11px] font-bold text-slate-500 uppercase tracking-wider"
                         )
@@ -118,7 +169,7 @@ def render_step(step: SolutionStep, display_index: int | None = None) -> None:
 
                     ui.icon("arrow_forward", size="1.25rem").classes("text-blue-500 self-center hidden sm:block")
 
-                    with ui.column().classes("gap-1 min-w-[200px] flex-1 min-w-0 overflow-x-auto"):
+                    with ui.column().classes("gap-1 min-w-0 sm:min-w-[200px] flex-1 math-scroll-box"):
                         ui.label("Sau biến đổi:").classes(
                             "text-[11px] font-bold text-blue-700 uppercase tracking-wider"
                         )
@@ -131,9 +182,9 @@ def render_step(step: SolutionStep, display_index: int | None = None) -> None:
         # 5. Layer B: Detailed Reasoning on Demand (Compact Substeps)
         if step.substeps:
             with ui.expansion("Xem giải thích chi tiết các phép biến đổi", icon="unfold_more").classes(
-                "w-full mt-2 text-xs md:text-sm text-slate-700 bg-slate-50/70 rounded-xl border border-slate-200/70"
+                "w-full min-w-0 max-w-full overflow-hidden mt-2 text-xs md:text-sm text-slate-700 bg-slate-50/70 rounded-xl border border-slate-200/70"
             ):
-                with ui.column().classes("w-full p-3 gap-2.5"):
+                with ui.column().classes("w-full min-w-0 max-w-full p-3 gap-2.5"):
                     for substep in step.substeps:
                         render_substep_compact(substep)
 
@@ -144,13 +195,12 @@ def render_steps_container(
 ) -> None:
     """Render the full sequence of continuous derivation steps and final boxed conclusion."""
     if not steps:
-        with ui.card().classes("w-full p-4 border border-slate-200 bg-slate-50 rounded-xl text-center"):
-            ui.label("Không có bước phân rã nào được tạo cho phép toán này.").classes("text-slate-500 italic text-sm")
+        render_empty_state_card("Không có bước phân rã nào được tạo cho phép toán này.")
         return
 
-    with ui.column().classes("w-full gap-2 mt-4"):
+    with ui.column().classes("w-full gap-2 mt-4 min-w-0"):
         # Section Header with Accurate Step Count
-        with ui.row().classes("items-center justify-between w-full border-b border-slate-200 pb-2"):
+        with ui.row().classes("items-center justify-between w-full border-b border-slate-200 pb-2 flex-wrap gap-2"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("format_list_numbered", size="1.4rem").classes("text-blue-600")
                 ui.label("Trình tự giải chi tiết từng bước").classes("text-base md:text-lg font-bold text-slate-900")
@@ -162,23 +212,21 @@ def render_steps_container(
         for idx, step in enumerate(steps, start=1):
             render_step(step, display_index=idx)
 
-        # Final Conclusion in the Derivation Sequence
+        # Final Conclusion in the Derivation Sequence (skip when single step already displays exact result)
         if final_answer_latex and final_answer_latex.strip():
-            clean_conclusion = final_answer_latex.strip()
-            # Strip outer \boxed{...} or \fbox{...} if present so no inner box/border is rendered
-            if clean_conclusion.startswith(r"\boxed{") and clean_conclusion.endswith("}"):
-                clean_conclusion = clean_conclusion[7:-1].strip()
-            elif clean_conclusion.startswith(r"\fbox{") and clean_conclusion.endswith("}"):
-                clean_conclusion = clean_conclusion[6:-1].strip()
+            if len(steps) == 1 and _is_single_step_duplicate(steps[-1], final_answer_latex):
+                return
+            clean_conclusion = _strip_outer_box(final_answer_latex)
 
             with ui.card().classes(
-                "w-full p-4.5 my-2 border-2 border-blue-200 bg-gradient-to-r from-blue-50/80 to-indigo-50/60 rounded-xl gap-2 shadow-xs"
+                "w-full p-4 my-2 border border-blue-200 bg-gradient-to-r from-blue-50/80 to-indigo-50/60 rounded-xl gap-2 shadow-xs min-w-0"
             ):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("task_alt", color="primary", size="1.3rem")
                     ui.label("Kết luận:").classes("text-base font-bold text-blue-950")
-                ui_math(
-                    clean_conclusion,
-                    block=True,
-                    classes="conclusion-formula text-xl md:text-2xl font-bold text-blue-900 py-1",
-                )
+                with ui.column().classes("w-full math-scroll-box min-w-0"):
+                    ui_math(
+                        clean_conclusion,
+                        block=True,
+                        classes="conclusion-formula text-xl md:text-2xl font-bold text-blue-900 py-1",
+                    )

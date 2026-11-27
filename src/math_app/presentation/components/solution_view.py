@@ -13,6 +13,7 @@ from math_app.presentation.components.math_view import ui_math, ui_math_text
 from math_app.presentation.components.operation_catalog import (
     OperationDef,
 )
+from math_app.presentation.design_system.tokens import INTERACTION
 from math_app.presentation.components.problem_statement import (
     format_final_answer_latex,
     format_problem_statement_latex,
@@ -427,7 +428,7 @@ def render_solution_view(
             icon_name = "error"
             icon_color = "negative"
 
-        with ui.card().classes(f"w-full p-5 border {card_bg} rounded-xl shadow-xs"):
+        with ui.card().props('role="alert"').classes(f"w-full p-4 md:p-5 border {card_bg} rounded-xl shadow-xs min-w-0"):
             with ui.row().classes("items-center gap-2 mb-2"):
                 ui.icon(icon_name, color=icon_color, size="1.5rem")
                 label_color = (
@@ -482,7 +483,7 @@ def render_solution_view(
             p_params,
         )
         with ui.column().classes(
-            "w-full p-3 bg-slate-50 border border-slate-200 rounded-xl gap-1 min-w-0 max-w-full"
+            "w-full p-3 bg-slate-50 border border-slate-200 rounded-xl gap-1 min-w-0 max-w-full math-scroll-box"
         ):
             ui.label("ĐỀ CHO:").classes("text-xs font-bold text-slate-600 uppercase tracking-wider")
             ui_math(statement_latex, block=True, classes="text-base md:text-lg text-slate-800 font-medium py-0.5")
@@ -498,7 +499,7 @@ def render_solution_view(
             p_params,
         )
         with ui.column().classes(
-            "w-full p-3.5 md:p-4 bg-gradient-to-r from-blue-50/70 to-indigo-50/50 border border-blue-200 rounded-xl gap-1.5 min-w-0 max-w-full overflow-x-auto"
+            "w-full p-3.5 md:p-4 bg-gradient-to-r from-blue-50/70 to-indigo-50/50 border border-blue-200 rounded-xl gap-1.5 min-w-0 max-w-full math-scroll-box"
         ):
             ui.label("ĐÁP SỐ CUỐI CÙNG:").classes("text-xs font-bold text-blue-900 uppercase tracking-wider")
 
@@ -507,10 +508,10 @@ def render_solution_view(
                 approx_roots = _compute_approximate_roots(response.raw_input, target_var)
                 if approx_roots:
                     with ui.row().classes(
-                        "items-center gap-2 px-3 py-1.5 bg-white/90 rounded-lg border border-blue-200 text-xs text-blue-950 flex-wrap shadow-2xs"
+                        "w-full max-w-full min-w-0 items-center gap-2 px-3 py-1.5 bg-white/90 rounded-lg border border-blue-200 text-xs text-blue-950 flex-wrap shadow-2xs math-scroll-box"
                     ):
                         ui.label("Nghiệm xấp xỉ số học:").classes(
-                            "font-bold uppercase tracking-wider text-[11px] text-blue-900"
+                            "font-bold uppercase tracking-wider text-[11px] text-blue-900 shrink-0"
                         )
                         ui_math(approx_roots, block=False, classes="font-semibold text-blue-950 text-xs")
 
@@ -662,19 +663,44 @@ def render_solution_view(
                                                         update_plot_range(-10.0, 10.0)
 
                                                     ui.button(
-                                                        "⬅ Dịch trái", on_click=pan_left, color="slate-100"
-                                                    ).classes("text-slate-700 text-xs px-2 py-1 rounded")
+                                                        "Dịch trái",
+                                                        icon="chevron_left",
+                                                        on_click=pan_left,
+                                                        color="slate-100",
+                                                    ).props('dense no-caps aria-label="Dịch khung nhìn đồ thị sang trái"').classes(
+                                                        f"text-slate-700 text-xs px-2.5 py-1 rounded-lg {INTERACTION.FOCUS_RING}"
+                                                    )
                                                     ui.button(
-                                                        "➡ Dịch phải", on_click=pan_right, color="slate-100"
-                                                    ).classes("text-slate-700 text-xs px-2 py-1 rounded")
+                                                        "Dịch phải",
+                                                        icon="chevron_right",
+                                                        on_click=pan_right,
+                                                        color="slate-100",
+                                                    ).props('dense no-caps aria-label="Dịch khung nhìn đồ thị sang phải"').classes(
+                                                        f"text-slate-700 text-xs px-2.5 py-1 rounded-lg {INTERACTION.FOCUS_RING}"
+                                                    )
                                                     ui.button(
-                                                        "🔍+ Phóng to", on_click=zoom_in, color="slate-100"
-                                                    ).classes("text-slate-700 text-xs px-2 py-1 rounded")
+                                                        "Phóng to",
+                                                        icon="zoom_in",
+                                                        on_click=zoom_in,
+                                                        color="slate-100",
+                                                    ).props('dense no-caps aria-label="Phóng to đồ thị"').classes(
+                                                        f"text-slate-700 text-xs px-2.5 py-1 rounded-lg {INTERACTION.FOCUS_RING}"
+                                                    )
                                                     ui.button(
-                                                        "🔍- Thu nhỏ", on_click=zoom_out, color="slate-100"
-                                                    ).classes("text-slate-700 text-xs px-2 py-1 rounded")
-                                                    ui.button("⟲ Đặt lại", on_click=reset_view, color="blue-1").classes(
-                                                        "text-blue-800 text-xs px-2 py-1 rounded font-bold"
+                                                        "Thu nhỏ",
+                                                        icon="zoom_out",
+                                                        on_click=zoom_out,
+                                                        color="slate-100",
+                                                    ).props('dense no-caps aria-label="Thu nhỏ đồ thị"').classes(
+                                                        f"text-slate-700 text-xs px-2.5 py-1 rounded-lg {INTERACTION.FOCUS_RING}"
+                                                    )
+                                                    ui.button(
+                                                        "Đặt lại",
+                                                        icon="restart_alt",
+                                                        on_click=reset_view,
+                                                        color="blue-1",
+                                                    ).props('dense no-caps aria-label="Đặt lại vùng hiển thị mặc định"').classes(
+                                                        f"text-blue-800 text-xs px-2.5 py-1 rounded-lg font-bold {INTERACTION.FOCUS_RING}"
                                                     )
 
                                             # Plotly Element
@@ -726,8 +752,10 @@ def render_solution_view(
                                     except Exception as exc:
                                         ui.notify(f"Không thể hiển thị đồ thị 2D: {exc}", type="warning")
 
-                            ui.button("📊 Vẽ đồ thị 2D", on_click=show_2d, color="blue-7").classes(
-                                "text-xs px-3 py-1.5 font-semibold rounded-lg"
+                            ui.button("Vẽ đồ thị 2D", icon="show_chart", on_click=show_2d, color="blue-7").props(
+                                'no-caps aria-label="Hiển thị đồ thị hàm số 2D tương tác"'
+                            ).classes(
+                                f"text-xs px-3 py-1.5 min-h-[36px] font-semibold rounded-lg {INTERACTION.FOCUS_RING}"
                             )
 
                         if tool_3d:
@@ -827,8 +855,10 @@ def render_solution_view(
                                     except Exception as exc:
                                         ui.notify(f"Không thể hiển thị đồ thị 3D: {exc}", type="warning")
 
-                            ui.button("🌐 Vẽ đồ thị 3D", on_click=show_3d, color="indigo-7").classes(
-                                "text-xs px-3 py-1.5 font-semibold rounded-lg"
+                            ui.button("Vẽ đồ thị 3D", icon="view_in_ar", on_click=show_3d, color="indigo-7").props(
+                                'no-caps aria-label="Hiển thị đồ thị không gian 3D"'
+                            ).classes(
+                                f"text-xs px-3 py-1.5 min-h-[36px] font-semibold rounded-lg {INTERACTION.FOCUS_RING}"
                             )
 
                         if tool_table:
@@ -860,8 +890,10 @@ def render_solution_view(
                                     except Exception as exc:
                                         ui.notify(f"Không thể tạo bảng biến thiên: {exc}", type="warning")
 
-                            ui.button("📈 Bảng biến thiên", on_click=show_table, color="teal-7").classes(
-                                "text-xs px-3 py-1.5 font-semibold rounded-lg"
+                            ui.button("Bảng biến thiên", icon="table_chart", on_click=show_table, color="teal-7").props(
+                                'no-caps aria-label="Hiển thị bảng biến thiên của hàm số"'
+                            ).classes(
+                                f"text-xs px-3 py-1.5 min-h-[36px] font-semibold rounded-lg {INTERACTION.FOCUS_RING}"
                             )
             except Exception:
                 pass

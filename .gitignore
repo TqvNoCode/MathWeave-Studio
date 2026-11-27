@@ -1,6 +1,8 @@
 # Python-generated files
 __pycache__/
 *.py[cod]
+*$py.class
+.Python
 
 # Virtual environments
 .venv/
@@ -19,7 +21,17 @@ wheels/
 .mypy_cache/
 .coverage
 .coverage.*
+coverage.xml
+pytest.xml
+junit.xml
 htmlcov/
+.tox/
+.nox/
+.hypothesis/
+test-results/
+playwright-report/
+playwright/.cache/
+*.trace.zip
 
 # Type checking
 .pyright/
@@ -27,6 +39,7 @@ htmlcov/
 # Logs and temporary reports
 /log/
 *.log
+smoke_*.log
 
 # Local environment variables and secrets
 .env
@@ -40,14 +53,17 @@ htmlcov/
 Thumbs.db
 *.swp
 *.swo
+*.tmp
+*.bak
+*~
 
 # Local profiling and debugging artifacts
 .prof
 *.prof
 
-# Local development scratch and milestone deliverable bundles (root-anchored)
+# Local development scratch and milestone deliverable bundles
 /scratch/
 /UX3_*_DELIVERABLES.zip
 /*_REVIEW_BUNDLE.zip
-/git_diff.patch
+*.patch
 /verify_bundle.py

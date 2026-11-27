@@ -372,19 +372,18 @@ def test_failure_not_euler_cauchy_equation(solver: ODEEulerCauchySolver):
     assert "mismatch" in res.verification.method or "structure" in res.verification.method
 
 
-def test_failure_nonhomogeneous_euler_cauchy(solver: ODEEulerCauchySolver):
-    """Nonhomogeneous Euler-Cauchy t^2*y'' + 4*t*y' + 2*y = t must be rejected with clear notice."""
+def test_nonhomogeneous_euler_cauchy_now_supported(solver: ODEEulerCauchySolver):
+    """Nonhomogeneous Euler-Cauchy t^2*y'' + 4*t*y' + 2*y = t must now solve and verify cleanly."""
     req = ProblemRequest(
-        raw_input="t^2*y'' + 4*t*y' + 2*y = t",
+        raw_input="t^2*y'' + 4*t*y' + 2*y = t, t > 0",
         problem_type=ProblemType.ODE_EULER_CAUCHY,
         target_variable="t",
     )
     res = solver.solve(req)
 
-    assert res.status == SolutionStatus.CANNOT_SOLVE
-    assert res.verification.status == VerificationStatus.NOT_APPLICABLE
-    assert "nonhomogeneous" in res.verification.method
-    assert "thuần nhất" in res.warnings[0].lower()
+    assert res.status == SolutionStatus.SUCCESS
+    assert res.verification.status == VerificationStatus.VERIFIED
+    assert any(s.rule_name == "Nghiệm riêng biến thiên hằng số" for s in res.steps)
 
 
 def test_failure_zero_leading_coefficient(solver: ODEEulerCauchySolver):

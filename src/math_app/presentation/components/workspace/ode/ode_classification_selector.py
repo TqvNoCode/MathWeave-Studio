@@ -163,9 +163,9 @@ def render_ode_classification_selector(
                                     f"text-sm font-bold {'text-blue-950' if is_euler else 'text-slate-800'}"
                                 )
                             ui.badge("At²y''", color="blue-7" if is_euler else "grey-6").classes("text-xs shrink-0")
-                        ui_math(r"A\,t^2y'' + B\,ty' + C\,y = 0", block=True, classes="my-1 text-slate-800")
+                        ui_math(r"A\,t^2y'' + B\,ty' + C\,y = g(t)", block=True, classes="my-1 text-slate-800")
                         ui_math_text(
-                            "Đặt $y = t^m$ để đưa phương trình về phương trình chỉ số.",
+                            "Đưa về phương trình chỉ số $Am(m-1)+Bm+C=0$; dùng Biến thiên hằng số khi $g(t) \\neq 0$.",
                             classes="text-xs text-slate-600 leading-snug",
                         )
                     ui.button(

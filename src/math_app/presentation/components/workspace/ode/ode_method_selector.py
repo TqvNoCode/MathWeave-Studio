@@ -18,6 +18,7 @@ def render_ode_method_selector(
     method_preference: ODEMethodPreference,
     on_method_change: Callable[[ODEMethodPreference], None],
     recommended_method_hint: str | None = None,
+    is_nonhomogeneous_euler: bool = False,
 ) -> None:
     """Render solution method selector for Nonhomogeneous Second-Order ODEs."""
     # 1. Nonhomogeneous Second-Order ODE Method Selection
@@ -71,6 +72,23 @@ def render_ode_method_selector(
 
     # 2b. Euler-Cauchy Second-Order ODE Guidance
     if order == ODEOrder.SECOND_ORDER and classification == ODEClassification.EULER_CAUCHY:
+        if is_nonhomogeneous_euler:
+            with ui.column().classes("w-full gap-1.5 p-3.5 bg-slate-50 border border-slate-200 rounded-xl mt-1 min-w-0"):
+                with ui.row().classes("items-center justify-between w-full flex-wrap gap-2"):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon("stars", size="1.1rem").classes("text-blue-600")
+                        ui.label("PHƯƠNG PHÁP ĐỀ XUẤT — EULER–CAUCHY KHÔNG THUẦN NHẤT:").classes(
+                            "text-xs font-bold text-slate-700 uppercase tracking-wider"
+                        )
+                    ui.badge(
+                        recommended_method_hint or "Phương pháp tự động (Khuyến nghị)",
+                        color="blue-7",
+                    ).classes("text-xs font-medium")
+                ui.label(
+                    "Giải phương trình thuần nhất liên kết tìm hệ nghiệm cơ bản {y₁, y₂}, "
+                    "sau đó áp dụng Biến thiên hằng số (Lagrange) để tìm y_p(t) (bảo toàn tích phân chính xác khi cần)."
+                ).classes("text-xs text-slate-600 leading-snug")
+            return
         with ui.row().classes("w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl items-center gap-3 mt-1"):
             ui.icon("functions", color="primary", size="1.5rem")
             with ui.column().classes("gap-0.5"):

@@ -37,6 +37,38 @@ class SecondOrderClassificationSummary:
     has_inline_y1: bool = False
     detected_interval: str | None = None
     error_message: str | None = None
+    is_nonhomogeneous: bool = False
+    associated_homogeneous_latex: str | None = None
+    forcing_term_latex: str | None = None
+    domain_hint: str | None = None
+
+
+def _format_ec_lhs_latex(a_val: sp.Expr, b_val: sp.Expr, c_val: sp.Expr, c_var: str) -> str:
+    """Format A*t^2*y'' + B*t*y' + C*y cleanly in LaTeX."""
+    terms: list[str] = []
+
+    def _add_term(coeff: sp.Expr, factor_latex: str) -> None:
+        simplified = sp.simplify(coeff)
+        if simplified == 0:
+            return
+        is_neg = simplified.is_negative is True
+        abs_c = -simplified if is_neg else simplified
+        if abs_c == 1:
+            coeff_tex = ""
+        elif abs_c.is_Add:
+            coeff_tex = rf"\left({sp.latex(abs_c)}\right)\,"
+        else:
+            coeff_tex = rf"{sp.latex(abs_c)}\,"
+        body = f"{coeff_tex}{factor_latex}"
+        if not terms:
+            terms.append(f"-{body}" if is_neg else body)
+        else:
+            terms.append(f" - {body}" if is_neg else f" + {body}")
+
+    _add_term(a_val, rf"{c_var}^2 y''")
+    _add_term(b_val, rf"{c_var} y'" if sp.simplify(b_val) != 0 else "")
+    _add_term(c_val, "y")
+    return "".join(terms) if terms else rf"A\,{c_var}^2 y'' + B\,{c_var} y' + C\,y"
 
 
 def _is_undetermined_coefficients_rhs(g_expr: sp.Expr, t_sym: sp.Symbol) -> bool:
@@ -213,11 +245,17 @@ def classify_second_order_ode(
         parsed.a_coeff.free_symbols | parsed.b_coeff.free_symbols | parsed.c_coeff.free_symbols
     )
 
-    if parsed.is_homogeneous:
-        p_scaled = sp.simplify(parsed.p_expr * t_sym)
-        q_scaled = sp.simplify(parsed.q_expr * (t_sym ** 2))
-        if t_in_coeffs and t_sym not in p_scaled.free_symbols and t_sym not in q_scaled.free_symbols:
-            interval_note = f" trên miền {interval_str}" if interval_str else f" (điểm kỳ dị {c_var} = 0)"
+    p_scaled = sp.simplify(parsed.p_expr * t_sym)
+    q_scaled = sp.simplify(parsed.q_expr * (t_sym ** 2))
+    is_euler_cauchy = (
+        t_in_coeffs
+        and not parsed.is_constant_coeff
+        and t_sym not in p_scaled.free_symbols
+        and t_sym not in q_scaled.free_symbols
+    )
+    if is_euler_cauchy:
+        interval_note = f" trên miền {interval_str}" if interval_str else f" (miền liên thông, {c_var} ≠ 0)"
+        if parsed.is_homogeneous:
             return SecondOrderClassificationSummary(
                 status="DETECTED",
                 detected_classification=ODEClassification.EULER_CAUCHY,
@@ -228,6 +266,48 @@ def classify_second_order_ode(
                 has_inline_y1=has_y1,
                 detected_interval=interval_str,
             )
+
+        a_cand = sp.simplify(parsed.a_coeff / (t_sym ** 2))
+        b_cand = sp.simplify(parsed.b_coeff / t_sym)
+        c_cand = sp.simplify(parsed.c_coeff)
+        raw_forcing = sp.simplify(-parsed.rem_expr)
+
+        if (
+            a_cand != 0
+            and t_sym not in (a_cand.free_symbols | b_cand.free_symbols | c_cand.free_symbols)
+        ):
+            a_disp, b_disp, c_disp, g_disp = a_cand, b_cand, c_cand, raw_forcing
+        else:
+            a_disp, b_disp, c_disp = sp.Integer(1), p_scaled, q_scaled
+            g_disp = sp.simplify(raw_forcing / parsed.a_coeff * (t_sym ** 2))
+
+        lhs_latex = _format_ec_lhs_latex(a_disp, b_disp, c_disp, c_var)
+        g_latex = sp.latex(g_disp)
+        domain_hint = (
+            f"Miền xác định: {interval_str} (không đi qua {c_var} = 0)"
+            if interval_str
+            else f"Miền xác định liên thông: {c_var} > 0 hoặc {c_var} < 0 (tránh {c_var} = 0)"
+        )
+        return SecondOrderClassificationSummary(
+            status="DETECTED",
+            detected_classification=ODEClassification.EULER_CAUCHY,
+            badge_label="Phương trình Euler–Cauchy không thuần nhất",
+            canonical_form_latex=rf"{lhs_latex} = {g_latex}",
+            method_hint=(
+                f"Giải phương trình thuần nhất liên kết tìm y_c({c_var}), "
+                f"rồi tìm y_p({c_var}) bằng Biến thiên hằng số{interval_note}."
+            ),
+            recommended_nonhomo_method="Phương pháp tự động (Khuyến nghị)",
+            has_inline_ic=has_ic,
+            has_inline_y1=has_y1,
+            detected_interval=interval_str,
+            is_nonhomogeneous=True,
+            associated_homogeneous_latex=rf"{lhs_latex} = 0",
+            forcing_term_latex=rf"g({c_var}) = {g_latex}",
+            domain_hint=domain_hint,
+        )
+
+    if parsed.is_homogeneous:
 
         if parsed.is_constant_coeff:
             lhs_l = _format_const_coeff_lhs_latex(parsed.a_coeff, parsed.b_coeff, parsed.c_coeff)

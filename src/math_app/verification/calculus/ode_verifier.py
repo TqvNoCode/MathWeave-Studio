@@ -2558,6 +2558,22 @@ def check_residual_outcome(
     return ResidualCheckOutcome.UNKNOWN
 
 
+def _collapse_zero_width_integrals(expr: sp.Expr) -> sp.Expr:
+    """Collapse definite Integrals whose limits are symbolically identical to 0."""
+    if not isinstance(expr, sp.Basic) or not expr.has(sp.Integral):
+        return expr
+
+    def _collapse(node: sp.Expr) -> sp.Expr:
+        if all(
+            len(lim) == 3 and sp.simplify(lim[1] - lim[2]) == 0
+            for lim in node.limits  # type: ignore[attr-defined]
+        ):
+            return sp.Integer(0)
+        return node
+
+    return expr.replace(lambda e: isinstance(e, sp.Integral), _collapse)
+
+
 class ODEVerifier(Verifier):
     """Verifies differential equation solutions against original equations and initial conditions.
 
@@ -3775,7 +3791,7 @@ class ODEVerifier(Verifier):
         if initial_condition is not None:
             t0, y0 = initial_condition
             try:
-                val_y = sp.simplify(solution.subs(variable, t0))
+                val_y = sp.simplify(_collapse_zero_width_integrals(solution.subs(variable, t0)))
                 diff_y = sp.simplify(val_y - y0)
                 if not _prove_symbolic_zero(
                     diff_y, tuple(consts), domain_interval=domain_interval, variable=variable
@@ -3808,7 +3824,7 @@ class ODEVerifier(Verifier):
         if initial_derivative is not None:
             t0_v, v0 = initial_derivative
             try:
-                val_yp = sp.simplify(dy.subs(variable, t0_v))
+                val_yp = sp.simplify(_collapse_zero_width_integrals(dy.subs(variable, t0_v)))
                 diff_yp = sp.simplify(val_yp - v0)
                 if not _prove_symbolic_zero(
                     diff_yp, tuple(consts), domain_interval=domain_interval, variable=variable
@@ -3869,10 +3885,15 @@ class ODEVerifier(Verifier):
                 details=f"Kiểm chứng độc lập thành công: Biểu thức dư R({variable}) ≡ 0 và điều kiện ban đầu y({t0}) = {y0} nghiệm đúng.{wronskian_suffix}",
             )
 
+        rhs_desc = (
+            f"a*y'' + b*y' + c*y - ({forcing_expr}) ≡ 0"
+            if forcing_expr is not None
+            else "a*y'' + b*y' + c*y ≡ 0"
+        )
         return VerificationResult(
             status=VerificationStatus.VERIFIED,
             method="second_order_ode_residual_zero_check",
-            details=f"Kiểm chứng độc lập thành công: Biểu thức dư R({variable}) = a*y'' + b*y' + c*y ≡ 0.{wronskian_suffix}",
+            details=f"Kiểm chứng độc lập thành công: Biểu thức dư R({variable}) = {rhs_desc}.{wronskian_suffix}",
         )
 
     def verify_wronskian(

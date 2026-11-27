@@ -3518,6 +3518,169 @@ class ODEVerifier(Verifier):
                 details=f"Không thể kiểm tra thừa số tích phân: {exc}",
             )
 
+    def verify_fundamental_system(
+        self,
+        y1: sp.Expr,
+        y2: sp.Expr,
+        variable: sp.Symbol,
+        domain_interval: tuple[sp.Expr | float, sp.Expr | float] | sp.Interval | str | None = None,
+        *,
+        left_open: bool = True,
+        right_open: bool = True,
+    ) -> tuple[sp.Expr, VerificationResult]:
+        """Symbolically verify linear independence of fundamental solutions (W != 0) on the interval."""
+        iv_set: sp.Interval | None = None
+        if isinstance(domain_interval, sp.Interval):
+            iv_set = domain_interval
+        elif isinstance(domain_interval, (tuple, list)) and len(domain_interval) == 2:
+            low, high = domain_interval
+            if low is not None and high is not None:
+                try:
+                    low_e = sp.sympify(low)
+                    high_e = sp.sympify(high)
+                    iv_set = sp.Interval(
+                        low_e,
+                        high_e,
+                        left_open=bool(left_open or low_e == -sp.oo),
+                        right_open=bool(right_open or high_e == sp.oo),
+                    )
+                except Exception:
+                    iv_set = None
+        elif isinstance(domain_interval, str) and domain_interval.strip():
+            try:
+                from math_app.input.ode_parser import parse_interval_constraint
+
+                parsed_iv = parse_interval_constraint(domain_interval, variable=variable.name)
+                if parsed_iv.is_supported and parsed_iv.interval is not None:
+                    iv_set = parsed_iv.interval
+            except Exception:
+                iv_set = None
+
+        if iv_set is not None:
+            if iv_set.start.is_nonnegative is True and iv_set.contains(sp.Integer(0)) is sp.S.false:
+                v_dom = sp.Symbol(variable.name, positive=True)
+            elif iv_set.end.is_nonpositive is True and iv_set.contains(sp.Integer(0)) is sp.S.false:
+                v_dom = sp.Symbol(variable.name, negative=True)
+            else:
+                v_dom = sp.Symbol(variable.name, real=True)
+        else:
+            v_dom = variable if variable.is_real is True else sp.Symbol(variable.name, real=True)
+
+        try:
+            y1_d = y1.subs(variable, v_dom) if v_dom != variable else y1
+            y2_d = y2.subs(variable, v_dom) if v_dom != variable else y2
+            dy1_d = sp.diff(y1_d, v_dom)
+            dy2_d = sp.diff(y2_d, v_dom)
+            w_raw_d = y1_d * dy2_d - dy1_d * y2_d
+            w_dom = sp.simplify(sp.trigsimp(sp.simplify(w_raw_d)))
+            w_expr = w_dom.subs(v_dom, variable) if v_dom != variable else w_dom
+        except Exception as exc:
+            return sp.Integer(0), VerificationResult(
+                status=VerificationStatus.UNVERIFIED,
+                method="fundamental_system_wronskian_unverified",
+                details=f"Không thể tính toán và kiểm chứng định thức Wronskian W(y1, y2): {exc}",
+            )
+
+        if _prove_symbolic_zero(w_dom, domain_interval=domain_interval, variable=v_dom):
+            return sp.Integer(0), VerificationResult(
+                status=VerificationStatus.FAILED,
+                method="fundamental_system_wronskian_zero",
+                details=f"Hai nghiệm cơ bản không độc lập tuyến tính: định thức Wronskian W(y1, y2) ≡ 0 trên {variable}.",
+            )
+
+        if w_dom.has(sp.zoo, sp.nan, sp.oo, -sp.oo, sp.AccumBounds) or w_dom.is_finite is False:
+            return w_expr, VerificationResult(
+                status=VerificationStatus.FAILED,
+                method="fundamental_system_wronskian_nonfinite",
+                details=f"Định thức Wronskian W(y1, y2) = {w_expr} không hữu hạn trên miền xác định.",
+            )
+
+        if w_dom.has(sp.I) or w_dom.is_real is False:
+            return w_expr, VerificationResult(
+                status=VerificationStatus.FAILED,
+                method="fundamental_system_wronskian_nonreal",
+                details=f"Định thức Wronskian W(y1, y2) = {w_expr} chứa thành phần không thực trên miền xác định.",
+            )
+
+        extra_syms = w_dom.free_symbols - {v_dom}
+        if extra_syms:
+            return w_expr, VerificationResult(
+                status=VerificationStatus.UNVERIFIED,
+                method="fundamental_system_wronskian_unverified",
+                details=f"Không thể xác nhận W(y1, y2) = {w_expr} khác 0 do chứa tham số chưa xác định {tuple(extra_syms)}.",
+            )
+
+        if w_dom.is_real is not True or w_dom.is_finite is not True:
+            return w_expr, VerificationResult(
+                status=VerificationStatus.UNVERIFIED,
+                method="fundamental_system_wronskian_unverified",
+                details=f"Không thể chứng minh tính thực hữu hạn của W(y1, y2) = {w_expr} bằng phương pháp ký hiệu.",
+            )
+
+        if iv_set is not None:
+            try:
+                _, w_den = sp.together(w_dom).as_numer_denom()
+                if w_den != 1 and v_dom in w_den.free_symbols:
+                    den_zeros = sp.solveset(w_den, v_dom, domain=iv_set)
+                    if den_zeros.has(sp.ConditionSet):
+                        return w_expr, VerificationResult(
+                            status=VerificationStatus.UNVERIFIED,
+                            method="fundamental_system_wronskian_unverified",
+                            details=f"Không thể kiểm tra đầy đủ mẫu số của W(y1, y2) = {w_expr} trên khoảng {iv_set}.",
+                        )
+                    if den_zeros != sp.S.EmptySet:
+                        return w_expr, VerificationResult(
+                            status=VerificationStatus.FAILED,
+                            method="fundamental_system_wronskian_undefined_on_interval",
+                            details=f"Định thức Wronskian W(y1, y2) = {w_expr} không xác định tại {den_zeros} thuộc khoảng {iv_set}.",
+                        )
+            except Exception as exc:
+                return w_expr, VerificationResult(
+                    status=VerificationStatus.UNVERIFIED,
+                    method="fundamental_system_wronskian_unverified",
+                    details=f"Không thể kiểm tra cực điểm của Wronskian W(y1, y2) = {w_expr}: {exc}",
+                )
+
+        if w_dom.is_nonzero is True or w_dom.is_positive is True or w_dom.is_negative is True:
+            return w_expr, VerificationResult(
+                status=VerificationStatus.VERIFIED,
+                method="fundamental_system_wronskian_verified",
+                details=f"Định thức Wronskian W(y1, y2) = {w_expr} được chứng minh khác 0 trên toàn khoảng liên thông.",
+            )
+
+        if iv_set is not None:
+            try:
+                w_zeros = sp.solveset(w_dom, v_dom, domain=iv_set)
+                if w_zeros.has(sp.ConditionSet):
+                    return w_expr, VerificationResult(
+                        status=VerificationStatus.UNVERIFIED,
+                        method="fundamental_system_wronskian_unverified",
+                        details=f"Không thể loại trừ nghiệm triệt tiêu của W(y1, y2) = {w_expr} trên {iv_set}.",
+                    )
+                if w_zeros != sp.S.EmptySet:
+                    return w_expr, VerificationResult(
+                        status=VerificationStatus.FAILED,
+                        method="fundamental_system_wronskian_vanishes_on_interval",
+                        details=f"Định thức Wronskian W(y1, y2) = {w_expr} triệt tiêu tại {w_zeros} trên khoảng {iv_set}.",
+                    )
+                return w_expr, VerificationResult(
+                    status=VerificationStatus.VERIFIED,
+                    method="fundamental_system_wronskian_verified",
+                    details=f"Định thức Wronskian W(y1, y2) = {w_expr} được chứng minh khác 0 trên khoảng {iv_set}.",
+                )
+            except Exception as exc:
+                return w_expr, VerificationResult(
+                    status=VerificationStatus.UNVERIFIED,
+                    method="fundamental_system_wronskian_unverified",
+                    details=f"Không thể kiểm chứng tính khác 0 của Wronskian W(y1, y2) = {w_expr}: {exc}",
+                )
+
+        return w_expr, VerificationResult(
+            status=VerificationStatus.UNVERIFIED,
+            method="fundamental_system_wronskian_unverified",
+            details=f"Không thể chứng minh W(y1, y2) = {w_expr} khác 0 trên khoảng xác định.",
+        )
+
     def verify_second_order(
         self,
         solution: sp.Expr,
@@ -3532,6 +3695,9 @@ class ODEVerifier(Verifier):
         forcing_expr: sp.Expr | None = None,
         domain_interval: tuple[sp.Expr | float, sp.Expr | float] | str | None = None,
         domain_restrictions: tuple[str, ...] = (),
+        fundamental_solutions: tuple[sp.Expr, sp.Expr] | None = None,
+        left_open: bool = True,
+        right_open: bool = True,
     ) -> VerificationResult:
         """Verify a second-order ODE solution against a*y'' + b*y' + c*y - g(t) = 0 and optional IVPs."""
         allow_complex = any(
@@ -3672,13 +3838,27 @@ class ODEVerifier(Verifier):
                     details=f"Không thể kiểm tra điều kiện đạo hàm ban đầu y'(t0): {exc}",
                 )
 
+        wronskian_suffix = ""
+        if fundamental_solutions is not None:
+            w_val, w_res = self.verify_fundamental_system(
+                fundamental_solutions[0],
+                fundamental_solutions[1],
+                variable,
+                domain_interval=domain_interval,
+                left_open=left_open,
+                right_open=right_open,
+            )
+            if w_res.status != VerificationStatus.VERIFIED:
+                return w_res
+            wronskian_suffix = f" Hệ nghiệm cơ bản độc lập tuyến tính với W(y1, y2) = {w_val} ≠ 0."
+
         if initial_condition is not None and initial_derivative is not None:
             t0, y0 = initial_condition
             _, v0 = initial_derivative
             return VerificationResult(
                 status=VerificationStatus.VERIFIED,
                 method="second_order_ode_residual_and_dual_ic_zero_check",
-                details=f"Kiểm chứng độc lập thành công: Biểu thức dư R({variable}) ≡ 0 và hệ điều kiện Cauchy y({t0}) = {y0}, y'({t0}) = {v0} nghiệm đúng.",
+                details=f"Kiểm chứng độc lập thành công: Biểu thức dư R({variable}) ≡ 0 và hệ điều kiện Cauchy y({t0}) = {y0}, y'({t0}) = {v0} nghiệm đúng.{wronskian_suffix}",
             )
 
         if initial_condition is not None:
@@ -3686,13 +3866,13 @@ class ODEVerifier(Verifier):
             return VerificationResult(
                 status=VerificationStatus.VERIFIED,
                 method="second_order_ode_residual_and_ic_zero_check",
-                details=f"Kiểm chứng độc lập thành công: Biểu thức dư R({variable}) ≡ 0 và điều kiện ban đầu y({t0}) = {y0} nghiệm đúng.",
+                details=f"Kiểm chứng độc lập thành công: Biểu thức dư R({variable}) ≡ 0 và điều kiện ban đầu y({t0}) = {y0} nghiệm đúng.{wronskian_suffix}",
             )
 
         return VerificationResult(
             status=VerificationStatus.VERIFIED,
             method="second_order_ode_residual_zero_check",
-            details=f"Kiểm chứng độc lập thành công: Biểu thức dư R({variable}) = a*y'' + b*y' + c*y ≡ 0.",
+            details=f"Kiểm chứng độc lập thành công: Biểu thức dư R({variable}) = a*y'' + b*y' + c*y ≡ 0.{wronskian_suffix}",
         )
 
     def verify_wronskian(

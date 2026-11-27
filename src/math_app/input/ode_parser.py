@@ -24,6 +24,17 @@ class SourceDomainConstraint:
 
 
 @dataclass(frozen=True)
+class ParsedIntervalConstraint:
+    """Structured representation of a requested connected interval constraint."""
+
+    raw: str
+    interval: sp.Interval | None
+    variable: str | None = None
+    is_supported: bool = True
+    error: str | None = None
+
+
+@dataclass(frozen=True)
 class ParsedODE:
     """Structured representation of a parsed and validated differential equation."""
 
@@ -49,6 +60,7 @@ class ParsedODE:
     original_denominators: tuple[sp.Expr, ...] = ()
     leading_coeffs: tuple[sp.Expr, ...] = ()
     original_domain_constraints: tuple[SourceDomainConstraint, ...] = ()
+    interval_spec: ParsedIntervalConstraint | None = None
 
 
 @dataclass(frozen=True)
@@ -78,6 +90,7 @@ class ParsedSecondOrderODE:
     original_denominators: tuple[sp.Expr, ...] = ()
     leading_coeffs: tuple[sp.Expr, ...] = ()
     original_domain_constraints: tuple[SourceDomainConstraint, ...] = ()
+    interval_spec: ParsedIntervalConstraint | None = None
 
 
 def _safe_degree(expr: sp.Expr, sym: sp.Symbol) -> int | None:
@@ -100,8 +113,364 @@ def _safe_degree(expr: sp.Expr, sym: sp.Symbol) -> int | None:
     return None
 
 
+def _split_top_level_clauses(raw: str) -> list[str]:
+    """Split input by ',' or ';' only at top-level bracket depth 0."""
+    clauses: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    for ch in raw:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}" and depth > 0:
+            depth -= 1
+        if ch in ",;" and depth == 0:
+            part = "".join(buf).strip()
+            if part:
+                clauses.append(part)
+            buf = []
+        else:
+            buf.append(ch)
+    tail = "".join(buf).strip()
+    if tail:
+        clauses.append(tail)
+    return clauses
+
+
+def _is_interval_clause(clause: str) -> bool:
+    """Detect whether a top-level clause expresses a domain or interval constraint."""
+    c = clause.strip()
+    if not c:
+        return False
+    # Never treat derivative expressions or equations / ICs (standalone '=') as interval clauses
+    if re.search(r"y'|y\"|y_prime|y_double_prime|y_higher_prime|\bdy/d|\bdiff\s*\(", c):
+        return False
+    if re.search(r"(?<![<>!])=(?!=)", c):
+        return False
+    if any(op in c for op in ("<=", ">=", "!=", "<", ">")):
+        return True
+    if re.search(r"\bin\b|∈", c):
+        return True
+    if c.startswith(("(", "[")) and c.endswith((")", "]")) and "," in c:
+        return True
+    return False
+
+
+def _parse_interval_endpoint(
+    token: str,
+    target_variable: str,
+    *,
+    allow_neg_inf: bool = False,
+    allow_pos_inf: bool = False,
+) -> tuple[sp.Expr | None, str | None]:
+    """Parse a single interval endpoint into an exact real/infinite SymPy expression."""
+    tok = token.strip().replace("∞", "oo")
+    if not tok:
+        return None, "Cận khoảng xác định không được để trống."
+    if tok in ("oo", "+oo", "inf", "+inf", "infinity", "+infinity"):
+        if allow_pos_inf:
+            return sp.oo, None
+        return None, "Khoảng đóng không được chứa cận +oo."
+    if tok in ("-oo", "-inf", "-infinity"):
+        if allow_neg_inf:
+            return -sp.oo, None
+        return None, "Khoảng đóng không được chứa cận -oo."
+
+    try:
+        if re.fullmatch(r"[+-]?\d+", tok):
+            val: sp.Expr = sp.Integer(int(tok))
+        elif re.fullmatch(r"[+-]?\d+\.\d+", tok):
+            val = sp.Rational(tok)
+        else:
+            val = parse_safe_expression(
+                tok,
+                target_variable=target_variable,
+                allowed_variables=set(),
+                evaluate=True,
+            )
+    except Exception as exc:
+        return None, f"Không thể phân tích cận khoảng '{token}': {exc}"
+
+    if val.free_symbols:
+        return None, f"Cận khoảng '{token}' chứa ký hiệu chưa xác định {tuple(val.free_symbols)}."
+    if val.has(sp.oo, -sp.oo, sp.zoo, sp.nan, sp.I, sp.AccumBounds):
+        return None, f"Cận khoảng '{token}' không phải là số thực hữu hạn."
+    if val.is_real is not True or val.is_finite is not True:
+        return None, f"Cận khoảng '{token}' không được chứng minh là số thực hữu hạn."
+    return val, None
+
+
+def _build_validated_interval(
+    raw: str,
+    left: sp.Expr,
+    right: sp.Expr,
+    *,
+    left_open: bool,
+    right_open: bool,
+    variable: str | None,
+) -> ParsedIntervalConstraint:
+    """Validate endpoint ordering (left < right) and construct ParsedIntervalConstraint."""
+    if left == sp.oo or right == -sp.oo:
+        return ParsedIntervalConstraint(
+            raw=raw,
+            interval=None,
+            variable=variable,
+            is_supported=False,
+            error=f"Khoảng xác định '{raw}' có cận vô cực không hợp lệ.",
+        )
+    if left != -sp.oo and right != sp.oo:
+        diff = sp.simplify(right - left)
+        if diff.is_positive is not True:
+            return ParsedIntervalConstraint(
+                raw=raw,
+                interval=None,
+                variable=variable,
+                is_supported=False,
+                error=f"Khoảng xác định '{raw}' rỗng hoặc suy biến (yêu cầu cận dưới < cận trên).",
+            )
+    iv = sp.Interval(
+        left,
+        right,
+        left_open=left_open or (left == -sp.oo),
+        right_open=right_open or (right == sp.oo),
+    )
+    if iv == sp.S.EmptySet or isinstance(iv, sp.FiniteSet):
+        return ParsedIntervalConstraint(
+            raw=raw,
+            interval=None,
+            variable=variable,
+            is_supported=False,
+            error=f"Khoảng xác định '{raw}' không phải là khoảng liên thông có độ dài dương.",
+        )
+    return ParsedIntervalConstraint(
+        raw=raw,
+        interval=iv,
+        variable=variable,
+        is_supported=True,
+        error=None,
+    )
+
+
+def parse_interval_constraint(
+    interval_raw: str,
+    variable: str | None = None,
+) -> ParsedIntervalConstraint:
+    """Parse an explicit connected real interval constraint into a structured sp.Interval.
+
+    Supports single inequalities (t > 2, 2 < t, t <= -1), double inequalities (-1 < t < 1),
+    and bracketed intervals ((2, 5), [1, 4], t in (0, oo)). Returns is_supported=False for
+    unrecognized, multi-component, symbolic, or degenerate interval syntax.
+    """
+    cleaned = interval_raw.strip()
+    target_var = normalize_variable_name(variable) if variable else None
+    ep_var = target_var or "t"
+
+    if not cleaned:
+        return ParsedIntervalConstraint(
+            raw=interval_raw,
+            interval=None,
+            variable=target_var,
+            is_supported=False,
+            error="Khoảng xác định không được để trống.",
+        )
+
+    # 1. Membership prefix: e.g. "t in (1, 5)" or "t ∈ [2, oo)"
+    body = cleaned
+    m_mem = re.match(r"^([a-zA-Z][a-zA-Z0-9_]*)\s*(?:in|∈)\s*(.+)$", cleaned)
+    if m_mem:
+        mem_var = normalize_variable_name(m_mem.group(1))
+        if target_var and mem_var != target_var:
+            return ParsedIntervalConstraint(
+                raw=interval_raw,
+                interval=None,
+                variable=target_var,
+                is_supported=False,
+                error=f"Biến trong khoảng xác định '{mem_var}' không khớp biến độc lập '{target_var}'.",
+            )
+        target_var = target_var or mem_var
+        ep_var = target_var
+        body = m_mem.group(2).strip()
+
+    # 2. Explicit bracketed interval: (a, b), [a, b], (a, b], [a, b)
+    if len(body) >= 5 and body[0] in "([ " and body[0] in "([" and body[-1] in ")]":
+        lb, rb = body[0], body[-1]
+        inner = body[1:-1].strip()
+        parts = _split_top_level_clauses(inner)
+        if len(parts) == 2 and "," in inner and ";" not in inner:
+            left_open = lb == "("
+            right_open = rb == ")"
+            left_val, left_err = _parse_interval_endpoint(
+                parts[0], ep_var, allow_neg_inf=left_open, allow_pos_inf=False
+            )
+            if left_err or left_val is None:
+                return ParsedIntervalConstraint(
+                    raw=interval_raw,
+                    interval=None,
+                    variable=target_var,
+                    is_supported=False,
+                    error=left_err,
+                )
+            right_val, right_err = _parse_interval_endpoint(
+                parts[1], ep_var, allow_neg_inf=False, allow_pos_inf=right_open
+            )
+            if right_err or right_val is None:
+                return ParsedIntervalConstraint(
+                    raw=interval_raw,
+                    interval=None,
+                    variable=target_var,
+                    is_supported=False,
+                    error=right_err,
+                )
+            return _build_validated_interval(
+                interval_raw,
+                left_val,
+                right_val,
+                left_open=left_open,
+                right_open=right_open,
+                variable=target_var,
+            )
+
+    # If membership notation didn't yield a single bracketed interval, reject conservatively
+    if m_mem:
+        return ParsedIntervalConstraint(
+            raw=interval_raw,
+            interval=None,
+            variable=target_var,
+            is_supported=False,
+            error=f"Cú pháp khoảng xác định '{interval_raw}' không được hỗ trợ.",
+        )
+
+    # 3. Double inequality: a < t < b, a <= t < b, b > t > a, etc.
+    m_dbl = re.match(
+        r"^(.+?)\s*(<=|<|>=|>)\s*([a-zA-Z][a-zA-Z0-9_]*)\s*(<=|<|>=|>)\s*(.+)$",
+        cleaned,
+    )
+    if m_dbl:
+        lhs_tok, op1, var_tok, op2, rhs_tok = (
+            m_dbl.group(1),
+            m_dbl.group(2),
+            normalize_variable_name(m_dbl.group(3)),
+            m_dbl.group(4),
+            m_dbl.group(5),
+        )
+        if target_var and var_tok != target_var:
+            return ParsedIntervalConstraint(
+                raw=interval_raw,
+                interval=None,
+                variable=target_var,
+                is_supported=False,
+                error=f"Biến trong khoảng xác định '{var_tok}' không khớp biến độc lập '{target_var}'.",
+            )
+        target_var = target_var or var_tok
+        ep_var = target_var
+        if op1 in ("<", "<=") and op2 in ("<", "<="):
+            left_tok, right_tok = lhs_tok, rhs_tok
+            left_open, right_open = op1 == "<", op2 == "<"
+        elif op1 in (">", ">=") and op2 in (">", ">="):
+            left_tok, right_tok = rhs_tok, lhs_tok
+            left_open, right_open = op2 == ">", op1 == ">"
+        else:
+            return ParsedIntervalConstraint(
+                raw=interval_raw,
+                interval=None,
+                variable=target_var,
+                is_supported=False,
+                error=f"Chuỗi bất đẳng thức '{interval_raw}' có hướng không nhất quán.",
+            )
+        left_val, left_err = _parse_interval_endpoint(
+            left_tok, ep_var, allow_neg_inf=left_open, allow_pos_inf=False
+        )
+        if left_err or left_val is None:
+            return ParsedIntervalConstraint(
+                raw=interval_raw,
+                interval=None,
+                variable=target_var,
+                is_supported=False,
+                error=left_err,
+            )
+        right_val, right_err = _parse_interval_endpoint(
+            right_tok, ep_var, allow_neg_inf=False, allow_pos_inf=right_open
+        )
+        if right_err or right_val is None:
+            return ParsedIntervalConstraint(
+                raw=interval_raw,
+                interval=None,
+                variable=target_var,
+                is_supported=False,
+                error=right_err,
+            )
+        return _build_validated_interval(
+            interval_raw,
+            left_val,
+            right_val,
+            left_open=left_open,
+            right_open=right_open,
+            variable=target_var,
+        )
+
+    # 4. Single inequality: var > a, var <= b, a < var, etc.
+    m_left = re.match(r"^([a-zA-Z][a-zA-Z0-9_]*)\s*(<=|<|>=|>)\s*(.+)$", cleaned)
+    if m_left:
+        var_tok = normalize_variable_name(m_left.group(1))
+        op = m_left.group(2)
+        bound_tok = m_left.group(3)
+    else:
+        m_right = re.match(r"^(.+?)\s*(<=|<|>=|>)\s*([a-zA-Z][a-zA-Z0-9_]*)$", cleaned)
+        if not m_right:
+            return ParsedIntervalConstraint(
+                raw=interval_raw,
+                interval=None,
+                variable=target_var,
+                is_supported=False,
+                error=f"Cú pháp khoảng xác định '{interval_raw}' không được hỗ trợ.",
+            )
+        bound_tok = m_right.group(1)
+        flip = {"<": ">", "<=": ">=", ">": "<", ">=": "<="}
+        op = flip[m_right.group(2)]
+        var_tok = normalize_variable_name(m_right.group(3))
+
+    if target_var and var_tok != target_var:
+        return ParsedIntervalConstraint(
+            raw=interval_raw,
+            interval=None,
+            variable=target_var,
+            is_supported=False,
+            error=f"Biến trong khoảng xác định '{var_tok}' không khớp biến độc lập '{target_var}'.",
+        )
+    target_var = target_var or var_tok
+    ep_var = target_var
+    bound_val, bound_err = _parse_interval_endpoint(
+        bound_tok, ep_var, allow_neg_inf=False, allow_pos_inf=False
+    )
+    if bound_err or bound_val is None:
+        return ParsedIntervalConstraint(
+            raw=interval_raw,
+            interval=None,
+            variable=target_var,
+            is_supported=False,
+            error=bound_err,
+        )
+
+    if op in (">", ">="):
+        return _build_validated_interval(
+            interval_raw,
+            bound_val,
+            sp.oo,
+            left_open=(op == ">"),
+            right_open=True,
+            variable=target_var,
+        )
+    return _build_validated_interval(
+        interval_raw,
+        -sp.oo,
+        bound_val,
+        left_open=True,
+        right_open=(op == "<"),
+        variable=target_var,
+    )
+
+
 def extract_interval_from_string(raw: str) -> tuple[str, str | None]:
-    """Separate string from interval constraint like 't > 0', 'x < 0', etc.
+    """Separate string from interval constraint like 't > 0', '-1 < t < 1', 't in (1, 5)', etc.
 
     Returns (cleaned_string, interval_str_or_None).
     """
@@ -109,16 +478,15 @@ def extract_interval_from_string(raw: str) -> tuple[str, str | None]:
     if not cleaned:
         return "", None
 
-    parts = [p.strip() for p in re.split(r"[,;]", cleaned) if p.strip()]
+    parts = _split_top_level_clauses(cleaned)
     if len(parts) <= 1:
         return cleaned, None
 
-    int_pattern = re.compile(r"^([txa-zA-Z])\s*(>|<|>=|<=)\s*(-?\d+(?:\.\d+)?)$")
     eq_parts: list[str] = []
     found_interval: str | None = None
 
     for p in parts:
-        if int_pattern.match(p) and found_interval is None:
+        if _is_interval_clause(p) and found_interval is None:
             found_interval = p
         else:
             eq_parts.append(p)
@@ -562,6 +930,7 @@ def parse_ode_input(
     t_sym = sp.Symbol(clean_indep)
     y_sym = sp.Symbol(clean_dep)
     yp_sym = sp.Symbol("y_prime")
+    interval_spec = parse_interval_constraint(interval_str, variable=clean_indep) if interval_str else None
 
     parsed_ic: tuple[sp.Expr, sp.Expr] | None = None
     if ic_str:
@@ -687,6 +1056,7 @@ def parse_ode_input(
             original_denominators=tuple(orig_denoms_list),
             leading_coeffs=tuple(leading_coeffs_list),
             original_domain_constraints=orig_constraints,
+            interval_spec=interval_spec,
         )
 
     # standard_expr = A(t)*y_prime + rem(t, y) = 0
@@ -719,6 +1089,7 @@ def parse_ode_input(
             original_denominators=tuple(orig_denoms_list),
             leading_coeffs=tuple(leading_coeffs_list),
             original_domain_constraints=orig_constraints,
+            interval_spec=interval_spec,
         )
 
     # Check linearity of rem_expr in y: rem_expr = B(t)*y - C(t)
@@ -742,6 +1113,7 @@ def parse_ode_input(
             original_denominators=tuple(orig_denoms_list),
             leading_coeffs=tuple(leading_coeffs_list),
             original_domain_constraints=orig_constraints,
+            interval_spec=interval_spec,
         )
 
     B_coeff = rem_expr.coeff(y_sym, 1)
@@ -764,10 +1136,12 @@ def parse_ode_input(
             is_constant_coeff=False,
             is_classical_homogeneous=is_classical_homog,
             homogeneous_F_v=F_v,
+            interval=interval_str,
             original_domain_restrictions=tuple(orig_restrictions_list),
             original_denominators=tuple(orig_denoms_list),
             leading_coeffs=tuple(leading_coeffs_list),
             original_domain_constraints=orig_constraints,
+            interval_spec=interval_spec,
         )
 
     # Standard linear form: y' + p(t)*y = g(t)
@@ -802,6 +1176,7 @@ def parse_ode_input(
         original_denominators=tuple(orig_denoms_list),
         leading_coeffs=tuple(leading_coeffs_list),
         original_domain_constraints=orig_constraints,
+        interval_spec=interval_spec,
     )
 
 
@@ -833,7 +1208,7 @@ def extract_second_order_ics_from_string(raw: str) -> tuple[str, str | None, str
     if not cleaned:
         return "", None, None, None
 
-    parts = [p.strip() for p in re.split(r"[,;]", cleaned) if p.strip()]
+    parts = _split_top_level_clauses(cleaned)
     if len(parts) == 1:
         return cleaned, None, None, None
 
@@ -845,7 +1220,6 @@ def extract_second_order_ics_from_string(raw: str) -> tuple[str, str | None, str
     y1_pattern = re.compile(r"^y_?1\s*(?:\(\s*[^)]+\s*\))?\s*=\s*(.+)$")
     yp_pattern = re.compile(r"^(?:y'|y_prime|y\^\\prime|dy/d[a-zA-Z])\s*\(\s*([^)]+)\s*\)\s*=\s*(.+)$")
     y_pattern = re.compile(r"^y\s*\(\s*([^)]+)\s*\)\s*=\s*(.+)$")
-    int_pattern = re.compile(r"^([txa-zA-Z])\s*(>|<|>=|<=)\s*(-?\d+(?:\.\d+)?)$")
 
     for part in parts:
         if y1_pattern.match(part) and y1_str is None:
@@ -854,7 +1228,7 @@ def extract_second_order_ics_from_string(raw: str) -> tuple[str, str | None, str
             yp_ic_str = part
         elif y_pattern.match(part) and y_ic_str is None:
             y_ic_str = part
-        elif int_pattern.match(part):
+        elif _is_interval_clause(part):
             continue
         else:
             eq_parts.append(part)
@@ -955,11 +1329,11 @@ def parse_second_order_ode_input(
     clean_dep = normalize_variable_name(dependent_variable) if dependent_variable else "y"
 
     # 1. Extract interval constraint, initial conditions and known solution from string or parameters
-    _, interval_str = extract_interval_from_string(cleaned)
+    eq_without_int, interval_str = extract_interval_from_string(cleaned)
     if "interval" in params and params["interval"]:
         interval_str = str(params["interval"]).strip()
 
-    eq_str, y_ic_str, yp_ic_str, y1_str = extract_second_order_ics_from_string(cleaned)
+    eq_str, y_ic_str, yp_ic_str, y1_str = extract_second_order_ics_from_string(eq_without_int)
 
     # Auto-detect independent variable between 'x' and 't' when unambiguous in the ODE itself
     # Explicit user target_variable should be preserved unless equation clearly specifies otherwise
@@ -974,6 +1348,7 @@ def parse_second_order_ode_input(
     t_sym = sp.Symbol(clean_indep)
     y_sym = sp.Symbol(clean_dep)
     yp_sym = sp.Symbol("y_prime")
+    interval_spec = parse_interval_constraint(interval_str, variable=clean_indep) if interval_str else None
     yp2_sym = sp.Symbol("y_double_prime")
 
     # Check parameters overrides
@@ -1149,6 +1524,7 @@ def parse_second_order_ode_input(
         original_denominators=tuple(orig_denoms_list),
         leading_coeffs=tuple(leading_coeffs_list),
         original_domain_constraints=orig_constraints,
+        interval_spec=interval_spec,
     )
 
 

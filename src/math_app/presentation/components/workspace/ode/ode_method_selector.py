@@ -17,18 +17,24 @@ def render_ode_method_selector(
     classification: ODEClassification,
     method_preference: ODEMethodPreference,
     on_method_change: Callable[[ODEMethodPreference], None],
+    recommended_method_hint: str | None = None,
 ) -> None:
-    """Render Step 4: Solution Method selection and contextual pedagogical explanation."""
+    """Render solution method selector for Nonhomogeneous Second-Order ODEs."""
     # 1. Nonhomogeneous Second-Order ODE Method Selection
     if order == ODEOrder.SECOND_ORDER and classification == ODEClassification.SECOND_ORDER_NONHOMOGENEOUS:
-        with ui.column().classes("w-full gap-2 p-3.5 bg-slate-50 border border-slate-200 rounded-xl mt-1"):
-            with ui.row().classes("items-center justify-between w-full"):
+        with ui.column().classes("w-full gap-2 p-3.5 bg-slate-50 border border-slate-200 rounded-xl mt-1 min-w-0"):
+            with ui.row().classes("items-center justify-between w-full flex-wrap gap-2"):
                 with ui.row().classes("items-center gap-2"):
-                    ui.badge("BƯỚC 4", color="primary").classes("text-xs font-bold")
-                    ui.label("PHƯƠNG PHÁP TÌM NGHIỆM RIÊNG Y_p(t):").classes(
+                    ui.icon("stars", size="1.1rem").classes("text-blue-600")
+                    ui.label("PHƯƠNG PHÁP ĐỀ XUẤT — TÌM NGHIỆM RIÊNG Y_p(t):").classes(
                         "text-xs font-bold text-slate-700 uppercase tracking-wider"
                     )
-                ui.badge("Tùy chọn phương pháp", color="blue-7").classes("text-xs font-medium")
+                if recommended_method_hint:
+                    ui.badge(f"Gợi ý: {recommended_method_hint.split(' (')[0]}", color="blue-7").classes(
+                        "text-xs font-medium"
+                    )
+                else:
+                    ui.badge("Tùy chọn phương pháp", color="blue-7").classes("text-xs font-medium")
 
             radio_options = {
                 ODEMethodPreference.AUTO.value: "Tự động (Khuyến nghị theo vế phải g(t))",
@@ -44,9 +50,9 @@ def render_ode_method_selector(
             )
 
             ui.label(
-                "💡 Chế độ tự động: Ưu tiên Hệ số bất định cho đa thức, hàm mũ, sin/cos; "
+                "Chế độ tự động ưu tiên Hệ số bất định cho đa thức, hàm mũ, sin/cos; "
                 "tự động kích hoạt Biến thiên hằng số (Lagrange) cho tan, cot, sec, csc, ln, phân thức..."
-            ).classes("text-xs text-slate-500 italic")
+            ).classes("text-xs text-slate-600 italic")
         return
 
     # 2. Homogeneous Second-Order ODE Guidance
@@ -60,6 +66,20 @@ def render_ode_method_selector(
                 ui.label(
                     "Hệ thống tự động giải phương trình đặc trưng, phân tích dấu biệt thức Δ = b² - 4ac "
                     "và áp dụng công thức tương ứng (nghiệm thực phân biệt, nghiệm kép thực, hoặc cặp nghiệm phức liên hợp)."
+                ).classes("text-xs text-slate-500 leading-snug")
+        return
+
+    # 2b. Euler-Cauchy Second-Order ODE Guidance
+    if order == ODEOrder.SECOND_ORDER and classification == ODEClassification.EULER_CAUCHY:
+        with ui.row().classes("w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl items-center gap-3 mt-1"):
+            ui.icon("functions", color="primary", size="1.5rem")
+            with ui.column().classes("gap-0.5"):
+                ui.label("Phương pháp giải: Phương trình chỉ số Am(m - 1) + Bm + C = 0").classes(
+                    "text-xs font-bold text-slate-800"
+                )
+                ui.label(
+                    "Đặt y = t^m để đưa phương trình về phương trình chỉ số Am² + (B - A)m + C = 0. "
+                    "Hệ thống giải biệt thức Δ = (B - A)² - 4AC và thiết lập hệ nghiệm cơ bản cho miền xác định tương ứng."
                 ).classes("text-xs text-slate-500 leading-snug")
         return
 

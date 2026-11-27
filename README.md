@@ -69,6 +69,7 @@ MathWeave Studio bridges this gap by combining:
 - **Integrating Factors ($\mu(x)$ / $\mu(y)$):** Conversion of non-exact equations into exact differential equations.
 - **Second-Order Constant-Coefficient ODEs ($ay'' + by' + cy = 0$):** Characteristic polynomial analysis ($ar^2 + br + c = 0$), discriminant classification ($\Delta > 0$ distinct real, $\Delta < 0$ complex conjugate via Euler's formula, $\Delta = 0$ repeated root with factor $t$), fundamental solution sets, and independent verification.
 - **Second-Order Nonhomogeneous ODEs ($ay'' + by' + cy = g(t)$):** Particular solutions via the Method of Undetermined Coefficients (MUC) with resonance factor $t^s$, and Variation of Parameters (VoP) via Wronskian integration.
+- **Homogeneous Second-Order Euler–Cauchy ODEs ($a t^2 y'' + b t y' + c y = 0$):** Indicial equation analysis across distinct real, repeated real ($\ln|t|$), and complex conjugate ($\cos(\beta\ln|t|), \sin(\beta\ln|t|)$) roots with connected branch separation ($t > 0$, $t < 0$) and singular-point guards at $t = 0$.
 - **Second-Order Initial Value Problems (Cauchy IVP):** Dual initial conditions $y(t_0) = y_0$ and $y'(t_0) = v_0$ for both homogeneous and nonhomogeneous systems ($y = y_h + y_p$) with 2x2 linear system resolution for $C_1, C_2$ and independent verification.
 - **Singular Cauchy IVPs & Domain Branching:** Decomposition into connected normalized domain intervals, anchored integrating factors ($\mu_{t_0}(t) = e^{\int_{t_0}^t p(s)ds}$) avoiding cross-singularity leakage, algebraic compatibility analysis at singular points, and smooth $C^1$ extension verification.
 - **Reduction of Order:** Derivation of second fundamental solution $y_2(t) = v(t)y_1(t)$ from verified non-zero $y_1(t)$ via first-order reduction $u = v'$ and integral formula $u(t) = \frac{e^{-\int p(t)dt}}{y_1(t)^2}$, with domain singularity detection.
@@ -87,7 +88,7 @@ MathWeave Studio bridges this gap by combining:
 - **Singular Extension Verification:** Limit evaluation and derivative compatibility across singular branch interfaces without arbitrary constant assignment.
 
 ### Workspaces & UI Experience
-- **Dedicated Workspaces:** Specialized input environments for Calculus, Linear Algebra, and First/Second-Order ODEs with automatic differential equation order detection.
+- **Dedicated Workspaces & Unified Design System:** Specialized, accessible interfaces across all 34 operations for Calculus, Linear Algebra, and First/Second-Order ODEs with automatic equation-first classification and expandable manual overrides.
 - **Operation Catalog & Deep Linking:** Searchable operation launcher with category filtering, quick-launch chips, and direct URL query parameter pre-filling (`?op=ode&eq=...`).
 - **Structured Pedagogical Flows:** Stage-by-stage derivation pipelines (Formulation $\to$ Homogeneous $\to$ Particular $\to$ Superposition $\to$ Cauchy IVP $\to$ Independent Verification) with collapsible substeps.
 
@@ -138,10 +139,10 @@ For complete Arch Linux instructions—including future AUR installation placeho
 
 ### Windows Standalone Desktop Application
 
-Download the official Windows packages from the **[MathWeave Studio v0.1.1 Release](https://github.com/TqvNoCode/MathWeave-Studio/releases/tag/v0.1.1)**:
-- **Portable Standalone Executable:** [`MathWeave-Studio-Portable-Unsigned-Dev.exe`](https://github.com/TqvNoCode/MathWeave-Studio/releases/download/v0.1.1/MathWeave-Studio-Portable-Unsigned-Dev.exe) — Single-file executable ready to run immediately without installation.
-- **Windows Installer:** [`MathWeave-Studio-Setup-Unsigned-Dev.exe`](https://github.com/TqvNoCode/MathWeave-Studio/releases/download/v0.1.1/MathWeave-Studio-Setup-Unsigned-Dev.exe) — Standard Windows setup wizard configuring Start Menu and optional Desktop shortcuts with full uninstaller support.
-- **Integrity Checksums:** [`SHA256SUMS.txt`](https://github.com/TqvNoCode/MathWeave-Studio/releases/download/v0.1.1/SHA256SUMS.txt)
+Download the official Windows packages from the **[MathWeave Studio GitHub Releases](https://github.com/TqvNoCode/MathWeave-Studio/releases/latest)** ([All Releases](https://github.com/TqvNoCode/MathWeave-Studio/releases)):
+- **Portable Standalone Executable:** `MathWeave-Studio-Portable-Unsigned-Dev.exe` — Single-file executable ready to run immediately without installation.
+- **Windows Installer:** `MathWeave-Studio-Setup-Unsigned-Dev.exe` — Standard Windows setup wizard configuring Start Menu and optional Desktop shortcuts with full uninstaller support.
+- **Integrity Checksums:** `SHA256SUMS.txt` (published alongside the release assets).
 
 Double-click either package to launch MathWeave Studio directly in a native desktop window without requiring Python or uv to be installed.
 

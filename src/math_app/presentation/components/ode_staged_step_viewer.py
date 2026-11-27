@@ -26,7 +26,28 @@ from math_app.presentation.components.ode_pedagogical_enhancer import (
     ODEStageSummary,
 )
 from math_app.presentation.components.step_viewer import render_substep_compact
+from math_app.presentation.components.shared.feedback_cards import render_empty_state_card
+from math_app.presentation.design_system.tokens import INTERACTION
 from math_app.rendering.text_math_renderer import is_pure_latex_math
+
+
+_QUASAR_BADGE_COLOR_MAP: dict[str, str] = {
+    "emerald-7": "green-7",
+    "emerald-1": "green-1",
+    "rose-7": "red-7",
+    "rose-1": "red-1",
+    "slate-400": "grey-6",
+    "slate-5": "grey-6",
+    "slate-100": "grey-3",
+    "slate-200": "grey-4",
+    "slate-600": "blue-grey-6",
+    "indigo-1": "indigo-2",
+}
+
+
+def _to_quasar_badge_color(color: str) -> str:
+    """Translate Tailwind color tokens to valid Quasar palette names for ui.badge(color=...)."""
+    return _QUASAR_BADGE_COLOR_MAP.get(color, color)
 
 
 def _normalize_math(s: str) -> str:
@@ -53,6 +74,14 @@ def _is_meaningful_intermediate_result(step: ODEPedagogicalStep) -> bool:
     if raw_ir.startswith("$") and raw_ir.endswith("$"):
         raw_ir = raw_ir[1:-1].strip()
 
+    # If intermediate result is identical to equation_latex or content after, it's redundant
+    eq = (step.equation_latex or "").strip()
+    if not eq and step.content and step.content.latex_after:
+        eq = step.content.latex_after.strip()
+
+    if _normalize_math(raw_ir) == _normalize_math(eq):
+        return False
+
     # Always meaningful if verification status, failure, warning, or implication
     if any(
         tok in raw_ir
@@ -68,44 +97,36 @@ def _is_meaningful_intermediate_result(step: ODEPedagogicalStep) -> bool:
     ):
         return True
 
-    # If intermediate result is identical to equation_latex or content after, it's redundant
-    eq = (step.equation_latex or "").strip()
-    if not eq and step.content and step.content.latex_after:
-        eq = step.content.latex_after.strip()
-
-    if _normalize_math(raw_ir) == _normalize_math(eq):
-        return False
-
     return True
 
 
 def render_ode_pedagogical_step(step: ODEPedagogicalStep) -> None:
     """Render an individual ODE derivation step with a minimalist, high-readability structure."""
-    card_classes = "w-full min-w-0 max-w-full p-4 md:p-5 my-2 shadow-xs border border-slate-200 rounded-xl bg-white gap-3"
+    card_classes = "w-full min-w-0 max-w-full p-3 md:p-4 my-1.5 shadow-xs border border-slate-200 rounded-xl bg-white gap-2"
     step_title = step.display_title
     rule_name_vi = step.display_rule_name
 
     with ui.card().classes(card_classes):
         # 1. Step Header: Step Number, Title & Rule Badge with responsive flex wrapping
-        with ui.row().classes("items-center justify-between w-full flex-wrap gap-2 border-b border-slate-100 pb-2.5"):
-            with ui.row().classes("items-center gap-2 min-w-[240px] flex-1 max-w-full"):
-                ui.icon("check_circle_outline", size="1.25rem").classes("text-blue-600 shrink-0")
+        with ui.row().classes("items-center justify-between w-full flex-wrap gap-1.5 border-b border-slate-100 pb-2"):
+            with ui.row().classes("items-center gap-2 min-w-0 sm:min-w-[240px] flex-1 max-w-full"):
+                ui.icon("check_circle_outline", size="1.15rem").classes("text-blue-600 shrink-0")
                 step_num_disp = getattr(step, "presentation_step_number", getattr(step, "display_step_number", step.step_number))
-                ui_math_text(f"Bước {step_num_disp}: {step_title}", classes="text-base font-bold text-slate-900 leading-snug")
+                ui_math_text(f"Bước {step_num_disp}: {step_title}", classes="text-sm md:text-base font-bold text-slate-900 leading-snug")
 
             with ui.row().classes("items-center gap-1.5 flex-wrap justify-end"):
-                with ui.badge(color="blue-1").classes("text-blue-800 text-xs px-2.5 py-0.5 rounded-full font-medium"):
+                with ui.badge(color="blue-1").classes("text-blue-800 text-xs px-2 py-0.5 rounded-full font-medium"):
                     ui_math_text(rule_name_vi)
                 if step.stage_name and step.stage_name.lower() not in rule_name_vi.lower():
-                    with ui.badge(color="slate-100").classes("text-slate-600 text-[11px] px-2 py-0.5 rounded-md font-medium"):
+                    with ui.badge(color=_to_quasar_badge_color("slate-100")).classes("text-slate-600 text-[11px] px-2 py-0.5 rounded-md font-medium"):
                         ui_math_text(step.stage_name)
                 if step.notes:
-                    with ui.badge(color="slate-200").classes("text-slate-700 text-xs px-2 py-0.5 rounded-md font-medium"):
+                    with ui.badge(color=_to_quasar_badge_color("slate-200")).classes("text-slate-700 text-xs px-2 py-0.5 rounded-md font-medium"):
                         ui_math_text(step.notes)
 
         # Assumptions / Conditions if present
         if step.assumptions:
-            with ui.row().classes("items-center gap-2 px-3 py-1.5 bg-amber-50/70 border border-amber-200/60 rounded-lg text-xs text-amber-900"):
+            with ui.row().classes("items-center gap-2 px-2.5 py-1 bg-amber-50/70 border border-amber-200/60 rounded-lg text-xs text-amber-900"):
                 ui.icon("info", size="1rem").classes("text-amber-600")
                 for asmp in step.assumptions:
                     ui_math(asmp, block=False, classes="text-xs text-amber-950 font-medium")
@@ -118,7 +139,7 @@ def render_ode_pedagogical_step(step: ODEPedagogicalStep) -> None:
             explanation_texts.append(step.math_basis.strip())
 
         if explanation_texts:
-            with ui.column().classes("w-full p-3 rounded-lg bg-slate-50/80 border-l-3 border-blue-500 border border-slate-200/60 gap-1.5 min-w-0"):
+            with ui.column().classes("w-full p-2.5 rounded-lg bg-slate-50/80 border-l-3 border-blue-500 border border-slate-200/60 gap-1 min-w-0"):
                 for exp_txt in explanation_texts:
                     ui_math_text(exp_txt, classes="text-xs md:text-sm text-slate-700 leading-relaxed")
 
@@ -127,15 +148,15 @@ def render_ode_pedagogical_step(step: ODEPedagogicalStep) -> None:
         has_desc = bool(step.description and step.description.strip())
 
         if has_desc or has_eq:
-            with ui.column().classes("w-full bg-slate-50/50 rounded-xl p-3.5 border border-slate-200/70 gap-2 min-w-0"):
+            with ui.column().classes("w-full bg-slate-50/50 rounded-xl p-2.5 md:p-3 border border-slate-200/70 gap-1.5 min-w-0"):
                 if has_desc:
                     ui_math_text(step.description, classes="text-xs md:text-sm text-slate-800 leading-relaxed font-medium")
 
                 if step.equation_latex:
-                    with ui.column().classes("w-full overflow-x-auto py-1 items-start min-w-0"):
+                    with ui.column().classes("w-full overflow-x-auto py-0.5 items-start min-w-0"):
                         ui_math(step.equation_latex, block=True, classes="text-base md:text-lg text-slate-900 font-semibold")
                 elif step.content and (step.content.latex_before or step.content.latex_after):
-                    with ui.column().classes("w-full overflow-x-auto py-1 items-start min-w-0"):
+                    with ui.column().classes("w-full overflow-x-auto py-0.5 items-start min-w-0"):
                         if step.content.latex_before and step.content.latex_after:
                             ui_math(f"{step.content.latex_before} \\implies {step.content.latex_after}", block=True, classes="text-base md:text-lg text-slate-900 font-semibold")
                         elif step.content.latex_after:
@@ -167,11 +188,15 @@ def render_ode_pedagogical_step(step: ODEPedagogicalStep) -> None:
                 ir_icon = "verified"
                 ir_icon_cls = "text-emerald-600"
 
-            with ui.row().classes(f"w-full items-center gap-2.5 p-2.5 md:p-3 rounded-lg border {ir_bg} text-xs min-w-0 flex-wrap"):
+            with ui.row().classes(f"w-full items-center gap-2 p-2 md:p-2.5 rounded-lg border {ir_bg} text-xs min-w-0 flex-wrap"):
                 ui.icon(ir_icon, size="1.15rem").classes(f"{ir_icon_cls} shrink-0")
                 ui.label("KẾT QUẢ:").classes(f"font-bold text-[10px] uppercase tracking-wider {ir_title_cls}")
 
-                if "\\implies" in raw_ir or "\\\\implies" in raw_ir or "⇒" in raw_ir:
+                if (
+                    (r"\implies" in raw_ir or r"\\implies" in raw_ir or "⇒" in raw_ir)
+                    and r"\begin{aligned}" not in raw_ir
+                    and r"\begin{cases}" not in raw_ir
+                ):
                     parts = re.split(r"\\+implies|⇒", raw_ir, maxsplit=1)
                     math_part = parts[0].strip()
                     status_part = parts[1].strip() if len(parts) > 1 else ""
@@ -203,17 +228,16 @@ def render_ode_staged_steps_container(
 ) -> None:
     """Render the ODE solution organized into 4 educational stages with interactive controls."""
     if not stages:
-        with ui.card().classes("w-full p-4 border border-slate-200 bg-slate-50 rounded-xl text-center"):
-            ui.label("Không có bước phân rã nào được tạo cho phép toán này.").classes("text-slate-500 italic text-sm")
+        render_empty_state_card("Không có bước phân rã nào được tạo cho phép toán này.")
         return
 
     total_steps = sum(len(stg.steps) for stg in stages)
 
-    with ui.column().classes("w-full gap-3 mt-4 min-w-0"):
+    with ui.column().classes("w-full gap-2.5 mt-3 min-w-0"):
         # 1. Section Header & Global Expansion Controls
         expansion_refs: list[Any] = []
 
-        with ui.row().classes("items-center justify-between w-full border-b border-slate-200 pb-2.5 flex-wrap gap-2"):
+        with ui.row().classes("items-center justify-between w-full border-b border-slate-200 pb-2 flex-wrap gap-2"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("account_tree", size="1.4rem").classes("text-blue-600")
                 ui.label("Trình tự giải chi tiết theo 4 giai đoạn sư phạm").classes("text-base md:text-lg font-bold text-slate-900")
@@ -229,19 +253,29 @@ def render_ode_staged_steps_container(
                     for exp in expansion_refs:
                         exp.value = False
 
-                ui.button("Mở rộng tất cả", icon="unfold_more", on_click=expand_all).props("flat dense").classes("text-xs text-blue-700")
-                ui.button("Thu gọn tất cả", icon="unfold_less", on_click=collapse_all).props("flat dense").classes("text-xs text-slate-600")
+                ui.button("Mở rộng tất cả", icon="unfold_more", on_click=expand_all).props(
+                    'flat dense aria-label="Mở rộng toàn bộ các giai đoạn giải"'
+                ).classes(f"text-xs text-blue-700 rounded-lg px-2 py-1 {INTERACTION.FOCUS_RING}")
+                ui.button("Thu gọn tất cả", icon="unfold_less", on_click=collapse_all).props(
+                    'flat dense aria-label="Thu gọn toàn bộ các giai đoạn giải"'
+                ).classes(f"text-xs text-slate-600 rounded-lg px-2 py-1 {INTERACTION.FOCUS_RING}")
 
         # 2. Visual 4-Stage Stepper / Progress Bar
-        with ui.row().classes("w-full items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200/90 gap-2 flex-wrap min-w-0"):
+        with ui.row().classes("w-full items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200/90 gap-1.5 flex-wrap min-w-0"):
             for idx, stage in enumerate(stages):
                 with ui.row().classes("items-center gap-1.5 min-w-0"):
                     if stage.is_applicable:
-                        with ui.badge(color=stage.badge_color).classes("text-xs px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1"):
-                            ui.icon("check_circle", size="0.9rem")
+                        if stage.is_completed:
+                            stepper_icon = "check_circle"
+                        elif "thất bại" in stage.badge_text.lower() or "rose" in stage.badge_color:
+                            stepper_icon = "error"
+                        else:
+                            stepper_icon = "warning"
+                        with ui.badge(color=_to_quasar_badge_color(stage.badge_color)).classes("text-xs px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1 whitespace-nowrap"):
+                            ui.icon(stepper_icon, size="0.9rem")
                             ui_math_text(f"{stage.stage_index}. {stage.badge_text}")
                     else:
-                        with ui.badge(color="slate-400").classes("text-xs px-2.5 py-1 rounded-lg font-medium text-white flex items-center gap-1"):
+                        with ui.badge(color=_to_quasar_badge_color("slate-400")).classes("text-xs px-2.5 py-1 rounded-lg font-medium text-white flex items-center gap-1"):
                             ui.icon("remove_circle_outline", size="0.9rem")
                             ui.label(f"{stage.stage_index}. Bỏ qua (Thuần nhất)")
 
@@ -251,10 +285,10 @@ def render_ode_staged_steps_container(
         # 3. Stage Expansions with Rich MathML Headers via Slots
         for stage in stages:
             badge_text = f"{len(stage.steps)} bước" if stage.is_applicable else "Không áp dụng"
-            badge_color = stage.badge_color if stage.is_applicable else "slate-400"
+            badge_color = _to_quasar_badge_color(stage.badge_color) if stage.is_applicable else _to_quasar_badge_color("slate-400")
 
             is_verification_stage = (stage.stage_index == 4 or "kiểm chứng" in stage.title.lower())
-            default_expanded = not is_verification_stage
+            default_expanded = stage.stage_index == 1
 
             with ui.expansion(value=default_expanded).classes(
                 "w-full bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden"
@@ -272,12 +306,21 @@ def render_ode_staged_steps_container(
                                     ui_math_text(stage.subtitle, classes="text-xs text-slate-600 leading-snug")
                         with ui.row().classes("items-center gap-2 shrink-0"):
                             if is_verification_stage:
-                                with ui.badge(color="emerald-1").classes("text-emerald-800 text-xs px-2.5 py-0.5 rounded-full font-semibold border border-emerald-300 flex items-center gap-1"):
-                                    ui.icon("verified", size="0.95rem").classes("text-emerald-600")
-                                    ui.label("Đã kiểm chứng độc lập")
+                                if stage.is_completed:
+                                    with ui.badge(color="green-1").classes("text-emerald-900 text-xs px-2.5 py-0.5 rounded-full font-semibold border border-emerald-300 flex items-center gap-1"):
+                                        ui.icon("verified", size="0.95rem").classes("text-emerald-700")
+                                        ui.label("Đã kiểm chứng độc lập")
+                                elif "thất bại" in stage.badge_text.lower() or "rose" in stage.badge_color:
+                                    with ui.badge(color="red-1").classes("text-rose-900 text-xs px-2.5 py-0.5 rounded-full font-semibold border border-rose-300 flex items-center gap-1"):
+                                        ui.icon("error", size="0.95rem").classes("text-rose-700")
+                                        ui.label("Kiểm chứng thất bại")
+                                else:
+                                    with ui.badge(color="amber-1").classes("text-amber-900 text-xs px-2.5 py-0.5 rounded-full font-semibold border border-amber-300 flex items-center gap-1"):
+                                        ui.icon("warning", size="0.95rem").classes("text-amber-700")
+                                        ui.label("Chưa xác minh đầy đủ")
                             ui.badge(badge_text, color=badge_color).classes("text-xs font-semibold px-2.5 py-1 rounded-md shrink-0")
 
-                with ui.column().classes("w-full p-3 md:p-4 gap-3 min-w-0"):
+                with ui.column().classes("w-full p-2.5 md:p-3 gap-2 min-w-0"):
                     # Non-applicable stage explanation (e.g. Stage 2 for homogeneous ODEs)
                     if not stage.is_applicable:
                         with ui.row().classes("w-full p-3.5 rounded-xl bg-slate-50 border border-slate-200 items-start gap-3 min-w-0"):
@@ -289,7 +332,7 @@ def render_ode_staged_steps_container(
                                     "Toàn bộ cấu trúc nghiệm được xác định hoàn toàn bởi nghiệm thuần nhất $y_c(t)$ tìm được ở Giai đoạn 1.",
                                     classes="text-xs text-slate-600 leading-relaxed",
                                 )
-                                with ui.row().classes("w-full overflow-x-auto py-1 min-w-0"):
+                                with ui.row().classes("w-full math-scroll-box py-1 min-w-0"):
                                     ui_math(stage.summary_latex, block=False, classes="text-sm font-semibold text-slate-900")
                     else:
                         # Render each pedagogical step in this stage
@@ -311,7 +354,7 @@ def render_ode_staged_steps_container(
                                             ui.icon("stars", size="1.1rem").classes("text-blue-600")
                                             ui_math_text(f"Tổng kết: {summary_caption}", classes="text-xs font-bold uppercase tracking-wider text-blue-900")
                                         ui.badge(badge_text, color=badge_color).classes("text-[11px] font-semibold")
-                                    with ui.row().classes("w-full overflow-x-auto py-0.5 min-w-0"):
+                                    with ui.row().classes("w-full math-scroll-box py-1 min-w-0"):
                                         ui_math(stage.summary_latex, block=False, classes="text-sm md:text-base font-bold text-slate-900")
 
                     # Pedagogical Transition Link to Next Stage

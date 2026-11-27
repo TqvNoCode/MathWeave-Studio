@@ -27,6 +27,7 @@ class ProblemType(str, Enum):
     ODE_INTEGRATING_FACTOR = "ode_integrating_factor"
     ODE_SECOND_ORDER_CONSTANT_COEFF = "ode_second_order_constant_coeff"
     ODE_SECOND_ORDER_IVP = "ode_second_order_ivp"
+    ODE_EULER_CAUCHY = "ode_euler_cauchy"
     ODE_REDUCTION_OF_ORDER = "ode_reduction_of_order"
     WRONSKIAN = "wronskian"
 
@@ -93,6 +94,7 @@ _ODE_PROBLEM_TYPES: frozenset[ProblemType] = frozenset({
     ProblemType.ODE_INTEGRATING_FACTOR,
     ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
     ProblemType.ODE_SECOND_ORDER_IVP,
+    ProblemType.ODE_EULER_CAUCHY,
     ProblemType.ODE_REDUCTION_OF_ORDER,
     ProblemType.WRONSKIAN,
 })

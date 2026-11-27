@@ -10,6 +10,7 @@ from math_app.presentation.components.workspace.ode.ode_state import (
     ODEMode,
     ODEOrder,
 )
+from math_app.presentation.design_system.tokens import INTERACTION
 
 
 def render_ode_mode_selector(
@@ -29,26 +30,25 @@ def render_ode_mode_selector(
     is_gen = selected_mode == ODEMode.GENERAL
     is_ivp = selected_mode == ODEMode.CAUCHY_IVP
 
-    with ui.column().classes("w-full gap-2 mt-1"):
+    with ui.column().classes("w-full gap-2 mt-1 min-w-0"):
         with ui.row().classes("items-center justify-between w-full"):
             with ui.row().classes("items-center gap-2"):
-                if order == ODEOrder.SECOND_ORDER:
-                    ui.badge("BƯỚC 3", color="primary").classes("text-xs font-bold")
-                ui.label("CHỌN YÊU CẦU BÀI TOÁN:").classes(
+                ui.icon("tune", size="1.1rem").classes("text-blue-600")
+                ui.label("YÊU CẦU BÀI TOÁN:").classes(
                     "text-xs font-bold text-slate-700 uppercase tracking-wider"
                 )
 
         # Mode Selection Buttons
         with ui.row().classes("gap-3 flex-wrap items-center"):
             gen_cls = (
-                "bg-blue-600 text-white font-bold shadow-xs border border-blue-600"
+                "!bg-blue-600 hover:!bg-blue-700 !text-white font-bold shadow-xs border border-blue-600"
                 if is_gen
-                else "bg-white text-slate-700 hover:bg-blue-50 hover:text-blue-700 border border-slate-200"
+                else "!bg-white !text-slate-700 hover:!bg-blue-50 hover:!text-blue-700 border border-slate-300"
             )
             ivp_cls = (
-                "bg-blue-600 text-white font-bold shadow-xs border border-blue-600"
+                "!bg-blue-600 hover:!bg-blue-700 !text-white font-bold shadow-xs border border-blue-600"
                 if is_ivp
-                else "bg-white text-slate-700 hover:bg-blue-50 hover:text-blue-700 border border-slate-200"
+                else "!bg-white !text-slate-700 hover:!bg-blue-50 hover:!text-blue-700 border border-slate-300"
             )
 
             gen_tooltip = (
@@ -62,14 +62,14 @@ def render_ode_mode_selector(
                 else "Tìm nghiệm xác định duy nhất thỏa mãn cả hai điều kiện ban đầu y(t₀) = y₀ và y'(t₀) = v₀"
             )
 
-            with ui.button("Tìm nghiệm tổng quát", icon="functions", on_click=lambda: on_mode_change(ODEMode.GENERAL)).props(
-                f"{'unelevated' if is_gen else 'outline'} no-caps"
-            ).classes(f"text-xs md:text-sm h-10 px-4 rounded-lg {gen_cls} transition-all font-semibold"):
+            with ui.button("Tìm nghiệm tổng quát", icon="functions", on_click=lambda: on_mode_change(ODEMode.GENERAL), color=None).props(
+                "unelevated no-caps"
+            ).classes(f"text-xs md:text-sm min-h-[40px] px-4 rounded-lg {gen_cls} transition-all font-semibold {INTERACTION.FOCUS_RING}"):
                 ui.tooltip(gen_tooltip)
 
-            with ui.button("Bài toán Cauchy (IVP)", icon="alt_route", on_click=lambda: on_mode_change(ODEMode.CAUCHY_IVP)).props(
-                f"{'unelevated' if is_ivp else 'outline'} no-caps"
-            ).classes(f"text-xs md:text-sm h-10 px-4 rounded-lg {ivp_cls} transition-all font-semibold"):
+            with ui.button("Bài toán Cauchy (IVP)", icon="alt_route", on_click=lambda: on_mode_change(ODEMode.CAUCHY_IVP), color=None).props(
+                "unelevated no-caps"
+            ).classes(f"text-xs md:text-sm min-h-[40px] px-4 rounded-lg {ivp_cls} transition-all font-semibold {INTERACTION.FOCUS_RING}"):
                 ui.tooltip(ivp_tooltip)
 
         # Contextual Cauchy Initial Condition Inputs (only displayed when IVP mode is active)
@@ -85,14 +85,14 @@ def render_ode_mode_selector(
                     if has_val:
                         btn.enable()
                         btn.classes(
-                            add="border border-rose-300 !text-rose-700 hover:!bg-rose-50 hover:!text-rose-900 bg-white font-medium cursor-pointer",
+                            add="border border-rose-300 !text-slate-700 hover:!bg-rose-50 hover:!text-rose-700 bg-white font-medium cursor-pointer shadow-2xs",
                             remove="border-slate-300 !text-slate-400 bg-slate-50 cursor-not-allowed opacity-60",
                         )
                     else:
                         btn.disable()
                         btn.classes(
                             add="border border-slate-300 !text-slate-400 bg-slate-50 cursor-not-allowed opacity-60",
-                            remove="border-rose-300 !text-rose-700 hover:!bg-rose-50 hover:!text-rose-900 bg-white font-medium cursor-pointer",
+                            remove="border-rose-300 !text-slate-700 hover:!bg-rose-50 hover:!text-rose-700 bg-white font-medium cursor-pointer shadow-2xs",
                         )
 
                 with ui.row().classes("items-center justify-between w-full"):
@@ -111,12 +111,12 @@ def render_ode_mode_selector(
 
                     has_init_ic = bool(initial_condition and initial_condition.strip())
                     btn_cls = (
-                        "border border-rose-300 !text-rose-700 hover:!bg-rose-50 hover:!text-rose-900 bg-white font-medium cursor-pointer"
+                        "border border-rose-300 !text-slate-700 hover:!bg-rose-50 hover:!text-rose-700 bg-white font-medium cursor-pointer shadow-2xs"
                         if has_init_ic
                         else "border border-slate-300 !text-slate-400 bg-slate-50 cursor-not-allowed opacity-60"
                     )
                     clear_btn = (
-                        ui.button("Xóa điều kiện", on_click=clear_ic, color=None)
+                        ui.button("Xóa điều kiện", icon="delete_outline", on_click=clear_ic, color=None)
                         .props("unelevated dense no-caps")
                         .classes(f"text-xs px-2.5 py-1 rounded-lg transition-all {btn_cls}")
                     )

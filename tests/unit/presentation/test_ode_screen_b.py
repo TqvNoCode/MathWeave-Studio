@@ -789,7 +789,7 @@ def test_screen_b_mocked_use_case_submission_all_cauchy_presets():
         _navigate_to_screen_b(client)
 
         def click_solve() -> None:
-            solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == "GIẢI PHƯƠNG TRÌNH"][0]
+            solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and "GIẢI PHƯƠNG TRÌNH" in (el.text or "")][0]
             for listener in list(solve_btn._event_listeners.values()):
                 if listener.type == "click":
                     with client:
@@ -892,8 +892,8 @@ def test_screen_b_submission_conflict_ui_warning():
             expr_inp.set_value("y'' + y = tan(t), y(0) = 0, y'(0) = 2")
             ic_inp.set_value("y(0) = 1, y'(0) = 0")
 
-        # Click GIẢI PHƯƠNG TRÌNH
-        solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == "GIẢI PHƯƠNG TRÌNH"][0]
+        # Click Solve button
+        solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and "GIẢI PHƯƠNG TRÌNH" in (el.text or "")][0]
         for listener in list(solve_btn._event_listeners.values()):
             if listener.type == "click":
                 with client:

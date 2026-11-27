@@ -6,21 +6,113 @@ import re
 import sympy as sp
 from nicegui import ui
 
+from math_app.domain.models import ProblemType
 from math_app.input.parser import parse_safe_expression
 from math_app.presentation.components.math_view import ui_math
 from math_app.rendering.latex.formatter import expr_to_latex
 
 
-def format_domain_condition(res: str, var_name: str = "x") -> tuple[str, str, str]:
+def format_domain_condition(
+    res: str,
+    var_name: str = "x",
+    prob_type: ProblemType | None = None,
+) -> tuple[str, str, str]:
     """Parse raw condition string into (dedup_key, vietnamese_explanation, latex_formula)."""
-    # 0. Disconnected domain union conditions (generic extraction without hardcoded intervals)
+    res_lower = res.lower()
+
+    # 0a. Euler–Cauchy singular point & connected interval conditions (strictly scoped)
+    is_euler_cauchy_singular = (
+        (prob_type == ProblemType.ODE_EULER_CAUCHY and ("điểm kỳ dị" in res_lower or "natural domain" in res_lower))
+        or (prob_type is None and r"natural domain: r \ {0}" in res_lower)
+    )
+    if is_euler_cauchy_singular:
+        m_pt = re.search(r"\b([a-zA-Z])\s*=\s*([+-]?\d+(?:/\d+)?)", res)
+        pt_var = m_pt.group(1) if m_pt else var_name
+        pt_val = m_pt.group(2) if m_pt else "0"
+        return (
+            f"ec_singular_{pt_var}_{pt_val}",
+            f"Điểm kỳ dị tại {pt_var} = {pt_val} (hệ số dẫn a({pt_var}) = A{pt_var}² triệt tiêu; bài toán chính quy xét riêng trên {pt_var} > {pt_val} hoặc {pt_var} < {pt_val}, dù một số nghiệm riêng vẫn có thể có giới hạn hữu hạn tại {pt_val}):",
+            rf"a({pt_var}) = 0 \iff {pt_var} = {pt_val} \implies \mathcal{{D}}_{{\text{{chính quy}}}} = (-\infty, {pt_val}) \cup ({pt_val}, +\infty)",
+        )
+
+    # 0a-generic. Non-Euler–Cauchy singular point conditions (Reduction of Order, First-Order Linear, etc.)
+    m_sing_set = re.search(
+        r"a\(([a-zA-Z][a-zA-Z0-9_]*)\)\s*:\s*([a-zA-Z][a-zA-Z0-9_]*)\s*in\s*\{([^}]+)\}",
+        res,
+    )
+    if m_sing_set:
+        pt_var = m_sing_set.group(2)
+        pts_raw = m_sing_set.group(3).strip()
+        formatted_pts: list[str] = []
+        for pt in pts_raw.split(","):
+            pt_clean = pt.strip()
+            if not pt_clean:
+                continue
+            try:
+                formatted_pts.append(
+                    expr_to_latex(parse_safe_expression(pt_clean, target_variable=pt_var, evaluate=True))
+                )
+            except Exception:
+                formatted_pts.append(pt_clean)
+        pts_ltx = ", ".join(formatted_pts) if formatted_pts else pts_raw
+        return (
+            f"singular_set_{pt_var}_{pts_raw}",
+            f"Điểm kỳ dị của hệ số dẫn a({pt_var}):",
+            rf"a({pt_var}) = 0 \iff {pt_var} \in \{{{pts_ltx}\}} \implies \mathcal{{D}}_{{\text{{chính quy}}}} = \mathbb{{R}} \setminus \{{{pts_ltx}\}}",
+        )
+
+    m_sing_ne = re.search(
+        r"điểm kỳ dị[^:]*:\s*([a-zA-Z][a-zA-Z0-9_]*)\s*(?:khác|!=|\\ne|≠)\s*([^\s.,;()]+)",
+        res,
+        flags=re.IGNORECASE,
+    )
+    if m_sing_ne:
+        pt_var = m_sing_ne.group(1)
+        pt_val = m_sing_ne.group(2).strip()
+        try:
+            pt_val_ltx = expr_to_latex(parse_safe_expression(pt_val, target_variable=pt_var, evaluate=True))
+        except Exception:
+            pt_val_ltx = pt_val
+        return (
+            f"singular_ne_{pt_var}_{pt_val}",
+            "Điểm kỳ dị của hệ số dẫn:",
+            rf"{pt_var} \ne {pt_val_ltx} \implies \mathcal{{D}} = \mathbb{{R}} \setminus \{{{pt_val_ltx}\}}",
+        )
+
+    if "khoảng xác định được chọn" in res_lower or "khoảng liên thông chứa điểm ban đầu" in res_lower:
+        parts = res.split(":", 1)
+        raw_desc = re.sub(rf"\b{re.escape(var_name)}0\b", f"{var_name}₀", parts[0].strip())
+        desc_lbl = f"{raw_desc}:"
+        iv_raw = parts[1].strip().rstrip(".") if len(parts) > 1 else ""
+        iv_ltx = iv_raw.replace("<=", r"\le").replace(">=", r"\ge")
+        return (
+            f"selected_interval_{iv_raw}",
+            desc_lbl,
+            iv_ltx,
+        )
+
+    if "hệ số dẫn" in res_lower and ("khác 0" in res_lower or "!=" in res_lower):
+        m_lead = re.search(r"hệ số dẫn\s+(.+?)\s+(?:khác|!=|\\ne|≠)\s*0", res, flags=re.IGNORECASE)
+        if m_lead:
+            raw_coeff = m_lead.group(1).strip()
+            try:
+                coeff_ltx = expr_to_latex(parse_safe_expression(raw_coeff, target_variable=var_name, evaluate=True))
+            except Exception:
+                coeff_ltx = raw_coeff
+            return (
+                f"leading_coeff_{raw_coeff}",
+                "Điều kiện chính quy của hệ số dẫn:",
+                rf"{coeff_ltx} \ne 0 \iff {var_name} \ne 0" if raw_coeff in (f"{var_name}**2", f"{var_name}^2", var_name) else rf"{coeff_ltx} \ne 0",
+            )
+
+    # 0b. Disconnected domain union conditions (generic extraction without hardcoded intervals)
     if r"\mathcal{D}" in res or r"\cup" in res or "∪" in res or "khoảng liên thông" in res.lower():
         m_d = re.search(r"(\\mathcal\{D\}(?:_\{[^}]+\})?\s*=\s*.+?)(?:\.|$)", res)
         if m_d:
             formula = m_d.group(1).strip()
             if "với" in formula:
                 formula = re.sub(r",\s*với\s*", r" \\quad (", formula)
-                if not formula.endswith(")"):
+                if formula.count("(") > formula.count(")"):
                     formula += ")"
                 formula = formula.replace(" và ", r", \; ")
         else:
@@ -135,6 +227,7 @@ def render_domain_restrictions(
     var_name: str = "x",
     original_domain_latex: str = "",
     normalized_domain_latex: str = "",
+    prob_type: ProblemType | None = None,
 ) -> None:
     """Render domain restrictions with pure Vietnamese prose and clean LaTeX formulas.
 
@@ -176,7 +269,7 @@ def render_domain_restrictions(
         seen_keys.add("d_orig_norm_transition")
 
     for r in restrictions:
-        key, desc, formula = format_domain_condition(r, var_name)
+        key, desc, formula = format_domain_condition(r, var_name, prob_type=prob_type)
         # Omit tautological conditions that introduce no real exclusions (e.g. D = R)
         if r"\mathcal{D} = \mathbb{R}" in formula and r"\setminus" not in formula:
             continue
@@ -187,14 +280,14 @@ def render_domain_restrictions(
     if not parsed_items:
         return
 
-    with ui.column().classes("w-full p-4 bg-amber-50/80 border border-amber-200 rounded-xl gap-2.5"):
-        with ui.row().classes("items-center gap-2"):
-            ui.icon("rule", size="1.2rem").classes("text-amber-800")
+    with ui.column().classes("w-full p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl gap-2 min-w-0 max-w-full"):
+        with ui.row().classes("items-center gap-2 flex-wrap"):
+            ui.icon("rule", size="1.2rem").classes("text-amber-800 shrink-0")
             ui.label("Điều kiện xác định của bài toán:").classes(
                 "text-xs font-bold text-amber-950 uppercase tracking-wider"
             )
 
         for desc, formula in parsed_items:
-            with ui.column().classes("w-full pl-3 py-1 gap-1 border-l-2 border-amber-400"):
-                ui.label(desc).classes("text-xs font-medium text-amber-900")
+            with ui.column().classes("w-full pl-3 py-1 gap-1 border-l-2 border-amber-400 min-w-0 math-scroll-box"):
+                ui.label(desc).classes("text-xs font-medium text-amber-900 break-words")
                 ui_math(formula, block=False, classes="text-base font-semibold text-amber-950 py-0.5")

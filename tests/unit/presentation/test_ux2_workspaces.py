@@ -24,6 +24,7 @@ from math_app.presentation.app import create_app
 from math_app.presentation.components.operation_catalog import (
     get_operation_by_type,
 )
+from math_app.presentation.components.shared import get_primary_action_spec
 from math_app.presentation.components.workspace.matrix_helper import (
     render_matrix_helper_panel,
 )
@@ -371,7 +372,7 @@ def test_ux2_2_vector_theorems_workspaces():
 # =========================================================================
 
 def test_ux2_3_matrix_workspace_and_button_label():
-    """Verify matrix operations display matrix helper panel and 'GIẢI PHÉP TOÁN MA TRẬN' button."""
+    """Verify matrix operations display matrix helper panel and operation-specific matrix action label."""
     client = _setup_app_client("/test_ux2_3_matrix_det")
     _navigate_to_operation(client, ProblemType.MATRIX_DETERMINANT)
 
@@ -379,8 +380,9 @@ def test_ux2_3_matrix_workspace_and_button_label():
     labels = [el.text for el in client.elements.values() if isinstance(el, ui.label) and "HƯỚNG DẪN NHẬP DỮ LIỆU MA TRẬN" in el.text]
     assert len(labels) == 1
 
-    # Solve button has matrix label
-    btns = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == "GIẢI PHÉP TOÁN MA TRẬN"]
+    # Solve button has module-specific label
+    expected_label = get_primary_action_spec(ProblemType.MATRIX_DETERMINANT).label
+    btns = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == expected_label]
     assert len(btns) == 1
 
 
@@ -691,7 +693,8 @@ async def test_ux2_4_surface_integral_geometry_isolation_and_submission():
 
     _navigate_to_operation(client, ProblemType.SURFACE_INTEGRAL)
     surf_type = [el for el in client.elements.values() if isinstance(el, ui.select) and "Hình học mặt S" in el._props.get("label", "")][0]
-    solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == "GIẢI PHƯƠNG TRÌNH"][0]
+    expected_surf_label = get_primary_action_spec(ProblemType.SURFACE_INTEGRAL).label
+    solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == expected_surf_label][0]
 
     # 1. Submit initial Graph mode
     captured_requests.clear()
@@ -773,7 +776,8 @@ async def test_ux2_4_triple_integral_coordinate_isolation_and_submission():
 
     _navigate_to_operation(client, ProblemType.TRIPLE_INTEGRAL)
     coord_sel = [el for el in client.elements.values() if isinstance(el, ui.select) and "Hệ tọa độ" in el._props.get("label", "")][0]
-    solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == "GIẢI PHƯƠNG TRÌNH"][0]
+    expected_triple_label = get_primary_action_spec(ProblemType.TRIPLE_INTEGRAL).label
+    solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == expected_triple_label][0]
 
     # 1. Cartesian mode
     captured_requests.clear()
@@ -896,9 +900,10 @@ async def test_ux2_4_real_ui_submission_problem_request_capture(op_type: Problem
         route.endpoint.__wrapped__()
 
     _navigate_to_operation(client, op_type)
+    expected_label = get_primary_action_spec(op_type).label
     solve_btn = [
         el for el in client.elements.values()
-        if isinstance(el, ui.button) and el.text in ("GIẢI PHƯƠNG TRÌNH", "GIẢI PHÉP TOÁN MA TRẬN")
+        if isinstance(el, ui.button) and el.text == expected_label
     ][0]
 
     captured_requests.clear()
@@ -942,7 +947,8 @@ async def test_ux2_4_1_surface_integral_reset_scenarios_graph_and_parametric():
 
     # Common workspace controls
     reset_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == "Nhập lại"][0]
-    solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == "GIẢI PHƯƠNG TRÌNH"][0]
+    expected_surf_label = get_primary_action_spec(ProblemType.SURFACE_INTEGRAL).label
+    solve_btn = [el for el in client.elements.values() if isinstance(el, ui.button) and el.text == expected_surf_label][0]
     surf_type = [el for el in client.elements.values() if isinstance(el, ui.select) and "Hình học mặt S" in el._props.get("label", "")][0]
 
     # =========================================================================

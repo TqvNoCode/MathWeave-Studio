@@ -12,16 +12,16 @@ from math_app.presentation.design_system.tokens import TYPOGRAPHY
 def render_app_header(on_about_click: Callable[[], None]) -> ui.row:
     """Render the centralized application header with identity, version badge, and about action."""
     with ui.row().classes(
-        "items-center justify-between w-full border-b border-slate-200 pb-4"
+        "items-center justify-between w-full border-b border-slate-200 pb-3.5 md:pb-4 flex-wrap gap-3 min-w-0"
     ) as header_row:
         # Left branding block
-        with ui.row().classes("items-center gap-3"):
-            with ui.avatar(icon="functions", color="primary", text_color="white").classes("shadow-sm"):
+        with ui.row().classes("items-center gap-3 min-w-0 flex-1"):
+            with ui.avatar(icon="functions", color="primary", text_color="white").classes("shadow-sm shrink-0"):
                 pass
-            with ui.column().classes("gap-0"):
+            with ui.column().classes("gap-0 min-w-0 flex-1"):
                 ui.label(__title__).classes(TYPOGRAPHY.APP_TITLE)
                 ui.label("Phần mềm Hỗ trợ Học tập & Nghiên cứu Toán học Chuyên sâu").classes(
-                    TYPOGRAPHY.APP_SUBTITLE
+                    f"{TYPOGRAPHY.APP_SUBTITLE} break-words"
                 )
 
         # Right actions block: Semantic accessible version button (About action)

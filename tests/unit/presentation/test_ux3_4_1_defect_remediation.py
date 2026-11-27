@@ -270,23 +270,24 @@ def test_cauchy_clear_button_disabled_state_and_clearing():
 # =============================================================================
 
 def test_ode_workspace_visual_hierarchy_has_no_visible_order_step():
-    """Verify ODE workspace presents Classification as Step 1 directly without redundant visual order cards."""
+    """Verify ODE workspace presents semantic sections directly without redundant visual order cards."""
     use_case = build_application()
     client = Client(ui.page("/test_ode_visual_hierarchy"))
     with client:
         op = get_operation_by_type(ProblemType.ODE_FIRST_ORDER_LINEAR)
         render_ode_workspace(op, use_case)
 
-        # Visible badges must start with BƯỚC 1 for Classification
-        badges = [el for el in client.elements.values() if isinstance(el, ui.badge)]
-        badge_texts = [b.text for b in badges]
-        assert "BƯỚC 1" in badge_texts
-        assert "BƯỚC 2" in badge_texts
+        # First-order guided workflow must present semantic sections directly without numbered analysis badges
+        badges = [el.text for el in client.elements.values() if isinstance(el, ui.badge) and el.text]
+        assert "BƯỚC 2" not in badges
+        assert "BƯỚC 3" not in badges
+        assert "BƯỚC 4" not in badges
 
-        # First-order guided workflow must be displayed directly without redundant manual buttons
         all_text = " ".join([el.text for el in client.elements.values() if isinstance(el, (ui.label, ui.badge, ui.button)) and el.text])
-        assert "TỰ ĐỘNG PHÂN LOẠI TOÁN HỌC:" in all_text
-        assert "PHƯƠNG PHÁP GIẢI KHUYẾN NGHỊ:" in all_text
+        assert "NHẬP BÀI TOÁN" in all_text
+        assert "PHÂN TÍCH TỰ ĐỘNG" in all_text
+        assert "CƠ SỞ PHÂN LOẠI" in all_text
+        assert "PHƯƠNG PHÁP ĐỀ XUẤT" in all_text
 
 
 # =============================================================================

@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-27
+
+### Added
+- **Second-Order Euler–Cauchy ODE Solver (ODE-EC1)**:
+  - Implemented dedicated `ODEEulerCauchySolver` for homogeneous second-order Euler–Cauchy equations $a t^2 y''(t) + b t y'(t) + c y(t) = 0$ ($a \neq 0$).
+  - Integrated into application core with dedicated problem type `ProblemType.ODE_EULER_CAUCHY`.
+  - Supported all three indicial characteristic root cases:
+    - Case A: Distinct real roots ($m_1 \neq m_2$), yielding $y(t) = C_1 t^{m_1} + C_2 t^{m_2}$ for $t > 0$ and $C_1 (-t)^{m_1} + C_2 (-t)^{m_2}$ for $t < 0$.
+    - Case B: Repeated real root ($m_1 = m_2 = m$), yielding $y(t) = t^m (C_1 + C_2 \ln t)$ for $t > 0$ and $(-t)^m (C_1 + C_2 \ln(-t))$ for $t < 0$.
+    - Case C: Complex-conjugate roots ($m_{1,2} = \alpha \pm i\beta$), producing purely real-valued trigonometric solutions $y(t) = t^\alpha [C_1 \cos(\beta \ln t) + C_2 \sin(\beta \ln t)]$ for $t > 0$ and $(-t)^\alpha [C_1 \cos(\beta \ln(-t)) + C_2 \sin(\beta \ln(-t))]$ for $t < 0$.
+  - Supported complete Cauchy Initial Value Problems ($y(t_0) = y_0, y'(t_0) = v_0$) for $t_0 \neq 0$, resolving exact integration constants via $2 \times 2$ linear systems and validating on the connected component containing $t_0$.
+  - Handled singular point $t = 0$ safely: preserved original leading coefficient singular constraints, returned two-branch solutions with independent constants ($C_1, C_2$ on $t > 0$ and $C_3, C_4$ on $t < 0$) in general mode across the natural domain $\mathbb{R} \setminus \{0\}$, rejected intervals crossing zero, and flagged Cauchy IVPs at $t_0 = 0$ as unsupported singular points without claiming mathematical nonexistence.
+  - Added rich pedagogical step-by-step derivations (form classification, trial solution $y = t^m$, indicial polynomial derivation, discriminant calculation and root classification, fundamental solution construction, general solution assembly, and Cauchy IVP linear system resolution).
+  - Integrated into second-order ODE workspace UI with a dedicated Euler–Cauchy classification card, problem request builder, and pedagogical solution flow enhancer.
+  - Rejected nonhomogeneous Euler–Cauchy equations with clear explanations to maintain mathematical boundaries.
+  - Added comprehensive test coverage across all root cases, domains, Cauchy IVPs, singular point edge cases, and UI workflows.
+- **Equation-First Second-Order ODE Workspace & Live Classifier (`second_order_classifier.py`)**:
+  - Users enter the differential equation directly (`NHẬP BÀI TOÁN`) while the workspace automatically classifies Homogeneous Constant-Coefficient, Nonhomogeneous Constant-Coefficient (MUC vs. VoP recommendation), Homogeneous Euler–Cauchy, Reduction of Order, and Order-1 mismatches.
+  - Added secondary expandable manual override (`Đổi phân loại thủ công`) and override-recovery controls (`Ghi đè thủ công` / `Bật lại tự động`).
+- **Unified UI/UX Design System & Accessibility Across All 34 Operations (`docs/UI_UX_DESIGN_SYSTEM.md`)**:
+  - Standardized Academic Blue palette, typography, shared feedback cards (`render_loading_card`, `render_feedback_card`, `render_empty_state_card`), workspace identity headers (`render_workspace_header`), module-specific primary CTA labels (`action_labels.py`), and semantic pre-solve ODE headers (`NHẬP BÀI TOÁN`, `PHÂN TÍCH TỰ ĐỘNG`, `CƠ SỞ PHÂN LOẠI`, `PHƯƠNG PHÁP ĐỀ XUẤT`).
+  - Hardened responsive layout across `360px`–`1440px`, high-contrast badges/buttons (`>= 5.02:1`), keyboard focus rings, and ARIA roles.
+
+### Fixed
+- **ODE & Workspace Presentation Fixes**: Preserved user equations during First-Order ODE auto-align submission (`preserve_equation=True`); enforced truthful non-green `VerificationStatus` in Stage-4 pedagogical builders and Wronskian outputs ($W \equiv 0$); synchronized sticky nav titles without icon duplication; cleared one-shot deep-link query params across catalog navigation; cleared stale results on input/parameter edits; deduplicated single-step conclusions; resolved `.katex-mathml` mobile horizontal overflow and Quasar color overrides.
+- **Shutdown Lifecycle Dynamic-Port Test Fix**: Updated `test_clean_shutdown_after_page_load` to scan stdout lines for NiceGUI's bound `http://` URL instead of reading only the `[STARTUP]` header line.
+
 ## [0.2.0] - 2026-11-25
 
 ### Added

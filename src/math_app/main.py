@@ -35,6 +35,7 @@ from math_app.solvers.calculus.integration.surface_integral_solver import Surfac
 from math_app.solvers.calculus.integration.triple_integral_solver import TripleIntegralSolver
 from math_app.solvers.calculus.limit.solver import LimitSolver
 from math_app.solvers.calculus.ode.classical_homogeneous_solver import ODEClassicalHomogeneousSolver
+from math_app.solvers.calculus.ode.euler_cauchy_solver import ODEEulerCauchySolver
 from math_app.solvers.calculus.ode.exact_solver import ODEExactSolver
 from math_app.solvers.calculus.ode.integrating_factor_solver import ODEIntegratingFactorSolver
 from math_app.solvers.calculus.ode.linear_solver import ODELinearSolver
@@ -143,6 +144,9 @@ def build_application() -> SolveProblemUseCase:
     ode_second_order_solver = ODESecondOrderConstantCoeffSolver()
     registry.register(ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF, ode_second_order_solver)
     registry.register(ProblemType.ODE_SECOND_ORDER_IVP, ode_second_order_solver)
+
+    ode_euler_cauchy_solver = ODEEulerCauchySolver()
+    registry.register(ProblemType.ODE_EULER_CAUCHY, ode_euler_cauchy_solver)
 
     ode_reduction_of_order_solver = ODEReductionOfOrderSolver()
     registry.register(ProblemType.ODE_REDUCTION_OF_ORDER, ode_reduction_of_order_solver)

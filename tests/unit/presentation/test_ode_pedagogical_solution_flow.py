@@ -404,6 +404,85 @@ def test_first_order_separable_pedagogical_flow(use_case):
             assert s.intermediate_result.strip()
 
 
+def test_euler_cauchy_pedagogical_flow(use_case):
+    """Verify Euler-Cauchy ODE is enhanced into 4 pedagogical stages with all 4 pillars."""
+    req = ProblemRequest(
+        problem_type=ProblemType.ODE_EULER_CAUCHY,
+        raw_input="t^2*y'' + 4*t*y' + 2*y = 0, t > 0",
+        target_variable="t",
+    )
+    res = use_case.execute(req)
+    assert res.status == SolutionStatus.SUCCESS
+
+    stages = enhance_ode_solution_flow(res, req.problem_type, req.target_variable)
+    assert len(stages) == 4
+    for stg in stages:
+        for s in stg.steps:
+            assert s.purpose.strip()
+            assert s.math_basis.strip()
+            assert s.execution.strip()
+            assert s.intermediate_result.strip()
+
+    # Verify stage titles
+    assert "Phương trình chỉ số" in stages[0].title
+    assert "Hệ nghiệm cơ bản" in stages[1].title
+    assert "nghiệm" in stages[2].title.lower()
+    assert "Kiểm chứng" in stages[3].title
+    assert stages[3].is_completed is True
+
+
+@pytest.mark.parametrize(
+    ("v_status", "expected_completed", "expected_badge_color", "expected_label"),
+    [
+        (VerificationStatus.VERIFIED, True, "emerald-7", "VERIFIED"),
+        (VerificationStatus.UNVERIFIED, False, "amber-7", "UNVERIFIED"),
+        (VerificationStatus.FAILED, False, "rose-7", "FAILED"),
+    ],
+)
+def test_euler_cauchy_pedagogical_flow_verification_states(
+    use_case,
+    v_status: VerificationStatus,
+    expected_completed: bool,
+    expected_badge_color: str,
+    expected_label: str,
+):
+    """Verify Stage 4 and UI container faithfully reflect VERIFIED, UNVERIFIED, and FAILED."""
+    from dataclasses import replace
+
+    from math_app.application.dtos import VerificationResult
+
+    req = ProblemRequest(
+        problem_type=ProblemType.ODE_EULER_CAUCHY,
+        raw_input="t^2*y'' + 4*t*y' + 2*y = 0, t > 0",
+        target_variable="t",
+    )
+    base_res = use_case.execute(req)
+    patched_res = replace(
+        base_res,
+        verification=VerificationResult(
+            status=v_status,
+            method=f"mocked_{v_status.value}",
+            details=f"Mocked status {v_status.value}",
+        ),
+    )
+
+    stages = enhance_ode_solution_flow(patched_res, req.problem_type, req.target_variable)
+    assert len(stages) == 4
+    stg4 = stages[3]
+    assert stg4.is_completed is expected_completed
+    assert stg4.badge_color == expected_badge_color
+    assert expected_label in stg4.steps[-1].intermediate_result
+    if v_status == VerificationStatus.VERIFIED:
+        assert r"\equiv 0" in stg4.summary_latex
+    else:
+        assert r"\equiv 0" not in stg4.summary_latex
+        assert expected_label in stg4.summary_latex
+
+    with ui.column() as container:
+        render_ode_staged_steps_container(stages, final_answer_latex=patched_res.final_latex)
+    assert container is not None
+
+
 # ==============================================================================
 # 5. NICEGUI UI COMPONENT MOUNTING TESTS
 # ==============================================================================

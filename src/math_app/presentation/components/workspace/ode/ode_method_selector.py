@@ -63,6 +63,20 @@ def render_ode_method_selector(
                 ).classes("text-xs text-slate-500 leading-snug")
         return
 
+    # 2b. Euler-Cauchy Second-Order ODE Guidance
+    if order == ODEOrder.SECOND_ORDER and classification == ODEClassification.EULER_CAUCHY:
+        with ui.row().classes("w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl items-center gap-3 mt-1"):
+            ui.icon("functions", color="primary", size="1.5rem")
+            with ui.column().classes("gap-0.5"):
+                ui.label("Phương pháp giải: Phương trình chỉ số Am(m - 1) + Bm + C = 0").classes(
+                    "text-xs font-bold text-slate-800"
+                )
+                ui.label(
+                    "Đặt y = t^m để đưa phương trình về phương trình chỉ số Am² + (B - A)m + C = 0. "
+                    "Hệ thống giải biệt thức Δ = (B - A)² - 4AC và thiết lập hệ nghiệm cơ bản cho miền xác định tương ứng."
+                ).classes("text-xs text-slate-500 leading-snug")
+        return
+
     # 3. Contextual First-Order Pedagogical Notices
     if order == ODEOrder.FIRST_ORDER:
         notices = {

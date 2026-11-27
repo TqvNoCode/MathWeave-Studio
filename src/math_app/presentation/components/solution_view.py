@@ -6,7 +6,7 @@ from typing import Any
 from nicegui import ui
 
 from math_app.application.dtos import BranchSolution, SolutionResponse
-from math_app.domain.models import ProblemType, SolutionStatus
+from math_app.domain.models import ProblemType, SolutionStatus, VerificationStatus
 from math_app.input.parser import parse_mathematical_input, parse_safe_expression
 from math_app.presentation.components.domain_view import render_domain_restrictions
 from math_app.presentation.components.math_view import ui_math, ui_math_text
@@ -143,26 +143,35 @@ def render_ode_classification_card(
     if prob_type not in (
         ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
         ProblemType.ODE_SECOND_ORDER_IVP,
+        ProblemType.ODE_EULER_CAUCHY,
     ):
         return
 
     p = params or {}
     steps = response.steps
     clean_var = target_var or "t"
+    is_euler = prob_type == ProblemType.ODE_EULER_CAUCHY
 
     # 1. Determine Method Used & Rationale
     has_uc = any("hệ số bất định" in s.rule_name.lower() or "hệ số bất định" in s.title.lower() for s in steps)
     has_vop = any("biến thiên hằng số" in s.rule_name.lower() or "biến thiên hằng số" in s.title.lower() for s in steps)
-    has_ivp = (
-        prob_type == ProblemType.ODE_SECOND_ORDER_IVP
-        or any("cauchy" in s.rule_name.lower() or "cauchy" in s.title.lower() for s in steps)
-        or bool(
-            response.verification
-            and ("cauchy" in response.verification.details.lower() or "y(" in response.canonical_input)
+    prob_mode = str(p.get("problem_mode", "")).strip().upper()
+    if prob_mode == "GENERAL":
+        has_ivp = False
+    elif prob_mode == "CAUCHY_IVP" or prob_type == ProblemType.ODE_SECOND_ORDER_IVP:
+        has_ivp = True
+    else:
+        details_l = (response.verification.details if response.verification else "").lower()
+        has_ivp = (
+            bool(p.get("initial_condition"))
+            or any(
+                s.rule_name in ("Điều kiện ban đầu Cauchy", "Thiết lập hệ Cauchy", "Giải hệ đại số tuyến tính")
+                for s in steps
+            )
+            or "hệ điều kiện cauchy" in details_l
         )
-    )
     expected_cls = str(p.get("expected_classification", "")).strip().upper()
-    if expected_cls in ("HOMOGENEOUS", "THUẦN NHẤT", "THUAN_NHAT"):
+    if expected_cls in ("HOMOGENEOUS", "THUẦN NHẤT", "THUAN_NHAT") or is_euler:
         is_nonhomogeneous = False
     elif expected_cls in ("NONHOMOGENEOUS", "KHÔNG THUẦN NHẤT", "KHONG_THUAN_NHAT"):
         is_nonhomogeneous = True
@@ -173,7 +182,15 @@ def render_ode_classification_card(
     is_manual_uc = pref in ("UNDETERMINED_COEFFICIENTS", "UC", "HỆ SỐ BẤT ĐỊNH")
     is_manual_vop = pref in ("VARIATION_OF_PARAMETERS", "VOP", "BIẾN THIÊN HẰNG SỐ")
 
-    if not is_nonhomogeneous:
+    if is_euler:
+        method_title = "Phương trình chỉ số (Euler–Cauchy)"
+        method_badge_color = "blue-7"
+        method_desc = (
+            f"Phương trình biến hệ số $A{clean_var}^2 y'' + B{clean_var} y' + C y = 0$: "
+            f"Đặt $y({clean_var}) = {clean_var}^m$ (hoặc $(-{clean_var})^m$ khi ${clean_var} < 0$) "
+            f"để đưa về phương trình chỉ số $Am(m-1) + Bm + C = 0$."
+        )
+    elif not is_nonhomogeneous:
         method_title = "Phương trình đặc trưng"
         method_badge_color = "blue-grey-7"
         method_desc = "Phương trình thuần nhất (g(t) = 0): Xác định nghiệm từ các nghiệm của phương trình đặc trưng ar² + br + c = 0."
@@ -225,13 +242,13 @@ def render_ode_classification_card(
                 yp_latex = parts[1].strip()
 
     # 3. Render Card
-    with ui.column().classes("w-full p-4 bg-slate-50 border border-slate-200 rounded-xl gap-3"):
+    with ui.column().classes("w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl gap-2"):
         with ui.row().classes("items-center justify-between w-full flex-wrap gap-2"):
             with ui.row().classes("items-center gap-1.5 flex-wrap"):
                 ui.label("PHÂN LOẠI & PHƯƠNG PHÁP:").classes(
                     "text-xs font-bold text-slate-700 uppercase tracking-wider"
                 )
-                ui.badge("Cấp 2 • Hệ số hằng", color="indigo-7").classes("text-xs")
+                ui.badge("Cấp 2 • Euler–Cauchy" if is_euler else "Cấp 2 • Hệ số hằng", color="indigo-7").classes("text-xs")
                 if is_nonhomogeneous:
                     ui.badge("Không thuần nhất", color="blue-7").classes("text-xs")
                 else:
@@ -280,7 +297,7 @@ def render_branch_solutions(branch_solutions: tuple[BranchSolution, ...], target
     if not branch_solutions:
         return
 
-    with ui.column().classes("w-full p-4 bg-indigo-50/70 border border-indigo-200 rounded-xl gap-3"):
+    with ui.column().classes("w-full p-3.5 bg-indigo-50/70 border border-indigo-200 rounded-xl gap-2"):
         with ui.row().classes("items-center justify-between w-full"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("alt_route", size="1.25rem").classes("text-indigo-800")
@@ -288,14 +305,19 @@ def render_branch_solutions(branch_solutions: tuple[BranchSolution, ...], target
                     "text-xs font-bold text-indigo-950 uppercase tracking-wider"
                 )
 
-        with ui.column().classes("w-full gap-3"):
+        from math_app.presentation.components.ode_pedagogical_enhancer import (
+            polish_euler_cauchy_latex,
+        )
+
+        with ui.column().classes("w-full gap-2.5"):
             for b in branch_solutions:
-                with ui.card().classes("w-full p-3.5 bg-white border border-indigo-100 rounded-lg shadow-2xs gap-2"):
+                with ui.card().classes("w-full p-3 bg-white border border-indigo-100 rounded-lg shadow-2xs gap-1.5"):
                     with ui.row().classes("items-center justify-between w-full flex-wrap gap-2"):
                         with ui.row().classes("items-center gap-2 flex-wrap"):
                             ui.badge(b.branch_identity, color="indigo").classes("text-xs font-bold px-2 py-0.5 rounded")
                             if b.domain_interval is not None and b.interval_notation_latex:
-                                ui.badge(f"{target_var} ∈ {b.interval_notation_latex}", color="blue-grey-6").classes(
+                                clean_iv = b.interval_notation_latex.replace(r"\infty", "∞")
+                                ui.badge(f"{target_var} ∈ {clean_iv}", color="blue-grey-6").classes(
                                     "text-xs font-semibold px-2 py-0.5 rounded"
                                 )
                             if b.integration_constant is not None:
@@ -306,15 +328,33 @@ def render_branch_solutions(branch_solutions: tuple[BranchSolution, ...], target
                                     "text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded"
                                 )
                             if b.initial_condition_status:
-                                badge_col = "positive" if b.integration_constant_val is not None else "amber-8"
+                                v_st = b.verification.status if b.verification is not None else None
+                                if v_st == VerificationStatus.FAILED:
+                                    badge_col = "negative"
+                                elif v_st in (
+                                    VerificationStatus.UNVERIFIED,
+                                    VerificationStatus.CONDITIONAL_EXTENSION,
+                                    VerificationStatus.PARTIALLY_VERIFIED,
+                                ):
+                                    badge_col = "amber-8"
+                                elif v_st in (
+                                    VerificationStatus.VERIFIED,
+                                    VerificationStatus.VERIFIED_GLOBALLY,
+                                    VerificationStatus.C1_EXTENSION_VERIFIED,
+                                    VerificationStatus.CONTINUITY_VERIFIED,
+                                ) or b.integration_constant_val is not None:
+                                    badge_col = "positive"
+                                else:
+                                    badge_col = "amber-8"
                                 ui.badge(b.initial_condition_status, color=badge_col).classes(
                                     "text-xs font-medium px-2 py-0.5 rounded"
                                 )
-                        if b.verification:
+                        if b.verification and (len(branch_solutions) > 1 or b.verification.status != VerificationStatus.VERIFIED):
                             render_verification_badge(b.verification)
 
+                    polished_sol = polish_euler_cauchy_latex(b.solution_latex, target_var)
                     ui_math(
-                        b.solution_latex, block=True, classes="text-base md:text-lg font-medium text-indigo-950 py-1"
+                        polished_sol, block=True, classes="text-base md:text-lg font-medium text-indigo-950 py-0.5"
                     )
 
                     if b.extension_details:
@@ -359,9 +399,8 @@ def render_solution_view(
         is_order_mismatch = (
             any(
                 "không đúng cấp" in w.lower()
-                or "cấp 2" in w.lower()
-                or "cấp cao" in w.lower()
-                or "cấp hai" in w.lower()
+                or "không chứa đạo hàm cấp" in w.lower()
+                or "phương trình vi phân cấp cao" in w.lower()
                 for w in clean_warns
             )
             and not is_nonlinearity
@@ -424,10 +463,10 @@ def render_solution_view(
     has_valid_answer = bool(response.final_result and response.final_result.strip())
 
     # 2. Main Solution Header & Final Answer Card
-    with ui.card().classes("w-full p-6 shadow-sm border border-slate-200 rounded-xl bg-white gap-4 min-w-0 max-w-full"):
+    with ui.card().classes("w-full p-4 md:p-5 shadow-sm border border-slate-200 rounded-xl bg-white gap-3 min-w-0 max-w-full"):
         # Header Row: Operation title (specific to operation) & Honest Verification Badge
         card_title = get_result_card_title(prob_type)
-        with ui.row().classes("items-center justify-between w-full border-b border-slate-100 pb-3 flex-wrap gap-2"):
+        with ui.row().classes("items-center justify-between w-full border-b border-slate-100 pb-2.5 flex-wrap gap-2"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("task_alt", color="positive", size="1.5rem")
                 ui.label(card_title).classes("text-lg font-bold text-slate-900")
@@ -443,7 +482,7 @@ def render_solution_view(
             p_params,
         )
         with ui.column().classes(
-            "w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl gap-1.5 min-w-0 max-w-full"
+            "w-full p-3 bg-slate-50 border border-slate-200 rounded-xl gap-1 min-w-0 max-w-full"
         ):
             ui.label("ĐỀ CHO:").classes("text-xs font-bold text-slate-600 uppercase tracking-wider")
             ui_math(statement_latex, block=True, classes="text-base md:text-lg text-slate-800 font-medium py-0.5")
@@ -459,7 +498,7 @@ def render_solution_view(
             p_params,
         )
         with ui.column().classes(
-            "w-full p-5 bg-gradient-to-r from-blue-50/70 to-indigo-50/50 border border-blue-200 rounded-xl gap-2 min-w-0 max-w-full overflow-x-auto"
+            "w-full p-3.5 md:p-4 bg-gradient-to-r from-blue-50/70 to-indigo-50/50 border border-blue-200 rounded-xl gap-1.5 min-w-0 max-w-full overflow-x-auto"
         ):
             ui.label("ĐÁP SỐ CUỐI CÙNG:").classes("text-xs font-bold text-blue-900 uppercase tracking-wider")
 
@@ -488,6 +527,7 @@ def render_solution_view(
             target_var,
             response.original_domain_latex,
             response.normalized_domain_latex,
+            prob_type=prob_type,
         )
 
         # Authoritative Branch Solutions

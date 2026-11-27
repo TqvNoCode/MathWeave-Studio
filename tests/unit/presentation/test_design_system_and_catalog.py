@@ -367,7 +367,7 @@ def test_all_five_domain_groups_represented_in_catalog():
 def test_secondary_workflows_remain_reachable():
     """Req 9: Secondary workflows remain reachable via OPERATIONS and get_operation_by_type."""
     secondary_ops = [o for o in OPERATIONS if not o.is_menu_card]
-    assert len(secondary_ops) == 10, f"Expected 10 secondary operations, found {len(secondary_ops)}"
+    assert len(secondary_ops) == 11, f"Expected 11 secondary operations, found {len(secondary_ops)}"
 
     # Specific expected secondary workflows
     expected_subtypes = [
@@ -381,6 +381,7 @@ def test_secondary_workflows_remain_reachable():
         ProblemType.ODE_SECOND_ORDER_IVP,
         ProblemType.ODE_REDUCTION_OF_ORDER,
         ProblemType.WRONSKIAN,
+        ProblemType.ODE_EULER_CAUCHY,
     ]
 
     for pt in expected_subtypes:

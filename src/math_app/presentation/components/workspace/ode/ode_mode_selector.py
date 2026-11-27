@@ -85,14 +85,14 @@ def render_ode_mode_selector(
                     if has_val:
                         btn.enable()
                         btn.classes(
-                            add="border border-rose-300 !text-rose-700 hover:!bg-rose-50 hover:!text-rose-900 bg-white font-medium cursor-pointer",
+                            add="border border-rose-300 !text-slate-700 hover:!bg-rose-50 hover:!text-rose-700 bg-white font-medium cursor-pointer shadow-2xs",
                             remove="border-slate-300 !text-slate-400 bg-slate-50 cursor-not-allowed opacity-60",
                         )
                     else:
                         btn.disable()
                         btn.classes(
                             add="border border-slate-300 !text-slate-400 bg-slate-50 cursor-not-allowed opacity-60",
-                            remove="border-rose-300 !text-rose-700 hover:!bg-rose-50 hover:!text-rose-900 bg-white font-medium cursor-pointer",
+                            remove="border-rose-300 !text-slate-700 hover:!bg-rose-50 hover:!text-rose-700 bg-white font-medium cursor-pointer shadow-2xs",
                         )
 
                 with ui.row().classes("items-center justify-between w-full"):
@@ -111,12 +111,12 @@ def render_ode_mode_selector(
 
                     has_init_ic = bool(initial_condition and initial_condition.strip())
                     btn_cls = (
-                        "border border-rose-300 !text-rose-700 hover:!bg-rose-50 hover:!text-rose-900 bg-white font-medium cursor-pointer"
+                        "border border-rose-300 !text-slate-700 hover:!bg-rose-50 hover:!text-rose-700 bg-white font-medium cursor-pointer shadow-2xs"
                         if has_init_ic
                         else "border border-slate-300 !text-slate-400 bg-slate-50 cursor-not-allowed opacity-60"
                     )
                     clear_btn = (
-                        ui.button("Xóa điều kiện", on_click=clear_ic, color=None)
+                        ui.button("Xóa điều kiện", icon="delete_outline", on_click=clear_ic, color=None)
                         .props("unelevated dense no-caps")
                         .classes(f"text-xs px-2.5 py-1 rounded-lg transition-all {btn_cls}")
                     )

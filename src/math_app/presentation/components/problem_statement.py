@@ -44,6 +44,7 @@ def get_result_card_title(op_type: ProblemType) -> str:
         ProblemType.ODE_INTEGRATING_FACTOR: "KẾT QUẢ PHƯƠNG TRÌNH THỪA SỐ TÍCH PHÂN",
         ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF: "KẾT QUẢ PHƯƠNG TRÌNH VI PHÂN CẤP 2",
         ProblemType.ODE_SECOND_ORDER_IVP: "KẾT QUẢ BÀI TOÁN CAUCHY CẤP 2",
+        ProblemType.ODE_EULER_CAUCHY: "KẾT QUẢ PHƯƠNG TRÌNH EULER–CAUCHY",
         ProblemType.ODE_REDUCTION_OF_ORDER: "KẾT QUẢ HẠ BẬC PHƯƠNG TRÌNH CẤP 2",
         ProblemType.WRONSKIAN: "KẾT QUẢ ĐỊNH THỨC WRONSKIAN",
         ProblemType.MATRIX_DETERMINANT: "KẾT QUẢ ĐỊNH THỨC",
@@ -409,15 +410,18 @@ def format_problem_statement_latex(
         ProblemType.ODE_INTEGRATING_FACTOR,
         ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
         ProblemType.ODE_SECOND_ORDER_IVP,
+        ProblemType.ODE_EULER_CAUCHY,
         ProblemType.ODE_REDUCTION_OF_ORDER,
     ):
         try:
             from math_app.input.ode_parser import (
+                extract_interval_from_string,
                 extract_second_order_ics_from_string,
                 parse_second_order_ode_input,
                 parse_ode_input,
             )
-            eq_str, y_ic, yp_ic, y1_str = extract_second_order_ics_from_string(raw_input)
+            raw_no_interval, interval_str = extract_interval_from_string(raw_input)
+            eq_str, y_ic, yp_ic, y1_str = extract_second_order_ics_from_string(raw_no_interval)
             if (not y_ic or not yp_ic) and p and "initial_condition" in p and p["initial_condition"]:
                 ic_val = str(p["initial_condition"]).strip()
                 _, p_y_ic, p_yp_ic, _ = extract_second_order_ics_from_string("dummy = 0, " + ic_val)
@@ -437,6 +441,7 @@ def format_problem_statement_latex(
             if op_type in (
                 ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
                 ProblemType.ODE_SECOND_ORDER_IVP,
+                ProblemType.ODE_EULER_CAUCHY,
                 ProblemType.ODE_REDUCTION_OF_ORDER,
             ):
                 try:
@@ -467,6 +472,8 @@ def format_problem_statement_latex(
                     eq_ltx = _format_ode_side_fallback(eq_str, clean_var)
 
             addons: list[str] = []
+            if interval_str:
+                addons.append(interval_str.replace("<=", r"\le").replace(">=", r"\ge"))
             if y_ic:
                 addons.append(y_ic)
             if yp_ic:
@@ -644,13 +651,17 @@ def format_final_answer_latex(
         ProblemType.ODE_INTEGRATING_FACTOR,
         ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
         ProblemType.ODE_SECOND_ORDER_IVP,
+        ProblemType.ODE_EULER_CAUCHY,
         ProblemType.ODE_REDUCTION_OF_ORDER,
         ProblemType.WRONSKIAN,
     ) or (isinstance(op_type, ProblemType) and op_type.value.startswith("ode_")):
         from math_app.presentation.components.ode_pedagogical_enhancer import (
+            polish_euler_cauchy_latex,
             standardize_ode_notation,
         )
 
+        if op_type == ProblemType.ODE_EULER_CAUCHY:
+            return polish_euler_cauchy_latex(raw_final_latex, clean_var)
         return standardize_ode_notation(raw_final_latex)
 
     return raw_final_latex

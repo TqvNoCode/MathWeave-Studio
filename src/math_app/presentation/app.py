@@ -341,17 +341,7 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                                         )
 
                     # Route to Unified ODE Workspace or Unified Non-ODE Workspace
-                    is_ode_op = current_op.problem_type in {
-                        ProblemType.ODE_FIRST_ORDER_LINEAR,
-                        ProblemType.ODE_FIRST_ORDER_HOMOGENEOUS,
-                        ProblemType.ODE_SEPARABLE,
-                        ProblemType.ODE_EXACT,
-                        ProblemType.ODE_INTEGRATING_FACTOR,
-                        ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
-                        ProblemType.ODE_SECOND_ORDER_IVP,
-                        ProblemType.ODE_REDUCTION_OF_ORDER,
-                        ProblemType.WRONSKIAN,
-                    }
+                    is_ode_op = current_op.problem_type.is_ode
 
                     if is_ode_op:
                         render_ode_workspace(

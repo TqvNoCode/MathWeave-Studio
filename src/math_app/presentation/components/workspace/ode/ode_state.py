@@ -11,11 +11,36 @@ from math_app.domain.exceptions import InvalidInputError
 from math_app.domain.models import ProblemType
 from math_app.input.ode_parser import (
     extract_initial_condition_from_string,
+    extract_interval_from_string,
     extract_second_order_ics_from_string,
     parse_initial_condition,
     parse_second_order_initial_conditions,
 )
 import sympy as sp
+
+
+def split_second_order_equation_clauses(
+    raw: str,
+) -> tuple[str, str | None, str | None, str | None, str | None]:
+    """Split second-order ODE input into (eq_with_interval, y_ic, yp_ic, y1, interval_str).
+
+    Extracts explicit interval constraints before stripping initial conditions so
+    connected domain intervals (e.g., t < 0, t > 2, 1 < t < 5) are preserved.
+    """
+    no_interval, interval_str = extract_interval_from_string(raw)
+    clean_eq, y_ic, yp_ic, y1_str = extract_second_order_ics_from_string(no_interval)
+    eq_with_interval = f"{clean_eq}, {interval_str}" if interval_str else clean_eq
+    return eq_with_interval, y_ic, yp_ic, y1_str, interval_str
+
+
+def split_first_order_equation_clauses(
+    raw: str,
+) -> tuple[str, str | None, str | None]:
+    """Split first-order ODE input into (eq_with_interval, inline_ic, interval_str)."""
+    no_interval, interval_str = extract_interval_from_string(raw)
+    clean_eq, inline_ic = extract_initial_condition_from_string(no_interval)
+    eq_with_interval = f"{clean_eq}, {interval_str}" if interval_str else clean_eq
+    return eq_with_interval, inline_ic, interval_str
 
 
 class ODEOrder(str, Enum):
@@ -44,6 +69,7 @@ class ODEClassification(str, Enum):
     # Second-order classifications
     SECOND_ORDER_HOMOGENEOUS = "second_order_homogeneous"
     SECOND_ORDER_NONHOMOGENEOUS = "second_order_nonhomogeneous"
+    EULER_CAUCHY = "euler_cauchy"
 
     # Advanced second-order tools
     REDUCTION_OF_ORDER = "reduction_of_order"
@@ -71,6 +97,7 @@ class ODEClassification(str, Enum):
             ODEClassification.INTEGRATING_FACTOR: "Thừa số tích phân (μ)",
             ODEClassification.SECOND_ORDER_HOMOGENEOUS: "Thuần nhất: g(t) = 0",
             ODEClassification.SECOND_ORDER_NONHOMOGENEOUS: "Không thuần nhất: g(t) ≠ 0",
+            ODEClassification.EULER_CAUCHY: "Euler–Cauchy",
             ODEClassification.REDUCTION_OF_ORDER: "Hạ bậc nghiệm (y₂ = v·y₁)",
             ODEClassification.WRONSKIAN: "Định thức Wronskian",
         }
@@ -90,6 +117,7 @@ class ODEClassification(str, Enum):
             ODEClassification.INTEGRATING_FACTOR: f"μ({v}) hoặc μ(y)",
             ODEClassification.SECOND_ORDER_HOMOGENEOUS: "ay'' + by' + cy = 0",
             ODEClassification.SECOND_ORDER_NONHOMOGENEOUS: f"ay'' + by' + cy = g({v})",
+            ODEClassification.EULER_CAUCHY: f"a{v}^2y'' + b{v}y' + cy = 0",
             ODEClassification.REDUCTION_OF_ORDER: f"y'' + p({v})y' + q({v})y = 0",
             ODEClassification.WRONSKIAN: "W(y₁, y₂) = y₁y₂' - y₁'y₂",
         }
@@ -201,6 +229,17 @@ DEFAULT_CONFIGS: dict[ODEClassification, dict[str, Any]] = {
             ("Bài toán Cauchy (IVP)", "y'' - 3*y' - 4*y = 3*exp(2*t), y(0) = 1, y'(0) = 0"),
         ),
     },
+    ODEClassification.EULER_CAUCHY: {
+        "equation": "t^2*y'' + 4*t*y' + 2*y = 0, t > 0",
+        "target_var": "t",
+        "examples": (
+            ("Nghiệm thực phân biệt: t^2*y'' + 4*t*y' + 2*y = 0, t > 0", "t^2*y'' + 4*t*y' + 2*y = 0, t > 0"),
+            ("Nghiệm kép thực: t^2*y'' - 3*t*y' + 4*y = 0, t > 0", "t^2*y'' - 3*t*y' + 4*y = 0, t > 0"),
+            ("Nghiệm phức liên hợp: t^2*y'' + t*y' + y = 0, t > 0", "t^2*y'' + t*y' + y = 0, t > 0"),
+            ("Miền âm: t^2*y'' + 4*t*y' + 2*y = 0, t < 0", "t^2*y'' + 4*t*y' + 2*y = 0, t < 0"),
+            ("Bài toán Cauchy (IVP)", "t^2*y'' + 4*t*y' + 2*y = 0, y(1) = 3, y'(1) = 0"),
+        ),
+    },
     ODEClassification.REDUCTION_OF_ORDER: {
         "equation": "2*t^2*y'' + 3*t*y' - y = 0, y1 = 1/t",
         "target_var": "t",
@@ -275,6 +314,7 @@ class ODEState:
             ProblemType.ODE_INTEGRATING_FACTOR: (ODEOrder.FIRST_ORDER, ODEClassification.INTEGRATING_FACTOR, ODEMode.GENERAL),
             ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF: (ODEOrder.SECOND_ORDER, ODEClassification.SECOND_ORDER_HOMOGENEOUS, ODEMode.GENERAL),
             ProblemType.ODE_SECOND_ORDER_IVP: (ODEOrder.SECOND_ORDER, ODEClassification.SECOND_ORDER_NONHOMOGENEOUS, ODEMode.CAUCHY_IVP),
+            ProblemType.ODE_EULER_CAUCHY: (ODEOrder.SECOND_ORDER, ODEClassification.EULER_CAUCHY, ODEMode.GENERAL),
             ProblemType.ODE_REDUCTION_OF_ORDER: (ODEOrder.SECOND_ORDER, ODEClassification.REDUCTION_OF_ORDER, ODEMode.GENERAL),
             ProblemType.WRONSKIAN: (ODEOrder.SECOND_ORDER, ODEClassification.WRONSKIAN, ODEMode.GENERAL),
         }
@@ -294,7 +334,7 @@ class ODEState:
         extracted_y1 = ""
 
         if order == ODEOrder.SECOND_ORDER:
-            c_eq, y_cand, yp_cand, y1_cand = extract_second_order_ics_from_string(raw_default)
+            c_eq, y_cand, yp_cand, y1_cand, _ = split_second_order_equation_clauses(raw_default)
             if y_cand and yp_cand:
                 extracted_ic = f"{y_cand}, {yp_cand}"
                 clean_eq = c_eq
@@ -304,7 +344,7 @@ class ODEState:
             if pt == ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF and raw_default == "y'' - 3*y' - 4*y = 3*exp(2*t)":
                 clean_eq = cfg["equation"]
         else:  # FIRST_ORDER
-            c_eq, inline_ic = extract_initial_condition_from_string(raw_default)
+            c_eq, inline_ic, _ = split_first_order_equation_clauses(raw_default)
             if inline_ic:
                 extracted_ic = inline_ic
                 clean_eq = c_eq
@@ -400,13 +440,13 @@ class ODEState:
         if new_mode == ODEMode.GENERAL:
             # Stash active initial condition into draft and clear active IC
             draft = self.initial_condition if self.initial_condition else self.initial_condition_draft
-            # Clean any inline ICs from equation
+            # Clean any inline ICs from equation while preserving interval constraints
             clean_eq = self.equation
             if self.order == ODEOrder.SECOND_ORDER:
-                clean_e, _, _, _ = extract_second_order_ics_from_string(self.equation)
+                clean_e, _, _, _, _ = split_second_order_equation_clauses(self.equation)
                 clean_eq = clean_e
             else:
-                clean_e, _ = extract_initial_condition_from_string(self.equation)
+                clean_e, _, _ = split_first_order_equation_clauses(self.equation)
                 clean_eq = clean_e
 
             return ODEState(
@@ -425,12 +465,12 @@ class ODEState:
         restored_ic = self.initial_condition_draft
         clean_eq = self.equation
         if self.order == ODEOrder.SECOND_ORDER:
-            clean_e, y_cand, yp_cand, _ = extract_second_order_ics_from_string(self.equation)
+            clean_e, y_cand, yp_cand, _, _ = split_second_order_equation_clauses(self.equation)
             if y_cand and yp_cand and not restored_ic:
                 restored_ic = f"{y_cand}, {yp_cand}"
             clean_eq = clean_e
         else:
-            clean_e, inline_ic = extract_initial_condition_from_string(self.equation)
+            clean_e, inline_ic, _ = split_first_order_equation_clauses(self.equation)
             if inline_ic and not restored_ic:
                 restored_ic = inline_ic
             clean_eq = clean_e
@@ -534,6 +574,8 @@ class ODEState:
             return ProblemType.ODE_REDUCTION_OF_ORDER
         if self.classification == ODEClassification.WRONSKIAN:
             return ProblemType.WRONSKIAN
+        if self.classification == ODEClassification.EULER_CAUCHY:
+            return ProblemType.ODE_EULER_CAUCHY
 
         # Second-order constant coefficient
         if self.mode == ODEMode.CAUCHY_IVP:
@@ -580,7 +622,7 @@ class ODEState:
 
         # 2. First-Order ODEs
         if self.order == ODEOrder.FIRST_ORDER:
-            clean_eq, inline_ic = extract_initial_condition_from_string(cleaned_eq)
+            clean_eq, inline_ic, _ = split_first_order_equation_clauses(cleaned_eq)
             dedicated_ic = self.initial_condition.strip()
 
             # Deterministic mathematical classification drives solver routing
@@ -661,12 +703,17 @@ class ODEState:
                 parameters={"initial_condition": auth_ic},
             )
 
-        # 3. Second-Order Constant Coefficient & Cauchy IVP
-        cat = "HOMOGENEOUS" if self.classification == ODEClassification.SECOND_ORDER_HOMOGENEOUS else "NONHOMOGENEOUS"
+        # 3. Second-Order Constant Coefficient, Cauchy IVP & Euler-Cauchy
+        if self.classification == ODEClassification.EULER_CAUCHY:
+            cat = "EULER_CAUCHY"
+        elif self.classification == ODEClassification.SECOND_ORDER_HOMOGENEOUS:
+            cat = "HOMOGENEOUS"
+        else:
+            cat = "NONHOMOGENEOUS"
         md = self.mode.value
         pref = self.method_preference.value
 
-        clean_eq, inline_y_ic, inline_yp_ic, _ = extract_second_order_ics_from_string(cleaned_eq)
+        clean_eq, inline_y_ic, inline_yp_ic, _, _ = split_second_order_equation_clauses(cleaned_eq)
         has_inline = bool(inline_y_ic or inline_yp_ic)
         complete_inline = bool(inline_y_ic and inline_yp_ic)
 
@@ -731,7 +778,11 @@ class ODEState:
                 )
 
             req_raw = clean_eq
-            req_pt = ProblemType.ODE_SECOND_ORDER_IVP
+            req_pt = (
+                ProblemType.ODE_EULER_CAUCHY
+                if self.classification == ODEClassification.EULER_CAUCHY
+                else ProblemType.ODE_SECOND_ORDER_IVP
+            )
             so_params: dict[str, Any] = {
                 "expected_classification": cat,
                 "problem_mode": md,
@@ -739,7 +790,11 @@ class ODEState:
             }
         else:  # GENERAL
             req_raw = cleaned_eq
-            req_pt = ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF
+            req_pt = (
+                ProblemType.ODE_EULER_CAUCHY
+                if self.classification == ODEClassification.EULER_CAUCHY
+                else ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF
+            )
             so_params = {
                 "expected_classification": cat,
                 "problem_mode": md,

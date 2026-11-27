@@ -10,10 +10,6 @@ from math_app.application.dtos import SolutionResponse
 from math_app.application.use_cases.solve_problem import SolveProblemUseCase
 from math_app.domain.exceptions import InvalidInputError
 from math_app.domain.models import ProblemType, SolutionStatus
-from math_app.input.ode_parser import (
-    extract_initial_condition_from_string,
-    extract_second_order_ics_from_string,
-)
 from math_app.presentation.components.math_view import ui_math, ui_math_text
 from math_app.presentation.components.operation_catalog import (
     OperationDef,
@@ -49,6 +45,8 @@ from math_app.presentation.components.workspace.ode.ode_state import (
     ODEMethodPreference,
     ODEOrder,
     ODEState,
+    split_first_order_equation_clauses,
+    split_second_order_equation_clauses,
 )
 from math_app.presentation.components.workspace.variable_selector import (
     render_adaptive_variable_selector,
@@ -64,9 +62,30 @@ def render_ode_validation_card(
     """Render a context-aware Academic Blue validation card for ODE input or order mismatches."""
     err_lower = err_msg.lower()
     is_nonlinearity = "phi tuyến" in err_lower or "nonlinear" in err_lower
+    is_cauchy_ic_error = any(
+        term in err_lower
+        for term in (
+            "điều kiện ban đầu",
+            "điều kiện đạo hàm ban đầu",
+            "không cùng điểm khởi đầu",
+            "base point mismatch",
+            "xung đột điều kiện",
+            "thiếu điều kiện",
+            "bài toán cauchy",
+            "bài toán giá trị ban đầu",
+        )
+    )
     is_order_mismatch = (
-        ("không đúng cấp" in err_lower or "phương trình vi phân cấp 2" in err_lower or "cấp cao" in err_lower or "cấp hai" in err_lower)
+        any(
+            term in err_lower
+            for term in (
+                "không đúng cấp",
+                "không chứa đạo hàm cấp",
+                "phương trình vi phân cấp cao",
+            )
+        )
         and not is_nonlinearity
+        and not is_cauchy_ic_error
     )
     is_syntax_error = any(term in err_lower for term in ("ngoặc", "syntax", "cú pháp", "toán tử", "không khớp"))
 
@@ -133,6 +152,31 @@ def render_ode_validation_card(
                     ).props("outline dense no-caps").classes(
                         "border-indigo-300 text-indigo-800 hover:bg-indigo-50 font-semibold text-xs px-3.5 py-2 rounded-lg"
                     )
+    elif is_cauchy_ic_error:
+        is_base_mismatch = any(
+            t in err_lower for t in ("không cùng điểm khởi đầu", "cùng một điểm", "base point mismatch")
+        )
+        is_missing_ic = any(
+            t in err_lower for t in ("thiếu điều kiện", "yêu cầu cung cấp đầy đủ", "không hoàn chỉnh")
+        )
+        if is_base_mismatch:
+            ic_title = "Điểm ban đầu Cauchy không nhất quán"
+            ic_hint = "Cả hai điều kiện y(t₀) = y₀ và y'(t₀) = v₀ phải được cho tại cùng một điểm khởi đầu t₀."
+        elif is_missing_ic:
+            ic_title = "Thiếu điều kiện ban đầu Cauchy (IVP)"
+            ic_hint = "Bài toán Cauchy cấp 2 yêu cầu cung cấp đầy đủ cả hai điều kiện y(t₀) = y₀ và y'(t₀) = v₀."
+        else:
+            ic_title = "Điều kiện ban đầu Cauchy chưa hợp lệ"
+            ic_hint = "Vui lòng kiểm tra lại cú pháp và giá trị thực hữu hạn của các điều kiện ban đầu."
+
+        with ui.card().classes(
+            "w-full p-4 md:p-5 border border-rose-200 bg-rose-50/80 rounded-xl shadow-xs gap-2.5 text-rose-950 min-w-0"
+        ):
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("rule", size="1.3rem").classes("text-rose-600")
+                ui.label(ic_title).classes("text-base font-bold text-rose-950")
+            ui.label(err_msg).classes("text-sm text-rose-900 leading-relaxed")
+            ui.label(ic_hint).classes("text-xs text-rose-700 italic")
     else:
         with ui.card().classes(
             "w-full p-4 md:p-5 border border-rose-200 bg-rose-50/80 rounded-xl shadow-xs gap-2.5 text-rose-950 min-w-0"
@@ -335,7 +379,7 @@ def render_ode_workspace(
                                 def make_so_example_callback(example_val: str) -> Callable[[], None]:
                                     def _apply() -> None:
                                         nonlocal state
-                                        clean_e, y_ic_ex, yp_ic_ex, _ = extract_second_order_ics_from_string(example_val)
+                                        clean_e, y_ic_ex, yp_ic_ex, _, _ = split_second_order_equation_clauses(example_val)
                                         if state.mode == ODEMode.CAUCHY_IVP and y_ic_ex and yp_ic_ex:
                                             ic_comb = f"{y_ic_ex}, {yp_ic_ex}"
                                             state = state.with_equation(clean_e).with_initial_condition(ic_comb)
@@ -343,7 +387,12 @@ def render_ode_workspace(
                                             if ic_input_ref[0] is not None:
                                                 ic_input_ref[0].set_value(ic_comb)
                                         else:
-                                            target_eq = clean_e if state.mode == ODEMode.GENERAL else example_val
+                                            has_split_support = state.classification in {
+                                                ODEClassification.SECOND_ORDER_HOMOGENEOUS,
+                                                ODEClassification.SECOND_ORDER_NONHOMOGENEOUS,
+                                                ODEClassification.EULER_CAUCHY,
+                                            }
+                                            target_eq = clean_e if (state.mode == ODEMode.GENERAL and has_split_support) else example_val
                                             state = state.with_equation(target_eq)
                                             if state.mode == ODEMode.GENERAL:
                                                 state = state.with_initial_condition("")
@@ -417,7 +466,7 @@ def render_ode_workspace(
                                     def make_fo_example_callback(example_val: str) -> Callable[[], None]:
                                         def _apply() -> None:
                                             nonlocal state
-                                            clean_e, inline_ic = extract_initial_condition_from_string(example_val)
+                                            clean_e, inline_ic, _ = split_first_order_equation_clauses(example_val)
                                             if state.mode == ODEMode.CAUCHY_IVP and inline_ic:
                                                 state = state.with_equation(clean_e).with_initial_condition(inline_ic)
                                                 eq_input.set_value(clean_e)
@@ -531,10 +580,6 @@ def render_ode_workspace(
                         icon="calculate",
                     )
                     solve_btn.on_click(handle_submit)
-
-                    # Enter key submits from equation and variable inputs
-                    eq_input.on("keydown.enter", handle_submit)
-                    var_input.on("keydown.enter", handle_submit)
 
                     # Enter key submits from equation and variable inputs
                     eq_input.on("keydown.enter", handle_submit)

@@ -53,8 +53,8 @@ def test_ode_state_defaults_and_enums():
     assert ODEOrder.FIRST_ORDER.value == "first_order"
     assert ODEOrder.SECOND_ORDER.value == "second_order"
 
-    assert len(ODEClassification) == 9
-    assert len(DEFAULT_CONFIGS) == 9
+    assert len(ODEClassification) == 10
+    assert len(DEFAULT_CONFIGS) == 10
 
     # Verify every classification has complete configuration
     for cls in ODEClassification:

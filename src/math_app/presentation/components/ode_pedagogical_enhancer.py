@@ -27,8 +27,8 @@ from typing import Any
 
 import sympy as sp
 
-from math_app.application.dtos import SolutionResponse, SolutionStep
-from math_app.domain.models import ProblemType
+from math_app.application.dtos import ExpressionStepContent, SolutionResponse, SolutionStep
+from math_app.domain.models import ProblemType, VerificationStatus
 
 LBRACE = r"\{"
 RBRACE = r"\}"
@@ -229,6 +229,7 @@ def is_ode_problem_type(prob_type: ProblemType | None) -> bool:
         prob_type in {
             ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
             ProblemType.ODE_SECOND_ORDER_IVP,
+            ProblemType.ODE_EULER_CAUCHY,
             ProblemType.ODE_FIRST_ORDER_LINEAR,
             ProblemType.ODE_FIRST_ORDER_HOMOGENEOUS,
             ProblemType.ODE_SEPARABLE,
@@ -2246,6 +2247,763 @@ def _build_wronskian_flow(
 
 
 # ==============================================================================
+# 7b. EULER-CAUCHY FLOW BUILDER
+# ==============================================================================
+
+
+def polish_euler_cauchy_latex(latex_str: str, clean_var: str = "t") -> str:
+    """Apply presentation-only LaTeX formatting polish for Euler–Cauchy expressions.
+
+    Converts SymPy ``\\log`` output into textbook ``\\ln`` notation, cleans awkward
+    ``+ -`` signs, and omits redundant unit coefficients without altering core logic.
+    """
+    if not latex_str:
+        return latex_str
+
+    v = re.escape((clean_var or "t").strip())
+    s = standardize_ode_notation(latex_str)
+
+    # Convert natural logarithms from SymPy's \log{\left(...\right)} to textbook \ln
+    s = re.sub(rf"\\log\s*\{{\s*\\left\(\s*-\s*{v}\s*\\right\)\s*\}}", rf"\\ln(-{clean_var})", s)
+    s = re.sub(rf"\\log\s*\\left\(\s*-\s*{v}\s*\\right\)", rf"\\ln(-{clean_var})", s)
+    s = re.sub(rf"\\log\s*\(\s*-\s*{v}\s*\)", rf"\\ln(-{clean_var})", s)
+
+    s = re.sub(rf"\\log\s*\{{\s*\\left\(\s*{v}\s*\\right\)\s*\}}", rf"\\ln {clean_var}", s)
+    s = re.sub(rf"\\log\s*\\left\(\s*{v}\s*\\right\)", rf"\\ln {clean_var}", s)
+    s = re.sub(rf"\\log\s*\(\s*{v}\s*\)", rf"\\ln {clean_var}", s)
+
+    s = re.sub(r"\\log\b", r"\\ln", s)
+
+    # Clean sign artifacts (+ -3 -> - 3) and redundant unit leading coefficients (1\,t^2 -> t^2)
+    s = re.sub(r"\+\s*-\s*", "- ", s)
+    s = re.sub(
+        rf"(?:(?<=^)|(?<=[\s=+\-{{(]))1(?:\\,|\s)*(?=(?:{v}\s*\^|{v}\\,|{v}\s+y|m\s*\(|m\s*\^|y'|y''|y\b))",
+        "",
+        s,
+    )
+    return s
+
+
+def _format_signed_coeff_term(coeff_str: str, var_part: str, *, leading: bool = False) -> str:
+    """Format a signed coefficient-variable term cleanly for mathematical display."""
+    raw = coeff_str.strip()
+    if not leading and raw in ("0", "-0", "+0"):
+        return ""
+    is_neg = raw.startswith("-")
+    mag = raw[1:].strip() if is_neg else raw
+
+    if not var_part:
+        term_core = mag
+    elif mag == "1":
+        term_core = var_part
+    else:
+        term_core = f"{mag}\\,{var_part}"
+
+    if leading:
+        return f"-{term_core}" if is_neg else term_core
+    return f" - {term_core}" if is_neg else f" + {term_core}"
+
+
+def _extract_euler_cauchy_context(response: SolutionResponse, clean_var: str) -> dict[str, Any]:
+    """Extract normalized symbolic data from Euler–Cauchy solver steps for presentation."""
+    ctx: dict[str, Any] = {
+        "A": None,
+        "B": None,
+        "C": None,
+        "b_minus_a": None,
+        "eq_normalized": "",
+        "is_neg": False,
+        "is_natural_split": False,
+        "interval_desc": "",
+        "indicial_simplified": "",
+        "delta": "",
+        "root_case": "distinct",
+        "roots_latex": "",
+        "y1": "",
+        "y2": "",
+        "wronskian": "",
+        "gen_sol": "",
+        "ics_expr": "",
+        "ivp_sys": "",
+        "ivp_consts": "",
+        "part_sol": "",
+        "residual_before": "",
+        "residual_after": "",
+        "ic_verif": "",
+    }
+
+    for orig in response.steps:
+        rn = orig.rule_name
+        desc = orig.description or ""
+        after = (orig.content.latex_after if orig.content else "") or ""
+        before = (orig.content.latex_before if orig.content else "") or ""
+
+        if rn == "Nhận dạng dạng phương trình Euler–Cauchy":
+            m_abc = re.search(
+                r"A\s*=\s*[^=]*?=\s*([^,\\]+?),\s*\\quad\s*B\s*=\s*[^=]*?=\s*([^,\\]+?),\s*\\quad\s*C\s*=\s*c\([^)]+\)\s*=\s*([^\n$]+)",
+                desc,
+            )
+            if m_abc:
+                ctx["A"] = polish_euler_cauchy_latex(m_abc.group(1).strip(), clean_var)
+                ctx["B"] = polish_euler_cauchy_latex(m_abc.group(2).strip(), clean_var)
+                ctx["C"] = polish_euler_cauchy_latex(m_abc.group(3).strip(), clean_var)
+            ctx["eq_normalized"] = polish_euler_cauchy_latex(after, clean_var)
+
+        elif rn == "Nghiệm thử hàm lũy thừa":
+            if f"(-{clean_var})" in before or f"(-{clean_var})" in desc:
+                ctx["is_neg"] = True
+
+        elif rn == "Phương trình chỉ số":
+            ctx["indicial_simplified"] = polish_euler_cauchy_latex(after, clean_var)
+
+        elif rn == "Biệt thức Delta và nghiệm chỉ số":
+            m_bma = re.search(r"b\s*=\s*B\s*-\s*A\s*=\s*([^\n$.]+?)(?:\s*,\s*hệ|\s*\$)", desc)
+            if m_bma:
+                ctx["b_minus_a"] = polish_euler_cauchy_latex(m_bma.group(1).strip(), clean_var)
+            m_d = re.search(r"\\Delta\s*=\s*(.+)", before)
+            ctx["delta"] = polish_euler_cauchy_latex(m_d.group(1).strip() if m_d else before.strip(), clean_var)
+            ctx["roots_latex"] = polish_euler_cauchy_latex(after, clean_var)
+            if "nghiệm kép" in desc.lower():
+                ctx["root_case"] = "repeated"
+            elif "phức liên hợp" in desc.lower() or r"\alpha" in after:
+                ctx["root_case"] = "complex"
+            else:
+                ctx["root_case"] = "distinct"
+
+        elif rn == "Hệ nghiệm cơ bản":
+            # before looks like: y_1 = ..., \quad y_2 = ...
+            cleaned_pair = polish_euler_cauchy_latex(before, clean_var)
+            m_pair = re.split(r",\s*\\quad\s*", cleaned_pair, maxsplit=1)
+            if len(m_pair) == 2:
+                ctx["y1"] = re.sub(r"^y_1(?:\([^)]*\))?\s*=\s*", "", m_pair[0]).strip()
+                ctx["y2"] = re.sub(r"^y_2(?:\([^)]*\))?\s*=\s*", "", m_pair[1]).strip()
+            w_ltx = polish_euler_cauchy_latex(after, clean_var)
+            w_ltx = re.sub(r"\s*\\ne\s*0\s*$", "", w_ltx).strip()
+            w_ltx = re.sub(r"^W\([^)]*\)\s*=\s*", "", w_ltx).strip()
+            ctx["wronskian"] = w_ltx
+
+        elif rn == "Nghiệm tổng quát":
+            ctx["gen_sol"] = polish_euler_cauchy_latex(after, clean_var)
+            if r"\begin{cases}" in after or "tách rời" in desc.lower():
+                ctx["is_natural_split"] = True
+            m_iv = re.search(r"miền xác định:\s*\$([^$]+)\$", desc)
+            if m_iv:
+                ctx["interval_desc"] = polish_euler_cauchy_latex(m_iv.group(1).strip(), clean_var)
+
+        elif rn == "Điều kiện ban đầu Cauchy":
+            ctx["ics_expr"] = polish_euler_cauchy_latex(before, clean_var)
+            ctx["part_sol"] = polish_euler_cauchy_latex(after, clean_var)
+            for sub in orig.substeps or ():
+                if sub.rule_name == "Thiết lập hệ Cauchy":
+                    m_cases = re.search(r"(\\begin\{cases\}.*?\\end\{cases\})", sub.description or "", flags=re.S)
+                    if m_cases:
+                        ctx["ivp_sys"] = polish_euler_cauchy_latex(m_cases.group(1).strip(), clean_var)
+                elif sub.rule_name == "Giải hệ đại số tuyến tính" and sub.content:
+                    ctx["ivp_consts"] = polish_euler_cauchy_latex(sub.content.latex_after or "", clean_var)
+
+        elif rn == "Kiểm chứng độc lập":
+            for sub in orig.substeps or ():
+                if sub.rule_name == "Kiểm chứng phương trình vi phân" and sub.content:
+                    ctx["residual_before"] = polish_euler_cauchy_latex(sub.content.latex_before or "", clean_var)
+                    ctx["residual_after"] = polish_euler_cauchy_latex(sub.content.latex_after or "", clean_var)
+                elif sub.rule_name == "Kiểm chứng điều kiện Cauchy" and sub.content:
+                    ctx["ic_verif"] = polish_euler_cauchy_latex(sub.content.latex_after or "", clean_var)
+
+    return ctx
+
+
+def _build_euler_cauchy_flow(
+    response: SolutionResponse,
+    clean_var: str,
+    params: dict[str, Any],
+) -> tuple[ODEStageSummary, ...]:
+    """Build clean, non-repetitive 4-stage pedagogical flow for Euler–Cauchy ODEs."""
+    prob_mode = str(params.get("problem_mode", "")).strip().upper()
+    if prob_mode == "GENERAL":
+        has_ivp = False
+    elif prob_mode == "CAUCHY_IVP":
+        has_ivp = True
+    else:
+        # Guard carefully against "cauchy" substring matching "Euler–Cauchy"
+        has_ivp = bool(params.get("initial_condition")) or any(
+            s.rule_name in ("Điều kiện ban đầu Cauchy", "Thiết lập hệ Cauchy", "Giải hệ đại số tuyến tính")
+            for s in response.steps
+        )
+
+    v_status = response.verification.status if response.verification else VerificationStatus.UNVERIFIED
+    v_details = (
+        polish_euler_cauchy_latex(response.verification.details, clean_var)
+        if response.verification and response.verification.details
+        else ""
+    )
+
+    ctx = _extract_euler_cauchy_context(response, clean_var)
+    v = clean_var
+    u = f"(-{v})" if ctx["is_neg"] else v
+    y_latex = polish_euler_cauchy_latex(response.final_latex or "", clean_var)
+
+    A_val, B_val, C_val = ctx["A"], ctx["B"], ctx["C"]
+    has_coeffs = bool(A_val and B_val and C_val)
+
+    # ---------------- STAGE 1: Indicial Equation Setup ----------------
+    stage1_steps: list[ODEPedagogicalStep] = []
+
+    if has_coeffs:
+        eq_norm = (
+            f"{_format_signed_coeff_term(A_val, f'{v}^2\\,y\'\'', leading=True)}"
+            f"{_format_signed_coeff_term(B_val, f'{v}\\,y\'')}"
+            f"{_format_signed_coeff_term(C_val, 'y')} = 0"
+        )
+        s1_desc = (
+            f"Đây là phương trình Euler–Cauchy vì các hệ số của $y''$, $y'$ và $y$ lần lượt có dạng $A{v}^2$, $B{v}$ và $C$.\n"
+            f"Chuẩn hóa theo dạng $A{v}^2 y'' + B{v} y' + C y = 0$ với "
+            f"$A = \\frac{{a({v})}}{{{v}^2}}$, $B = \\frac{{b({v})}}{{{v}}}$, $C = c({v})$:"
+        )
+        s1_eq = f"{eq_norm} \\implies A = {A_val},\\quad B = {B_val},\\quad C = {C_val}"
+        s1_ir = f"A = {A_val},\\quad B = {B_val},\\quad C = {C_val}"
+    else:
+        orig_s1 = next((s for s in response.steps if s.rule_name == "Nhận dạng dạng phương trình Euler–Cauchy"), None)
+        s1_desc = f"Đây là phương trình Euler–Cauchy vì các hệ số của $y''$, $y'$ và $y$ lần lượt có dạng $A{v}^2$, $B{v}$ và $C$."
+        s1_eq = polish_euler_cauchy_latex(
+            orig_s1.content.latex_after if orig_s1 and orig_s1.content else f"A{v}^2 y'' + B{v} y' + C y = 0",
+            clean_var,
+        )
+        s1_ir = s1_eq
+
+    stage1_steps.append(
+        ODEPedagogicalStep(
+            step_number=1,
+            rule_name="Nhận dạng cấu trúc Euler–Cauchy",
+            title="Nhận dạng dạng phương trình Euler–Cauchy",
+            rule_name_vi="Nhận dạng dạng Euler–Cauchy",
+            description=s1_desc,
+            content=ExpressionStepContent(
+                expression_before=f"a({v})y'' + b({v})y' + c({v})y = 0",
+                expression_after=s1_eq,
+                latex_before=f"a({v})y'' + b({v})y' + c({v})y = 0",
+                latex_after=s1_eq,
+            ),
+            equation_latex=s1_eq,
+            purpose=f"Xác định cấu trúc biến hệ số theo lũy thừa của ${v}$ và trích xuất các hằng số chuẩn hóa $A, B, C$.",
+            math_basis=f"Phương trình Euler–Cauchy thuần nhất cấp 2 có dạng $A{v}^2 y'' + B{v} y' + C y = 0$ (với $A \\ne 0$).",
+            execution=s1_desc,
+            intermediate_result=s1_ir,
+            stage_index=1,
+            stage_name="Phương trình chỉ số",
+        )
+    )
+
+    # Step 2: Trial solution (formulas shown ONCE; zero duplication)
+    if ctx["is_neg"]:
+        trial_eq = (
+            f"\\begin{{aligned}} y({v}) &= (-{v})^m \\\\ "
+            f"y'({v}) &= -m(-{v})^{{m-1}} \\\\ "
+            f"y''({v}) &= m(m-1)(-{v})^{{m-2}} \\end{{aligned}}"
+        )
+    else:
+        trial_eq = (
+            f"\\begin{{aligned}} y({v}) &= {v}^m \\\\ "
+            f"y'({v}) &= m\\,{v}^{{m-1}} \\\\ "
+            f"y''({v}) &= m(m-1)\\,{v}^{{m-2}} \\end{{aligned}}"
+        )
+    s2_desc = (
+        f"Vì trên khoảng đang xét {v} khác $0$, phép thế hàm lũy thừa làm triệt tiêu đồng thời thừa số ${v}$ ở mọi đạo hàm."
+    )
+    stage1_steps.append(
+        ODEPedagogicalStep(
+            step_number=2,
+            rule_name="Nghiệm thử hàm lũy thừa",
+            title="Thiết lập nghiệm thử hàm lũy thừa",
+            rule_name_vi="Nghiệm thử hàm lũy thừa",
+            description=s2_desc,
+            content=ExpressionStepContent(
+                expression_before=f"y({v}) = {u}^m",
+                expression_after=trial_eq,
+                latex_before=f"y({v}) = {u}^m",
+                latex_after=trial_eq,
+            ),
+            equation_latex=trial_eq,
+            purpose="Chuyển đổi phương trình vi phân biến hệ số thành phương trình đại số theo tham số số mũ $m$.",
+            math_basis="Lũy thừa bậc $k$ của biến nhân với đạo hàm cấp $k$ luôn khôi phục đúng bậc lũy thừa ban đầu.",
+            execution=s2_desc,
+            intermediate_result=trial_eq,
+            stage_index=1,
+            stage_name="Phương trình chỉ số",
+        )
+    )
+
+    # Step 3: Derive the indicial equation cleanly with symbolic substitution + factoring
+    ind_simp = ctx["indicial_simplified"] or "Am(m-1) + Bm + C = 0"
+    if has_coeffs:
+        sub_lhs = (
+            f"{_format_signed_coeff_term(A_val, f'{v}^2 \\cdot m(m-1){u}^{{m-2}}', leading=True) if ctx['is_neg'] else _format_signed_coeff_term(A_val, f'{v}^2 \\cdot m(m-1){v}^{{m-2}}', leading=True)}"
+            f"{_format_signed_coeff_term(B_val, f'{v} \\cdot (-m{u}^{{m-1}})' if ctx['is_neg'] else f'{v} \\cdot m{v}^{{m-1}}')}"
+            f"{_format_signed_coeff_term(C_val, f'{u}^m')}"
+        )
+        # Note: v * (-(-v)^{m-1}) simplifies sign cleanly with (-v)^m because t = -(-t)
+        factored_poly = (
+            f"{_format_signed_coeff_term(A_val, 'm(m-1)', leading=True)}"
+            f"{_format_signed_coeff_term(B_val, 'm')}"
+            f"{_format_signed_coeff_term(C_val, '')}"
+        )
+        s3_eq = (
+            f"\\begin{{aligned}} &{sub_lhs} = 0 \\\\ "
+            f"&\\left[{factored_poly}\\right]{u}^m = 0 \\\\ "
+            f"&\\implies \\boxed{{{ind_simp}}} \\end{{aligned}}"
+        )
+    else:
+        s3_eq = f"\\boxed{{{ind_simp}}}"
+
+    s3_desc = (
+        f"Thay nghiệm thử cùng các đạo hàm vào phương trình rồi đặt nhân tử chung ${u}^m$. "
+        f"Do ${u} \\ne 0$ trên khoảng liên thông đang xét nên ${u}^m \\ne 0$, rút gọn được phương trình chỉ số:"
+    )
+    stage1_steps.append(
+        ODEPedagogicalStep(
+            step_number=3,
+            rule_name="Phương trình chỉ số",
+            title="Suy ra phương trình chỉ số",
+            rule_name_vi="Phương trình chỉ số",
+            description=s3_desc,
+            content=ExpressionStepContent(
+                expression_before=f"{factored_poly if has_coeffs else 'Am(m-1) + Bm + C'} = 0",
+                expression_after=ind_simp,
+                latex_before=f"{factored_poly if has_coeffs else 'Am(m-1) + Bm + C'} = 0",
+                latex_after=ind_simp,
+            ),
+            equation_latex=s3_eq,
+            purpose="Khử nhân tử lũy thừa khác $0$ để thu được phương trình bậc hai cho $m$.",
+            math_basis=f"Trên khoảng liên thông không chứa điểm kỳ dị ${v} = 0$, ta luôn có ${u}^m \\ne 0$.",
+            execution=s3_desc,
+            intermediate_result=s3_eq,
+            stage_index=1,
+            stage_name="Phương trình chỉ số",
+        )
+    )
+
+    # ---------------- STAGE 2: Discriminant & Fundamental System ----------------
+    stage2_steps: list[ODEPedagogicalStep] = []
+
+    b_minus_a = ctx["b_minus_a"] or (f"({B_val} - {A_val})" if has_coeffs else "(B - A)")
+    delta_str = ctx["delta"] or "\\Delta"
+    roots_str = ctx["roots_latex"] or ""
+
+    if ctx["root_case"] == "distinct":
+        root_case_note = f"Vì $\\Delta = {delta_str} > 0$, phương trình chỉ số có hai nghiệm thực phân biệt:"
+    elif ctx["root_case"] == "repeated":
+        root_case_note = f"Vì $\\Delta = {delta_str} = 0$, phương trình chỉ số có nghiệm kép thực:"
+    else:
+        root_case_note = f"Vì $\\Delta = {delta_str} < 0$, phương trình chỉ số có cặp nghiệm phức liên hợp $m_{{1,2}} = \\alpha \\pm i\\beta$:"
+
+    if has_coeffs:
+        ind_std = (
+            f"P(m) = {_format_signed_coeff_term(A_val, 'm^2', leading=True)}"
+            f"{_format_signed_coeff_term(b_minus_a, 'm')}"
+            f"{_format_signed_coeff_term(C_val, '')} = 0"
+        )
+        delta_eq = (
+            f"\\begin{{aligned}} &{ind_std} \\\\ "
+            f"&\\Delta = (B - A)^2 - 4AC = ({b_minus_a})^2 - 4({A_val})({C_val}) = {delta_str} \\\\ "
+            f"&{roots_str} \\end{{aligned}}"
+        )
+    else:
+        delta_eq = f"\\Delta = {delta_str}, \\quad {roots_str}" if roots_str else f"\\Delta = {delta_str}"
+
+    s4_desc = f"Viết lại đa thức chỉ số dạng chuẩn $Am^2 + (B-A)m + C = 0$ và tính biệt thức $\\Delta = (B-A)^2 - 4AC$. {root_case_note}"
+    stage2_steps.append(
+        ODEPedagogicalStep(
+            step_number=4,
+            rule_name="Biệt thức Delta và nghiệm chỉ số",
+            title="Giải phương trình chỉ số và phân loại nghiệm",
+            rule_name_vi="Biệt thức Delta & nghiệm $m$",
+            description=s4_desc,
+            content=ExpressionStepContent(
+                expression_before=f"Delta = {delta_str}",
+                expression_after=roots_str or delta_eq,
+                latex_before=f"\\Delta = {delta_str}",
+                latex_after=roots_str or delta_eq,
+            ),
+            equation_latex=delta_eq,
+            purpose="Phân loại trường hợp nghiệm của phương trình chỉ số bằng dấu của biệt thức $\\Delta$.",
+            math_basis="Đa thức chỉ số viết theo $A, B, C$ là $P(m) = Am^2 + (B - A)m + C = 0$ với $\\Delta = (B - A)^2 - 4AC$.",
+            execution=s4_desc,
+            intermediate_result=roots_str or f"\\Delta = {delta_str}",
+            stage_index=2,
+            stage_name="Hệ nghiệm cơ bản",
+        )
+    )
+
+    # Step 5: Fundamental system & single Wronskian calculation
+    y1_str = ctx["y1"]
+    y2_str = ctx["y2"]
+    w_expr = ctx["wronskian"]
+
+    if ctx["root_case"] == "distinct":
+        basis_basis = f"Hai nghiệm thực phân biệt $m_1 \\ne m_2$ cho hệ hai nghiệm lũy thừa ${u}^{{m_1}}$ và ${u}^{{m_2}}$."
+    elif ctx["root_case"] == "repeated":
+        ln_u = f"\\ln(-{v})" if ctx["is_neg"] else f"\\ln {v}"
+        basis_basis = f"Với nghiệm kép thực $m$, nghiệm thứ hai xuất hiện nhân tử logarit tạo cặp ${u}^m$ và ${u}^m {ln_u}$."
+    else:
+        ln_u = f"\\ln(-{v})" if ctx["is_neg"] else f"\\ln {v}"
+        basis_basis = (
+            f"Từ công thức Euler ${u}^{{\\alpha \\pm i\\beta}} = {u}^\\alpha [\\cos(\\beta {ln_u}) \\pm i\\sin(\\beta {ln_u})]$, "
+            f"tách phần thực và phần ảo để thu được hai nghiệm thực."
+        )
+
+    domain_note = (
+        f" trên khoảng ${v} < 0$ (nên dùng cơ số $-{v} > 0$)"
+        if ctx["is_neg"]
+        else (f" trên từng nhánh ${v} > 0$ và ${v} < 0$" if ctx["is_natural_split"] else f" trên ${ctx['interval_desc'] or f'{v} > 0'}$")
+    )
+
+    if y1_str and y2_str:
+        if w_expr:
+            if v_status == VerificationStatus.FAILED:
+                w_line = f"W(y_1, y_2) = {w_expr}"
+                w_prose = f"Cặp nghiệm cơ bản{domain_note} và định thức Wronskian $W(y_1, y_2) = y_1 y_2' - y_1' y_2$:"
+            elif v_status == VerificationStatus.UNVERIFIED:
+                w_line = f"W(y_1, y_2) = {w_expr}"
+                w_prose = f"Cặp nghiệm cơ bản{domain_note} cùng định thức Wronskian (chưa được xác minh ký hiệu đầy đủ):"
+            else:
+                w_line = f"W(y_1, y_2) = y_1 y_2' - y_1' y_2 = {w_expr} \\ne 0"
+                w_prose = f"Cặp nghiệm cơ bản{domain_note}; định thức Wronskian khác $0$ khẳng định hai nghiệm độc lập tuyến tính:"
+            s5_eq = f"\\begin{{aligned}} &y_1({v}) = {y1_str}, \\qquad y_2({v}) = {y2_str} \\\\ &{w_line} \\end{{aligned}}"
+        else:
+            w_prose = f"Xây dựng hai nghiệm cơ bản{domain_note}:"
+            s5_eq = f"y_1({v}) = {y1_str}, \\qquad y_2({v}) = {y2_str}"
+    else:
+        w_prose = "Xây dựng hệ nghiệm cơ bản độc lập tuyến tính:"
+        s5_eq = y_latex
+
+    stage2_steps.append(
+        ODEPedagogicalStep(
+            step_number=5,
+            rule_name="Hệ nghiệm cơ bản",
+            title="Xây dựng hệ nghiệm cơ bản và Wronskian",
+            rule_name_vi="Hệ nghiệm cơ bản",
+            description=w_prose,
+            content=ExpressionStepContent(
+                expression_before=f"y_1 = {y1_str}, y_2 = {y2_str}" if (y1_str and y2_str) else "",
+                expression_after=s5_eq,
+                latex_before=f"y_1 = {y1_str}, \\quad y_2 = {y2_str}" if (y1_str and y2_str) else "",
+                latex_after=s5_eq,
+            ),
+            equation_latex=s5_eq,
+            purpose="Chuyển các nghiệm chỉ số thành hai hàm thực cơ bản và xác nhận tính độc lập tuyến tính.",
+            math_basis=basis_basis,
+            execution=w_prose,
+            intermediate_result=s5_eq,
+            stage_index=2,
+            stage_name="Hệ nghiệm cơ bản",
+        )
+    )
+
+    # ---------------- STAGE 3: General Solution or Cauchy IVP ----------------
+    stage3_steps: list[ODEPedagogicalStep] = []
+    gen_sol_eq = ctx["gen_sol"] or y_latex
+
+    if not has_ivp:
+        # Strict General Solution Mode: ZERO mention of Cauchy or initial conditions
+        if ctx["is_natural_split"]:
+            g_desc = (
+                f"Do điểm kỳ dị ${v} = 0$ chia $\\mathbb{{R}} \\setminus \\{{0\\}}$ thành hai khoảng liên thông rời nhau, "
+                f"tổng hợp tổ hợp tuyến tính với các cặp hằng số tùy ý độc lập $C_1, C_2 \\in \\mathbb{{R}}$ (${v} > 0$) "
+                f"và $C_3, C_4 \\in \\mathbb{{R}}$ (${v} < 0$):"
+            )
+            g_eq = gen_sol_eq
+        else:
+            iv_label = ctx["interval_desc"] or (f"{v} < 0" if ctx["is_neg"] else f"{v} > 0")
+            g_desc = (
+                f"Nghiệm tổng quát trên khoảng xác định ${iv_label}$ là mọi tổ hợp tuyến tính của "
+                f"$y_1({v})$ và $y_2({v})$ với hai hằng số thực tùy ý $C_1, C_2 \\in \\mathbb{{R}}$:"
+            )
+            gen_rhs = re.sub(rf"^y\s*\({re.escape(v)}\)\s*=\s*", "", gen_sol_eq).strip()
+            g_eq = f"y({v}) = C_1 y_1({v}) + C_2 y_2({v}) = {gen_rhs}"
+
+        stage3_steps.append(
+            ODEPedagogicalStep(
+                step_number=6,
+                rule_name="Nghiệm tổng quát",
+                title="Xây dựng nghiệm tổng quát",
+                rule_name_vi="Nghiệm tổng quát",
+                description=g_desc,
+                content=ExpressionStepContent(
+                    expression_before=f"y({v}) = C_1 y_1({v}) + C_2 y_2({v})",
+                    expression_after=g_eq,
+                    latex_before=f"y({v}) = C_1 y_1({v}) + C_2 y_2({v})",
+                    latex_after=g_eq,
+                ),
+                equation_latex=g_eq,
+                purpose="Biểu diễn họ toàn bộ nghiệm thực của phương trình vi phân cấp 2 trên khoảng xác định.",
+                math_basis=f"Theo nguyên lý chồng chất cho phương trình thuần nhất, $y({v}) = C_1 y_1({v}) + C_2 y_2({v})$.",
+                execution=g_desc,
+                intermediate_result=g_eq,
+                stage_index=3,
+                stage_name="Nghiệm tổng quát",
+            )
+        )
+        stg3_subtitle = "Nghiệm tổng quát"
+        stg3_summary_label = "Nghiệm tổng quát:"
+        stg2_transition = f"Tổ hợp hai nghiệm cơ bản để thiết lập nghiệm tổng quát $y({v})$."
+    else:
+        # Cauchy IVP Mode
+        iv_label = ctx["interval_desc"] or (f"{v} < 0" if ctx["is_neg"] else f"{v} > 0")
+        gen_rhs = re.sub(rf"^y\s*\({re.escape(v)}\)\s*=\s*", "", gen_sol_eq).strip()
+        g_eq = f"y({v}) = C_1 y_1({v}) + C_2 y_2({v}) = {gen_rhs}"
+        g_desc = f"Thiết lập nghiệm tổng quát trên khoảng liên thông ${iv_label}$ chứa điểm ban đầu:"
+        stage3_steps.append(
+            ODEPedagogicalStep(
+                step_number=6,
+                rule_name="Nghiệm tổng quát",
+                title="Nghiệm tổng quát trên khoảng chứa điểm ban đầu",
+                rule_name_vi="Nghiệm tổng quát",
+                description=g_desc,
+                content=ExpressionStepContent(
+                    expression_before=f"y({v}) = C_1 y_1({v}) + C_2 y_2({v})",
+                    expression_after=g_eq,
+                    latex_before=f"y({v}) = C_1 y_1({v}) + C_2 y_2({v})",
+                    latex_after=g_eq,
+                ),
+                equation_latex=g_eq,
+                purpose="Viết biểu thức nghiệm phụ thuộc hai hằng số $C_1, C_2$ trước khi thế điều kiện Cauchy.",
+                math_basis=f"Trên khoảng liên thông chứa điểm ban đầu, nghiệm tổng quát có dạng $y({v}) = C_1 y_1({v}) + C_2 y_2({v})$.",
+                execution=g_desc,
+                intermediate_result=g_eq,
+                stage_index=3,
+                stage_name="Bài toán Cauchy (IVP)",
+            )
+        )
+
+        # Build Cauchy evaluation step
+        orig_ivp = next((s for s in response.steps if s.rule_name == "Điều kiện ban đầu Cauchy"), None)
+        ics_disp = ctx["ics_expr"] or polish_euler_cauchy_latex(str(params.get("initial_condition", "")), clean_var)
+        sys_disp = ctx["ivp_sys"]
+        consts_disp = ctx["ivp_consts"]
+        part_disp = ctx["part_sol"] or y_latex
+
+        ivp_parts = []
+        if ics_disp:
+            ivp_parts.append(ics_disp)
+        if sys_disp:
+            ivp_parts.append(sys_disp)
+        if consts_disp:
+            ivp_parts.append(f"\\implies {consts_disp}")
+        ivp_parts.append(f"\\implies {part_disp}")
+        ivp_eq = " \\\\ ".join(ivp_parts)
+        if len(ivp_parts) > 1:
+            ivp_eq = f"\\begin{{aligned}} {ivp_eq} \\end{{aligned}}"
+
+        ivp_desc = "Thay điều kiện ban đầu Cauchy vào nghiệm tổng quát và đạo hàm $y'(t)$ để giải hệ 2 ẩn $C_1, C_2$ và rút ra nghiệm riêng duy nhất:"
+        # Polish substeps if any
+        polished_subs = tuple(
+            SolutionStep(
+                step_number=sub.step_number,
+                rule_name=sub.rule_name,
+                description=polish_euler_cauchy_latex(sub.description or "", clean_var),
+                content=ExpressionStepContent(
+                    expression_before=sub.content.expression_before if sub.content else "",
+                    expression_after=sub.content.expression_after if sub.content else "",
+                    latex_before=polish_euler_cauchy_latex(sub.content.latex_before or "", clean_var),
+                    latex_after=polish_euler_cauchy_latex(sub.content.latex_after or "", clean_var),
+                )
+                if sub.content
+                else ExpressionStepContent(expression_before="", expression_after="", latex_before="", latex_after=""),
+                title=sub.title,
+                rule_name_vi=sub.rule_name_vi,
+                equation_latex=polish_euler_cauchy_latex(sub.equation_latex or "", clean_var),
+                assumptions=sub.assumptions,
+            )
+            for sub in (orig_ivp.substeps if orig_ivp and orig_ivp.substeps else ())
+        )
+
+        stage3_steps.append(
+            ODEPedagogicalStep(
+                step_number=7,
+                rule_name="Điều kiện ban đầu Cauchy",
+                title="Giải hệ điều kiện ban đầu Cauchy (IVP)",
+                rule_name_vi="Bài toán Cauchy (IVP)",
+                description=ivp_desc,
+                content=ExpressionStepContent(
+                    expression_before=ics_disp,
+                    expression_after=part_disp,
+                    latex_before=ics_disp,
+                    latex_after=part_disp,
+                ),
+                substeps=polished_subs,
+                equation_latex=ivp_eq,
+                purpose="Xác định giá trị duy nhất của $C_1, C_2$ từ điều kiện ban đầu $y(t_0), y'(t_0)$.",
+                math_basis="Do $W(y_1, y_2)(t_0) \\ne 0$, hệ tuyến tính ẩn $C_1, C_2$ có nghiệm duy nhất.",
+                execution=ivp_desc,
+                intermediate_result=part_disp,
+                stage_index=3,
+                stage_name="Bài toán Cauchy (IVP)",
+            )
+        )
+        stg3_subtitle = "Bài toán Cauchy (IVP)"
+        stg3_summary_label = "Nghiệm riêng (Cauchy IVP):"
+        stg2_transition = "Tổng hợp nghiệm tổng quát và giải hệ điều kiện ban đầu Cauchy (IVP)."
+
+    # ---------------- STAGE 4: Independent Symbolic Verification ----------------
+    stage4_steps: list[ODEPedagogicalStep] = []
+    res_lhs = ctx["residual_before"] or (
+        f"R({v}) = {_format_signed_coeff_term(A_val, f'{v}^2 y\'\'', leading=True)}"
+        f"{_format_signed_coeff_term(B_val, f'{v} y\'')}"
+        f"{_format_signed_coeff_term(C_val, 'y')}"
+        if has_coeffs
+        else f"R({v}) = A{v}^2 y'' + B{v} y' + C y"
+    )
+    w_check = f"W(y_1, y_2) = {ctx['wronskian']}" if ctx["wronskian"] else "W(y_1, y_2)"
+
+    if v_status == VerificationStatus.VERIFIED:
+        stg4_subtitle = "Nghiệm đã được kiểm chứng độc lập bằng phương pháp ký hiệu"
+        stg4_badge_text = "Kiểm chứng"
+        stg4_badge_color = "emerald-7"
+        stg4_is_completed = True
+        stg4_summary_latex = rf"R({v}) \equiv 0"
+        stg4_summary_label = "Phần dư toán học:"
+        s4_desc = (
+            "Kiểm chứng ký hiệu độc lập xác nhận biểu thức dư triệt tiêu đồng nhất"
+            + (" và các điều kiện ban đầu Cauchy được thỏa mãn." if has_ivp else " trên miền xác định.")
+        )
+        s4_eq = rf"{res_lhs} \equiv 0, \qquad {w_check} \ne 0"
+        s4_ir = rf"R({v}) \equiv 0 \implies \text{{Kiểm chứng thành công (VERIFIED)}}"
+    elif v_status == VerificationStatus.FAILED:
+        stg4_subtitle = "Phát hiện sai lệch trong quá trình kiểm chứng độc lập (FAILED)"
+        stg4_badge_text = "Kiểm chứng thất bại"
+        stg4_badge_color = "rose-7"
+        stg4_is_completed = False
+        stg4_summary_latex = rf"R({v}) \quad (\text{{FAILED}})"
+        stg4_summary_label = "Trạng thái kiểm chứng (Thất bại):"
+        s4_desc = v_details or "Kiểm chứng phát hiện sai lệch giữa nghiệm và phương trình vi phân hoặc điều kiện ban đầu."
+        s4_eq = rf"{res_lhs} \not\equiv 0"
+        s4_ir = f"Kiểm chứng thất bại (FAILED): {v_details or 'Phát hiện sai lệch nghiệm.'}"
+    else:
+        stg4_subtitle = "Không thể kết luận hoàn toàn bằng phương pháp ký hiệu (UNVERIFIED)"
+        stg4_badge_text = "Chưa kiểm chứng"
+        stg4_badge_color = "amber-7"
+        stg4_is_completed = False
+        stg4_summary_latex = rf"R({v}) \quad (\text{{UNVERIFIED}})"
+        stg4_summary_label = "Trạng thái kiểm chứng (Chưa kết luận):"
+        s4_desc = v_details or "Chưa thể khẳng định hoàn toàn bằng biến đổi ký hiệu tự động."
+        s4_eq = res_lhs
+        s4_ir = f"Chưa kiểm chứng được (UNVERIFIED): {v_details or 'Không thể kết luận bằng phương pháp ký hiệu.'}"
+
+    if has_ivp and ctx["ic_verif"] and v_status == VerificationStatus.VERIFIED:
+        s4_eq = f"\\begin{{aligned}} {res_lhs} &\\equiv 0 \\\\ {w_check} &\\ne 0 \\\\ {ctx['ic_verif']} \\end{{aligned}}"
+
+    # Keep relevant substeps from solver verification (only when consistent with status!)
+    orig_v_step = next((s for s in response.steps if s.rule_name == "Kiểm chứng độc lập"), None)
+    v_substeps: tuple[SolutionStep, ...] = ()
+    if orig_v_step and orig_v_step.substeps and v_status == VerificationStatus.VERIFIED:
+        v_substeps = tuple(
+            SolutionStep(
+                step_number=sub.step_number,
+                rule_name=sub.rule_name,
+                description=polish_euler_cauchy_latex(sub.description or "", clean_var),
+                content=ExpressionStepContent(
+                    expression_before=sub.content.expression_before if sub.content else "",
+                    expression_after=sub.content.expression_after if sub.content else "",
+                    latex_before=polish_euler_cauchy_latex(sub.content.latex_before or "", clean_var),
+                    latex_after=polish_euler_cauchy_latex(sub.content.latex_after or "", clean_var),
+                )
+                if sub.content
+                else ExpressionStepContent(expression_before="", expression_after="", latex_before="", latex_after=""),
+                title=sub.title,
+                rule_name_vi=sub.rule_name_vi,
+                equation_latex=polish_euler_cauchy_latex(sub.equation_latex or "", clean_var),
+            )
+            for sub in orig_v_step.substeps
+        )
+
+    stage4_steps.append(
+        ODEPedagogicalStep(
+            step_number=len(stage3_steps) + 6,
+            rule_name="Kiểm chứng độc lập",
+            title="Kiểm chứng độc lập trên phương trình và hệ cơ bản",
+            rule_name_vi="Kiểm chứng độc lập",
+            description=s4_desc,
+            content=ExpressionStepContent(
+                expression_before=res_lhs,
+                expression_after=stg4_summary_latex,
+                latex_before=res_lhs,
+                latex_after=stg4_summary_latex,
+            ),
+            substeps=v_substeps,
+            equation_latex=s4_eq,
+            purpose="Đối chiếu nghiệm tìm được trực tiếp vào phương trình gốc và kiểm tra Wronskian.",
+            math_basis=f"Nghiệm hợp lệ phải làm triệt tiêu phần dư $R({v})$ và duy trì hệ cơ bản độc lập tuyến tính.",
+            execution=s4_desc,
+            intermediate_result=s4_ir,
+            stage_index=4,
+            stage_name="Kiểm chứng",
+        )
+    )
+
+    stg_map = {1: stage1_steps, 2: stage2_steps, 3: stage3_steps, 4: stage4_steps}
+    renumbered = _renumber_steps(stg_map)
+
+    stages = [
+        ODEStageSummary(
+            stage_index=1,
+            title="Giai đoạn 1: Phương trình chỉ số",
+            subtitle=f"Đưa phương trình về phương trình chỉ số qua nghiệm thử ${u}^m$",
+            icon="looks_one",
+            badge_text="Chỉ số",
+            badge_color="blue-7",
+            is_completed=bool(renumbered[1]),
+            is_applicable=True,
+            summary_latex=ctx["indicial_simplified"] or (renumbered[1][-1].equation_latex if renumbered[1] else ""),
+            summary_label="Phương trình chỉ số:",
+            steps=tuple(renumbered[1]),
+            transition_note="Giải biệt thức $\\Delta$ và xác định nghiệm phương trình chỉ số.",
+        ),
+        ODEStageSummary(
+            stage_index=2,
+            title="Giai đoạn 2: Biệt thức Delta và Hệ nghiệm cơ bản",
+            subtitle=f"Xác định cặp nghiệm thực độc lập tuyến tính $y_1({v}), y_2({v})$",
+            icon="looks_two",
+            badge_text="Nghiệm cơ bản",
+            badge_color="purple-7",
+            is_completed=bool(renumbered[2]),
+            is_applicable=True,
+            summary_latex=f"y_1({v}) = {y1_str},\\quad y_2({v}) = {y2_str}" if (y1_str and y2_str) else "",
+            summary_label="Hệ nghiệm cơ bản:",
+            steps=tuple(renumbered[2]),
+            transition_note=stg2_transition,
+        ),
+        ODEStageSummary(
+            stage_index=3,
+            title="Giai đoạn 3: Xác định nghiệm bài toán",
+            subtitle=stg3_subtitle,
+            icon="looks_3",
+            badge_text="Nghiệm",
+            badge_color="teal-7",
+            is_completed=bool(renumbered[3]),
+            is_applicable=True,
+            summary_latex=y_latex,
+            summary_label=stg3_summary_label,
+            steps=tuple(renumbered[3]),
+            transition_note="Tiến hành kiểm chứng toán học độc lập.",
+        ),
+        ODEStageSummary(
+            stage_index=4,
+            title="Giai đoạn 4: Kiểm chứng toán học độc lập",
+            subtitle=stg4_subtitle,
+            icon="looks_4",
+            badge_text=stg4_badge_text,
+            badge_color=stg4_badge_color,
+            is_completed=stg4_is_completed,
+            is_applicable=True,
+            summary_latex=stg4_summary_latex,
+            summary_label=stg4_summary_label,
+            steps=tuple(renumbered[4]),
+            transition_note="",
+        ),
+    ]
+    return tuple(stages)
+
+
+# ==============================================================================
 # 8. GENERIC ODE FALLBACK FLOW BUILDER
 # ==============================================================================
 
@@ -2417,6 +3175,8 @@ def enhance_ode_solution_flow(
         return _build_reduction_of_order_flow(response, clean_var, params)
     elif prob_type == ProblemType.WRONSKIAN:
         return _build_wronskian_flow(response, clean_var, params)
+    elif prob_type == ProblemType.ODE_EULER_CAUCHY:
+        return _build_euler_cauchy_flow(response, clean_var, params)
     elif prob_type in (
         ProblemType.ODE_SECOND_ORDER_CONSTANT_COEFF,
         ProblemType.ODE_SECOND_ORDER_IVP,

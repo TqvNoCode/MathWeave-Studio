@@ -9,13 +9,13 @@ from math_app.presentation.components.operation_catalog import (
 
 
 def test_operation_counts_by_domain():
-    # Total operations inventory: 33 defined operations
-    assert len(OPERATIONS) == 33
+    # Total operations inventory: 34 defined operations
+    assert len(OPERATIONS) == 34
     # Main menu cards displayed on Screen A: exactly 23
     assert len(MAIN_OPERATIONS) == 23
-    # Secondary operations / workflow tools: exactly 10
+    # Secondary operations / workflow tools: exactly 11
     secondary_ops = [o for o in OPERATIONS if not o.is_menu_card]
-    assert len(secondary_ops) == 10
+    assert len(secondary_ops) == 11
 
     # Total available operations in calculus
     calculus_all = [o for o in OPERATIONS if "Giải tích (Calculus)" == o.domain]

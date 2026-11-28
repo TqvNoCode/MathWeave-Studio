@@ -40,7 +40,7 @@ def _sample_indices(total_steps: int) -> tuple[int, ...]:
 
 
 class ExplicitEulerVerifier:
-    """Independent verifier auditing all 10 Explicit Euler mathematical & grid invariants."""
+    """Independent verifier auditing Explicit Euler mathematical, grid, and error-analysis invariants."""
 
     def verify(
         self,
@@ -170,6 +170,7 @@ class ExplicitEulerVerifier:
         sampled = _sample_indices(len(rows) - 1)
         max_residual = 0.0
         rec_ok = len(sampled) > 0
+        eval_fn = None
         try:
             if request.order == NumericalODEOrder.FIRST_ORDER:
                 eval_fn = compile_safe_real_evaluator(parsed.rhs_expr, (parsed.indep_var, parsed.dep_var))
@@ -277,7 +278,7 @@ class ExplicitEulerVerifier:
             )
         )
 
-        # 9. Analytical comparison consistency (when available)
+        # 9. Analytical comparison & local one-step defect consistency
         ana = response.analytical_comparison
         if ana is not None and ana.available:
             ana_ok = len(ana.points) == len(rows) and all(
@@ -285,11 +286,80 @@ class ExplicitEulerVerifier:
                 and abs(p.t - rows[p.step_index].t) <= 1e-11
                 for p in ana.points
             )
+            if ana_ok and ana.points:
+                max_y_exp = max(p.abs_error for p in ana.points)
+                if (
+                    ana.max_abs_error is None
+                    or abs(ana.max_abs_error - max_y_exp) > 1e-11
+                    or ana.final_abs_error is None
+                    or abs(ana.final_abs_error - ana.points[-1].abs_error) > 1e-11
+                ):
+                    ana_ok = False
+
+            if ana_ok and request.order == NumericalODEOrder.SECOND_ORDER:
+                for p in ana.points:
+                    r = rows[p.step_index]
+                    if (
+                        p.v_exact is None
+                        or p.v_abs_error is None
+                        or r.v is None
+                        or abs(p.v_abs_error - abs(p.v_exact - r.v)) > 1e-11
+                    ):
+                        ana_ok = False
+                        break
+                if ana_ok and ana.points:
+                    max_v_exp = max(p.v_abs_error for p in ana.points if p.v_abs_error is not None)
+                    if (
+                        ana.max_v_abs_error is None
+                        or abs(ana.max_v_abs_error - max_v_exp) > 1e-11
+                        or ana.final_v_abs_error is None
+                        or ana.points[-1].v_abs_error is None
+                        or abs(ana.final_v_abs_error - ana.points[-1].v_abs_error) > 1e-11
+                    ):
+                        ana_ok = False
+
+            # Independently verify local one-step defect δ_{n+1} when eval_fn is available
+            if ana_ok and eval_fn is not None and len(ana.points) >= 2:
+                if ana.points[0].local_defect_y is not None or ana.points[0].local_defect_v is not None:
+                    ana_ok = False
+                for idx in sampled:
+                    p0 = ana.points[idx]
+                    p1 = ana.points[idx + 1]
+                    dt = p1.t - p0.t
+                    if request.order == NumericalODEOrder.FIRST_ORDER:
+                        if p1.local_defect_y is None:
+                            ana_ok = False
+                            break
+                        exp_def = p1.y_exact - p0.y_exact - dt * eval_fn(p0.t, p0.y_exact)
+                        tol_d = max(1e-10, 1e-10 * max(1.0, abs(p1.y_exact), abs(exp_def)))
+                        if abs(p1.local_defect_y - exp_def) > tol_d:
+                            ana_ok = False
+                            break
+                    else:
+                        if (
+                            p0.v_exact is None
+                            or p1.v_exact is None
+                            or p1.local_defect_y is None
+                            or p1.local_defect_v is None
+                        ):
+                            ana_ok = False
+                            break
+                        exp_def_y = p1.y_exact - p0.y_exact - dt * p0.v_exact
+                        exp_def_v = p1.v_exact - p0.v_exact - dt * eval_fn(p0.t, p0.y_exact, p0.v_exact)
+                        tol_dy = max(1e-10, 1e-10 * max(1.0, abs(p1.y_exact), abs(exp_def_y)))
+                        tol_dv = max(1e-10, 1e-10 * max(1.0, abs(p1.v_exact), abs(exp_def_v)))
+                        if abs(p1.local_defect_y - exp_def_y) > tol_dy or abs(p1.local_defect_v - exp_def_v) > tol_dv:
+                            ana_ok = False
+                            break
+
             checks.append(
                 NumericalVerificationCheck(
-                    name="9. Nhất quán đối chiếu giải tích",
+                    name="9. Nhất quán đối chiếu giải tích & sai số cục bộ/toàn cục",
                     passed=ana_ok,
-                    details=f"Đối chiếu {len(ana.points)} điểm; sai số cuối |y(T) - y_N| = {ana.final_abs_error:.6g}.",
+                    details=(
+                        f"Đối chiếu {len(ana.points)} điểm; sai số cuối |y(T) - y_N| = {ana.final_abs_error:.6g}"
+                        + (f", |y'(T) - v_N| = {ana.final_v_abs_error:.6g}." if ana.final_v_abs_error is not None else ".")
+                    ),
                 )
             )
         else:
@@ -318,6 +388,98 @@ class ExplicitEulerVerifier:
                 details="final_t, final_y, final_v khớp chính xác với hàng cuối cùng của bảng lặp.",
             )
         )
+
+        # 11. Error analysis & step-halving Richardson estimate consistency
+        ea = response.error_analysis
+        if ea is None:
+            checks.append(
+                NumericalVerificationCheck(
+                    name="11. Phân tích sai số & ước lượng h/2",
+                    passed=True,
+                    details="Chưa gắn bộ phân tích sai số tùy chọn.",
+                )
+            )
+        else:
+            ea_ok = True
+            ea_detail = "Phân tích sai số cục bộ O(h²), toàn cục O(h) nhất quán."
+            if not ea.has_exact_reference:
+                if any(
+                    v is not None
+                    for v in (
+                        ea.final_global_error_y,
+                        ea.max_global_error_y,
+                        ea.final_global_error_v,
+                        ea.max_global_error_v,
+                        ea.final_local_defect_y,
+                        ea.max_abs_local_defect_y,
+                        ea.final_local_defect_v,
+                        ea.max_abs_local_defect_v,
+                    )
+                ):
+                    ea_ok = False
+                    ea_detail = "Phát hiện giá trị sai số thực bị gán khi không có nghiệm giải tích."
+            elif ana is None or not ana.available:
+                ea_ok = False
+                ea_detail = "has_exact_reference=True nhưng không có analytical_comparison."
+            else:
+                if (
+                    ea.final_global_error_y != ana.final_abs_error
+                    or ea.max_global_error_y != ana.max_abs_error
+                    or ea.final_global_error_v != ana.final_v_abs_error
+                    or ea.max_global_error_v != ana.max_v_abs_error
+                    or ea.final_local_defect_y != ana.final_local_defect_y
+                    or ea.max_abs_local_defect_y != ana.max_local_defect_y
+                    or ea.final_local_defect_v != ana.final_local_defect_v
+                    or ea.max_abs_local_defect_v != ana.max_local_defect_v
+                ):
+                    ea_ok = False
+                    ea_detail = "Tổng hợp sai số trong error_analysis không khớp với bảng đối chiếu."
+
+            sh = ea.step_halving
+            if ea_ok and sh is not None and sh.available:
+                if len(sh.points) != len(rows) or abs(sh.richardson_factor - 2.0) > 1e-12:
+                    ea_ok = False
+                    ea_detail = "Lưới ước lượng h/2 hoặc hệ số Richardson p=1 không hợp lệ."
+                else:
+                    for pt in sh.points:
+                        r = rows[pt.step_index]
+                        if abs(pt.t - r.t) > 1e-11 or abs(pt.y_coarse - r.y) > 1e-11:
+                            ea_ok = False
+                            ea_detail = "Điểm lưới ước lượng h/2 không thẳng hàng với lưới h."
+                            break
+                        exp_est_y = 2.0 * abs(pt.y_fine - pt.y_coarse)
+                        if abs(pt.estimated_error_y - exp_est_y) > max(1e-11, 1e-10 * exp_est_y):
+                            ea_ok = False
+                            ea_detail = "Công thức Richardson E_h ≈ 2·|y_(h/2) - y_h| không nhất quán."
+                            break
+                        if request.order == NumericalODEOrder.SECOND_ORDER:
+                            if (
+                                pt.v_coarse is None
+                                or pt.v_fine is None
+                                or pt.estimated_error_v is None
+                                or abs(pt.estimated_error_v - 2.0 * abs(pt.v_fine - pt.v_coarse))
+                                > max(1e-11, 1e-10 * abs(pt.estimated_error_v))
+                            ):
+                                ea_ok = False
+                                ea_detail = "Công thức Richardson cho đạo hàm v không nhất quán."
+                                break
+                    if ea_ok and sh.points:
+                        max_ey = max(pt.estimated_error_y for pt in sh.points)
+                        if (
+                            sh.max_estimated_error_y is None
+                            or abs(sh.max_estimated_error_y - max_ey) > 1e-11
+                            or sh.final_estimated_error_y != sh.points[-1].estimated_error_y
+                        ):
+                            ea_ok = False
+                            ea_detail = "Tổng hợp ước lượng Richardson không khớp các điểm."
+
+            checks.append(
+                NumericalVerificationCheck(
+                    name="11. Phân tích sai số & ước lượng h/2",
+                    passed=ea_ok,
+                    details=ea_detail,
+                )
+            )
 
         all_passed = all(c.passed for c in checks)
         summary = (

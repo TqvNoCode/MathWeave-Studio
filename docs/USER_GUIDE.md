@@ -173,19 +173,21 @@ MathWeave Studio hỗ trợ phương trình vi phân cấp 1: tuyến tính (h�
 
 > **Lưu ý phân biệt khái niệm:** **Phương pháp Euler tiến (Explicit Euler)** là thuật toán **xấp xỉ số rời rạc** cho bài toán giá trị ban đầu (IVP), khác hoàn toàn với **phương trình vi phân Euler–Cauchy** ($at^2 y'' + bty' + cy = g(t)$).
 
-1. Trong không gian **Phương trình vi phân (ODE)** (cấp 1 hoặc cấp 2), chọn chế độ **Phương pháp Euler tiến (Explicit Euler)** tại thanh `CHẾ ĐỘ GIẢI:`.
+1. **Chọn đúng cấp phương trình trước, sau đó chọn chế độ giải:**
+   - Mở **Phương trình vi phân (ODE)** (cấp 1) hoặc **Phương trình vi phân cấp 2 (Second-Order)** từ danh mục toán học.
+   - Tại thanh `CHẾ ĐỘ GIẢI:`, chọn **Giải số — Phương pháp Euler tiến (Explicit Euler)**.
 2. **PTVP cấp 1 ($y' = f(t, y)$, $y(t_0) = y_0$):**
-   - Nhập phương trình `y' = y`, $t_0 = 0$, $y_0 = 1$, điểm kết thúc $T = 1$, bước nhảy $h = 0.1$.
-   - Công thức truy hồi: $t_{n+1} = t_n + h_n$, $y_{n+1} = y_n + h_n f(t_n, y_n)$ với $h_n = \min(h, |T - t_n|)$ (bước cuối tự rút ngắn nếu $|T - t_0|$ không chia hết cho $h$).
-   - Kết quả: $y_{10} = 1.1^{10} \approx 2.5937424601$, kèm bảng lặp, đồ thị Plotly và so sánh với nghiệm giải tích $y(t) = e^t$.
+   - Nhập phương trình `y' = y`, $t_0 = 0$, $y_0 = 1$, điểm kết thúc $T = 1$, bước nhảy dương $h = 0.1$, rồi bấm **TÍNH XẤP XỈ EULER CẤP 1**.
+   - Công thức truy hồi: $t_{n+1} = t_n + h_n$, $y_{n+1} = y_n + h_n f(t_n, y_n)$ với $|h_n| = \min(h, |T - t_n|)$ (bước cuối tự rút ngắn nếu $|T - t_0|$ không chia hết cho $h$, hỗ trợ cả tích phân thuận và lùi).
+   - Kết quả ưu tiên hiển thị $y(1) \approx 2.593742$, đối chiếu nghiệm giải tích $y(t) = e^t$, kèm các mục mở rộng **Phân tích sai số số học** (sai số chặt cục bộ chưa chuẩn hóa $\delta_{n+1} = O(h^2)$, sai số toàn cục $E^y_n = O(h)$, ước lượng giảm nửa bước $h/2$), bảng lặp phân trang, đồ thị Plotly và 4 giai đoạn giải thích sư phạm.
 3. **PTVP cấp 2 ($y'' = F(t, y, y')$, $y(t_0) = y_0, y'(t_0) = v_0$):**
-   - Nhập `y'' = -y`, $t_0 = 0$, vị trí $y_0 = 0$, đạo hàm $v_0 = 1$, $T = 3.14$, $h = 0.1$.
+   - Nhập `y'' = -y`, $t_0 = 0$, vị trí $y_0 = 0$, đạo hàm $v_0 = 1$, $T = 3.14$, $h = 0.1$, rồi bấm **TÍNH XẤP XỈ EULER CẤP 2**.
    - Hệ thống chuyển về hệ cấp 1 ($z_1 = y, z_2 = y'$) và cập nhật **đồng thời** từ cặp giá trị cũ $(y_n, v_n)$:
      $$y_{n+1} = y_n + h_n v_n, \qquad v_{n+1} = v_n + h_n F(t_n, y_n, v_n)$$
-   - Hỗ trợ chuyển đổi phương trình Euler–Cauchy $At^2 y'' + Bty' + Cy = g(t)$ sang $y'' = \frac{g(t) - Bty' - Cy}{At^2}$ trên các khoảng chính quy không chạm hoặc đi qua $t = 0$.
-4. **Độ chính xác, ổn định & giới hạn:**
-   - Explicit Euler là phương pháp bậc 1: sai số chặt cục bộ $O(h^2)$ và sai số toàn cục $O(h)$ dưới các giả thiết đủ trơn và ổn định; không ổn định với mọi bước nhảy $h$.
-   - Số bước tối đa mặc định là **10,000 bước**; bảng lặp hiển thị làm tròn 6 chữ số thập phân để dễ đọc trong khi tính toán nội bộ giữ nguyên IEEE 754 `float64`. Xem chi tiết tại [Tài liệu Phương pháp Euler tiến (NUMERICAL_EULER.md)](NUMERICAL_EULER.md).
+   - Hiển thị đồng thời xấp xỉ $y(T)$ và $y'(T)$, sai số toàn cục cho cả hai biến $(E^y_n, E^v_n)$, đồ thị đạo hàm $y'(t)$ và hỗ trợ chuyển đổi Euler–Cauchy trên các khoảng chính quy không chạm/đi qua $t = 0$.
+4. **Độ chính xác, ước lượng & giới hạn:**
+   - Khi bài toán không có nghiệm giải tích đóng (ví dụ $y' = \sin(ty)$), hệ thống **không bịa đặt sai số thực**, chỉ nêu bậc sai số lý thuyết ($O(h^2)$ cục bộ, $O(h)$ toàn cục) và cung cấp **ước lượng Richardson** $E_h \approx 2 \times |y_{h/2} - y_h|$ được gắn nhãn rõ ràng là ước lượng.
+   - Explicit Euler không ổn định với mọi bước nhảy $h$; số bước tối đa mặc định là **10,000 bước**. Xem chi tiết tại [Tài liệu Phương pháp Euler tiến (NUMERICAL_EULER.md)](NUMERICAL_EULER.md).
 
 ---
 

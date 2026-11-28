@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+from typing import Callable
 
 import sympy as sp
 
@@ -25,7 +26,10 @@ from math_app.input.ode_parser import (
 )
 from math_app.input.parser import normalize_variable_name, parse_safe_expression
 from math_app.rendering.latex.formatter import expr_to_latex
-from math_app.solvers.numerical.expression_adapter import compile_safe_real_evaluator
+from math_app.solvers.numerical.expression_adapter import (
+    compile_safe_real_evaluator,
+    parse_numerical_ode_equation,
+)
 
 _TRUSTED_VERIFICATION_STATUSES = frozenset({
     VerificationStatus.VERIFIED,
@@ -151,6 +155,7 @@ class AnalyticalComparisonService:
 
         matched_resp: SolutionResponse | None = None
         matched_expr: sp.Expr | None = None
+        matched_deriv_expr: sp.Expr | None = None
         t_sym = sp.Symbol(indep)
 
         for cand_req in candidate_requests:
@@ -174,9 +179,10 @@ class AnalyticalComparisonService:
                 y0_exact = exact_fn(response.t0)
                 if abs(y0_exact - response.y0) > 1e-6:
                     continue
+                d_expr_cand: sp.Expr | None = None
                 if request.order == NumericalODEOrder.SECOND_ORDER and response.v0 is not None:
-                    d_expr = sp.diff(expr, t_sym)
-                    d_fn = compile_safe_real_evaluator(d_expr, (t_sym,))
+                    d_expr_cand = sp.simplify(sp.diff(expr, t_sym))
+                    d_fn = compile_safe_real_evaluator(d_expr_cand, (t_sym,))
                     if abs(d_fn(response.t0) - response.v0) > 1e-5:
                         continue
             except Exception:
@@ -184,6 +190,7 @@ class AnalyticalComparisonService:
 
             matched_resp = ana_resp
             matched_expr = expr
+            matched_deriv_expr = d_expr_cand
             break
 
         if matched_resp is None or matched_expr is None:
@@ -196,8 +203,45 @@ class AnalyticalComparisonService:
             )
 
         exact_fn = compile_safe_real_evaluator(matched_expr, (t_sym,))
+        exact_v_fn: Callable[..., float] | None = None
+        if request.order == NumericalODEOrder.SECOND_ORDER and matched_deriv_expr is not None:
+            try:
+                exact_v_fn = compile_safe_real_evaluator(matched_deriv_expr, (t_sym,))
+            except Exception:
+                return AnalyticalComparisonResult(
+                    available=False,
+                    notes="Không thể định giá đạo hàm nghiệm giải tích trên khoảng tính toán.",
+                )
+
+        # Compile RHS evaluator for unnormalized one-step local defect δ_{n+1}
+        rhs_eval: Callable[..., float] | None = None
+        try:
+            parsed_ode = parse_numerical_ode_equation(
+                request.raw_equation,
+                order=request.order,
+                indep_var=indep,
+                dep_var=dep,
+            )
+            if request.order == NumericalODEOrder.FIRST_ORDER:
+                rhs_eval = compile_safe_real_evaluator(
+                    parsed_ode.rhs_expr, (parsed_ode.indep_var, parsed_ode.dep_var)
+                )
+            else:
+                rhs_eval = compile_safe_real_evaluator(
+                    parsed_ode.rhs_expr, (parsed_ode.indep_var, parsed_ode.dep_var, parsed_ode.yp_sym)
+                )
+        except Exception:
+            rhs_eval = None
+
         points: list[AnalyticalComparisonPoint] = []
-        max_err = 0.0
+        max_err_y = 0.0
+        max_err_v: float | None = 0.0 if exact_v_fn is not None else None
+        max_def_y: float | None = None
+        max_def_v: float | None = None
+        prev_t: float | None = None
+        prev_y_ex: float | None = None
+        prev_v_ex: float | None = None
+
         for row in response.rows:
             try:
                 y_ex = exact_fn(row.t)
@@ -211,25 +255,109 @@ class AnalyticalComparisonService:
                     available=False,
                     notes="Nghiệm giải tích không hữu hạn trên khoảng tính toán.",
                 )
-            err = abs(y_ex - row.y)
-            max_err = max(max_err, err)
+
+            v_num: float | None = row.v
+            v_ex: float | None = None
+            err_v: float | None = None
+            if exact_v_fn is not None and v_num is not None:
+                try:
+                    v_ex = exact_v_fn(row.t)
+                except Exception:
+                    return AnalyticalComparisonResult(
+                        available=False,
+                        notes="Không thể định giá đạo hàm nghiệm giải tích tại một số điểm lưới.",
+                    )
+                if not math.isfinite(v_ex):
+                    return AnalyticalComparisonResult(
+                        available=False,
+                        notes="Đạo hàm nghiệm giải tích không hữu hạn trên khoảng tính toán.",
+                    )
+                err_v = abs(v_ex - v_num)
+                if max_err_v is not None:
+                    max_err_v = max(max_err_v, err_v)
+
+            err_y = abs(y_ex - row.y)
+            max_err_y = max(max_err_y, err_y)
+
+            local_def_y: float | None = None
+            local_def_v: float | None = None
+            if prev_t is not None and prev_y_ex is not None:
+                h_prev = row.t - prev_t
+                if request.order == NumericalODEOrder.FIRST_ORDER and rhs_eval is not None:
+                    try:
+                        f_exact_prev = rhs_eval(prev_t, prev_y_ex)
+                        cand_def = y_ex - prev_y_ex - h_prev * f_exact_prev
+                        if math.isfinite(cand_def):
+                            local_def_y = cand_def
+                            max_def_y = abs(cand_def) if max_def_y is None else max(max_def_y, abs(cand_def))
+                    except Exception:
+                        local_def_y = None
+                elif (
+                    request.order == NumericalODEOrder.SECOND_ORDER
+                    and v_ex is not None
+                    and prev_v_ex is not None
+                ):
+                    try:
+                        cand_def_y = y_ex - prev_y_ex - h_prev * prev_v_ex
+                        if math.isfinite(cand_def_y):
+                            local_def_y = cand_def_y
+                            max_def_y = abs(cand_def_y) if max_def_y is None else max(max_def_y, abs(cand_def_y))
+                    except Exception:
+                        local_def_y = None
+                    if rhs_eval is not None:
+                        try:
+                            f_exact_prev = rhs_eval(prev_t, prev_y_ex, prev_v_ex)
+                            cand_def_v = v_ex - prev_v_ex - h_prev * f_exact_prev
+                            if math.isfinite(cand_def_v):
+                                local_def_v = cand_def_v
+                                max_def_v = abs(cand_def_v) if max_def_v is None else max(max_def_v, abs(cand_def_v))
+                        except Exception:
+                            local_def_v = None
+
             points.append(
                 AnalyticalComparisonPoint(
                     step_index=row.step_index,
                     t=row.t,
                     y_numerical=row.y,
                     y_exact=y_ex,
-                    abs_error=err,
+                    abs_error=err_y,
+                    v_numerical=v_num,
+                    v_exact=v_ex,
+                    v_abs_error=err_v,
+                    local_defect_y=local_def_y,
+                    local_defect_v=local_def_v,
                 )
             )
+            prev_t = row.t
+            prev_y_ex = y_ex
+            prev_v_ex = v_ex
 
         exact_latex = f"{dep}({indep}) = {expr_to_latex(matched_expr)}"
+        exact_deriv_str = (
+            f"{dep}'({indep}) = {matched_deriv_expr}"
+            if matched_deriv_expr is not None
+            else ""
+        )
+        exact_deriv_latex = (
+            f"{dep}'({indep}) = {expr_to_latex(matched_deriv_expr)}"
+            if matched_deriv_expr is not None
+            else ""
+        )
+
         return AnalyticalComparisonResult(
             available=True,
             exact_expression_str=f"{dep}({indep}) = {matched_expr}",
             exact_latex=exact_latex,
+            exact_derivative_str=exact_deriv_str,
+            exact_derivative_latex=exact_deriv_latex,
             points=tuple(points),
-            max_abs_error=max_err,
+            max_abs_error=max_err_y,
             final_abs_error=points[-1].abs_error if points else None,
+            max_v_abs_error=max_err_v,
+            final_v_abs_error=points[-1].v_abs_error if points else None,
+            max_local_defect_y=max_def_y,
+            final_local_defect_y=points[-1].local_defect_y if points else None,
+            max_local_defect_v=max_def_v,
+            final_local_defect_v=points[-1].local_defect_v if points else None,
             notes="Đã đối chiếu trực tiếp với nghiệm giải tích chính xác của hệ thống.",
         )

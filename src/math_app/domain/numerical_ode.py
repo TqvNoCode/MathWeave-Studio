@@ -60,6 +60,11 @@ class AnalyticalComparisonPoint:
     y_numerical: float
     y_exact: float
     abs_error: float
+    v_numerical: float | None = None
+    v_exact: float | None = None
+    v_abs_error: float | None = None
+    local_defect_y: float | None = None
+    local_defect_v: float | None = None
 
 
 @dataclass(frozen=True)
@@ -69,10 +74,71 @@ class AnalyticalComparisonResult:
     available: bool
     exact_expression_str: str = ""
     exact_latex: str = ""
+    exact_derivative_str: str = ""
+    exact_derivative_latex: str = ""
     points: tuple[AnalyticalComparisonPoint, ...] = ()
     max_abs_error: float | None = None
     final_abs_error: float | None = None
+    max_v_abs_error: float | None = None
+    final_v_abs_error: float | None = None
+    max_local_defect_y: float | None = None
+    final_local_defect_y: float | None = None
+    max_local_defect_v: float | None = None
+    final_local_defect_v: float | None = None
     notes: str = ""
+
+
+@dataclass(frozen=True)
+class StepHalvingPoint:
+    """Aligned coarse (h) vs. fine (h/2) comparison point for Richardson error estimation."""
+
+    step_index: int
+    t: float
+    y_coarse: float
+    y_fine: float
+    estimated_error_y: float
+    v_coarse: float | None = None
+    v_fine: float | None = None
+    estimated_error_v: float | None = None
+
+
+@dataclass(frozen=True)
+class StepHalvingEstimate:
+    """Richardson step-halving (h vs. h/2) global error estimate for first-order Euler."""
+
+    available: bool
+    coarse_step_size: float
+    fine_step_size: float
+    richardson_factor: float = 2.0
+    points: tuple[StepHalvingPoint, ...] = ()
+    final_estimated_error_y: float | None = None
+    max_estimated_error_y: float | None = None
+    final_estimated_error_v: float | None = None
+    max_estimated_error_v: float | None = None
+    notes: str = ""
+
+
+@dataclass(frozen=True)
+class NumericalErrorAnalysis:
+    """Rigorous local one-step defect and global error analysis for Explicit Euler."""
+
+    has_exact_reference: bool
+    local_error_convention: str
+    local_error_order_label: str = "O(h²)"
+    global_error_order_label: str = "O(h)"
+    local_defect_formula_latex: str = ""
+    global_error_formula_latex: str = ""
+    final_global_error_y: float | None = None
+    max_global_error_y: float | None = None
+    final_global_error_v: float | None = None
+    max_global_error_v: float | None = None
+    final_local_defect_y: float | None = None
+    max_abs_local_defect_y: float | None = None
+    final_local_defect_v: float | None = None
+    max_abs_local_defect_v: float | None = None
+    step_halving: StepHalvingEstimate | None = None
+    stability_note: str = ""
+    interpretation_notes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -148,4 +214,5 @@ class NumericalODEResponse:
     domain_restrictions: tuple[str, ...] = ()
     verification: NumericalVerificationReport | None = None
     analytical_comparison: AnalyticalComparisonResult | None = None
+    error_analysis: NumericalErrorAnalysis | None = None
     execution_time_ms: float = 0.0

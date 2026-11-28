@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
-import math
 import time
 
 from math_app.domain.exceptions import InvalidInputError
@@ -15,8 +13,12 @@ from math_app.domain.numerical_ode import (
     NumericalODEResponse,
     NumericalODEStatus,
 )
+from math_app.solvers.numerical.euler_engine import (
+    FirstOrderEulerAdapter,
+    SecondOrderEulerAdapter,
+    integrate_explicit_euler,
+)
 from math_app.solvers.numerical.expression_adapter import (
-    MAX_NUMERIC_MAGNITUDE,
     NumericalDomainError,
     NumericalOverflowError,
     NumericalSingularityError,
@@ -25,6 +27,7 @@ from math_app.solvers.numerical.expression_adapter import (
     parse_numeric_scalar,
     parse_numerical_ode_equation,
 )
+from math_app.solvers.numerical.time_grid import GridLimitExceededError, build_time_grid
 
 DEFAULT_MAX_STEPS = 10_000
 
@@ -84,7 +87,7 @@ class ExplicitEulerSolver:
     method: NumericalODEMethod = NumericalODEMethod.EXPLICIT_EULER
 
     def solve(self, request: NumericalODERequest) -> NumericalODEResponse:
-        """Integrate the requested 1st- or 2nd-order IVP using Explicit Euler."""
+        """Integrate the requested 1st- or 2nd-order IVP using the shared Explicit Euler core."""
         t_start = time.perf_counter()
 
         if request.method != NumericalODEMethod.EXPLICIT_EULER:
@@ -98,7 +101,7 @@ class ExplicitEulerSolver:
         # 1. Validate numeric IVP parameters before parsing/solving
         try:
             t0_dec, t0_flt = parse_numeric_scalar(request.t0, "t₀")
-            y0_dec, y0_flt = parse_numeric_scalar(request.y0, "y₀")
+            _, y0_flt = parse_numeric_scalar(request.y0, "y₀")
             t_end_dec, t_end_flt = parse_numeric_scalar(request.t_end, "T")
             h_dec, h_flt = parse_numeric_scalar(request.step_size, "h")
             v0_flt: float | None = None
@@ -197,33 +200,14 @@ class ExplicitEulerSolver:
                 elapsed_ms=(time.perf_counter() - t_start) * 1000.0,
             )
 
-        # 4. Construct drift-free time grid and enforce iteration bound (never truncate)
-        span = abs(t_end_dec - t0_dec)
-        full_steps = int(span // h_dec)
-        rem = span - (Decimal(full_steps) * h_dec)
-        tol_dec = h_dec * Decimal("1e-12")
-        if rem <= tol_dec:
-            rem = Decimal(0)
-        elif abs(h_dec - rem) <= tol_dec:
-            full_steps += 1
-            rem = Decimal(0)
-
-        has_shortened_final_step = rem > 0
-        total_steps = full_steps + (1 if has_shortened_final_step else 0)
-        if total_steps <= 0:
-            total_steps = 1
-            has_shortened_final_step = True
-
-        if total_steps > request.max_steps:
-            min_h = float(span / Decimal(request.max_steps))
+        # 4. Construct shared drift-free Decimal time grid
+        try:
+            grid = build_time_grid(t0_dec, t_end_dec, h_dec, request.max_steps)
+        except GridLimitExceededError as exc:
             return _error_response(
                 request,
                 NumericalODEStatus.ITERATION_LIMIT_EXCEEDED,
-                (
-                    f"Số bước lặp yêu cầu ({total_steps:,}) vượt quá giới hạn an toàn tối đa "
-                    f"({request.max_steps:,} bước). Hệ thống không tự ý cắt bớt phép tính; "
-                    f"vui lòng tăng bước nhảy lên tối thiểu h ≥ {min_h:.6g} hoặc thu hẹp khoảng [t₀, T]."
-                ),
+                str(exc),
                 t0=t0_flt,
                 y0=y0_flt,
                 v0=v0_flt,
@@ -238,30 +222,6 @@ class ExplicitEulerSolver:
                 domain_restrictions=parsed.domain_restrictions,
                 elapsed_ms=(time.perf_counter() - t_start) * 1000.0,
             )
-
-        # Pre-build exact Decimal grid nodes so t_n never accumulates floating-point drift
-        signed_h_dec = h_dec if direction > 0 else -h_dec
-        t_dec_nodes: list[Decimal] = [
-            t0_dec + (Decimal(i) * signed_h_dec) for i in range(full_steps + 1)
-        ]
-        if has_shortened_final_step:
-            t_dec_nodes.append(t_end_dec)
-        else:
-            t_dec_nodes[-1] = t_end_dec
-
-        t_nodes = [float(d) for d in t_dec_nodes]
-        step_deltas = [float(t_dec_nodes[i + 1] - t_dec_nodes[i]) for i in range(total_steps)]
-        final_step_mag = abs(step_deltas[-1])
-
-        # 5. Compile AST-safe RHS evaluator once (O(1) symbolic prep)
-        try:
-            if request.order == NumericalODEOrder.FIRST_ORDER:
-                rhs_eval = compile_safe_real_evaluator(parsed.rhs_expr, (parsed.indep_var, parsed.dep_var))
-            else:
-                rhs_eval = compile_safe_real_evaluator(
-                    parsed.rhs_expr,
-                    (parsed.indep_var, parsed.dep_var, parsed.yp_sym),
-                )
         except InvalidInputError as exc:
             return _error_response(
                 request,
@@ -282,113 +242,44 @@ class ExplicitEulerSolver:
                 elapsed_ms=(time.perf_counter() - t_start) * 1000.0,
             )
 
-        # 6. Execute Explicit Euler iteration loop
-        rows: list[NumericalIterationRow] = []
-        y_curr = y0_flt
-        v_curr = v0_flt if v0_flt is not None else 0.0
-
+        # 5. Compile AST-safe RHS evaluator and select order-specific adapter
         try:
-            for n in range(total_steps):
-                t_curr = t_nodes[n]
-                h_n = step_deltas[n]
-
-                if request.order == NumericalODEOrder.FIRST_ORDER:
-                    try:
-                        slope_y = rhs_eval(t_curr, y_curr)
-                    except (NumericalSingularityError, NumericalDomainError, NumericalOverflowError) as exc:
-                        exc.failing_step = n
-                        raise
-
-                    rows.append(
-                        NumericalIterationRow(
-                            step_index=n,
-                            t=t_curr,
-                            y=y_curr,
-                            slope_y=slope_y,
-                            step_used=h_n,
-                        )
-                    )
-                    y_next = y_curr + h_n * slope_y
-                    if not math.isfinite(y_next) or abs(y_next) > MAX_NUMERIC_MAGNITUDE:
-                        raise NumericalOverflowError(
-                            f"Tràn số học hoặc giá trị không hữu hạn tại bước n = {n} (t = {t_curr:.6g}).",
-                            failing_step=n,
-                        )
-                    y_curr = y_next
-                else:
-                    try:
-                        slope_v = rhs_eval(t_curr, y_curr, v_curr)
-                    except (NumericalSingularityError, NumericalDomainError, NumericalOverflowError) as exc:
-                        exc.failing_step = n
-                        raise
-
-                    # Simultaneous Explicit Euler update using OLD y_curr and OLD v_curr
-                    y_old = y_curr
-                    v_old = v_curr
-                    rows.append(
-                        NumericalIterationRow(
-                            step_index=n,
-                            t=t_curr,
-                            y=y_old,
-                            slope_y=v_old,
-                            step_used=h_n,
-                            v=v_old,
-                            slope_v=slope_v,
-                        )
-                    )
-                    y_next = y_old + h_n * v_old
-                    v_next = v_old + h_n * slope_v
-                    if (
-                        not math.isfinite(y_next)
-                        or not math.isfinite(v_next)
-                        or abs(y_next) > MAX_NUMERIC_MAGNITUDE
-                        or abs(v_next) > MAX_NUMERIC_MAGNITUDE
-                    ):
-                        raise NumericalOverflowError(
-                            f"Tràn số học hoặc giá trị không hữu hạn tại bước n = {n} (t = {t_curr:.6g}).",
-                            failing_step=n,
-                        )
-                    y_curr = y_next
-                    v_curr = v_next
-
-            # Evaluate slope at final endpoint t_N (without stepping past T)
-            t_final = t_nodes[-1]
             if request.order == NumericalODEOrder.FIRST_ORDER:
-                try:
-                    final_slope_y = rhs_eval(t_final, y_curr)
-                except (NumericalSingularityError, NumericalDomainError, NumericalOverflowError) as exc:
-                    exc.failing_step = total_steps
-                    raise
-                rows.append(
-                    NumericalIterationRow(
-                        step_index=total_steps,
-                        t=t_final,
-                        y=y_curr,
-                        slope_y=final_slope_y,
-                        step_used=None,
-                    )
-                )
+                rhs_eval = compile_safe_real_evaluator(parsed.rhs_expr, (parsed.indep_var, parsed.dep_var))
+                adapter: FirstOrderEulerAdapter | SecondOrderEulerAdapter = FirstOrderEulerAdapter(rhs_eval, y0_flt)
             else:
-                try:
-                    final_slope_v = rhs_eval(t_final, y_curr, v_curr)
-                except (NumericalSingularityError, NumericalDomainError, NumericalOverflowError) as exc:
-                    exc.failing_step = total_steps
-                    raise
-                rows.append(
-                    NumericalIterationRow(
-                        step_index=total_steps,
-                        t=t_final,
-                        y=y_curr,
-                        slope_y=v_curr,
-                        step_used=None,
-                        v=v_curr,
-                        slope_v=final_slope_v,
-                    )
+                rhs_eval = compile_safe_real_evaluator(
+                    parsed.rhs_expr,
+                    (parsed.indep_var, parsed.dep_var, parsed.yp_sym),
                 )
+                adapter = SecondOrderEulerAdapter(rhs_eval, y0_flt, v0_flt if v0_flt is not None else 0.0)
+        except InvalidInputError as exc:
+            return _error_response(
+                request,
+                NumericalODEStatus.INVALID_INPUT,
+                str(exc),
+                t0=t0_flt,
+                y0=y0_flt,
+                v0=v0_flt,
+                t_end=t_end_flt,
+                step_size=h_flt,
+                direction=direction,
+                canonical_rhs_str=parsed.rhs_str,
+                canonical_rhs_latex=parsed.rhs_latex,
+                equation_latex=parsed.equation_latex,
+                is_euler_cauchy=parsed.is_euler_cauchy,
+                ec_orig_latex=parsed.euler_cauchy_original_latex,
+                domain_restrictions=parsed.domain_restrictions,
+                elapsed_ms=(time.perf_counter() - t_start) * 1000.0,
+            )
 
+        # 6. Execute shared Explicit Euler integration engine via adapter
+        try:
+            records = integrate_explicit_euler(grid, adapter.initial_state, adapter.rhs_system)
+            rows = adapter.to_rows(records)
         except NumericalSingularityError as exc:
-            step_idx = exc.failing_step if exc.failing_step is not None else len(rows)
-            t_at = t_nodes[min(step_idx, len(t_nodes) - 1)]
+            step_idx = exc.failing_step if exc.failing_step is not None else 0
+            t_at = grid.t_nodes[min(step_idx, len(grid.t_nodes) - 1)]
             return _error_response(
                 request,
                 NumericalODEStatus.SINGULARITY_ERROR,
@@ -406,12 +297,11 @@ class ExplicitEulerSolver:
                 is_euler_cauchy=parsed.is_euler_cauchy,
                 ec_orig_latex=parsed.euler_cauchy_original_latex,
                 domain_restrictions=parsed.domain_restrictions,
-                rows=tuple(rows),
                 elapsed_ms=(time.perf_counter() - t_start) * 1000.0,
             )
         except (NumericalDomainError, NumericalOverflowError) as exc:
-            step_idx = exc.failing_step if exc.failing_step is not None else len(rows)
-            t_at = t_nodes[min(step_idx, len(t_nodes) - 1)]
+            step_idx = exc.failing_step if exc.failing_step is not None else 0
+            t_at = grid.t_nodes[min(step_idx, len(grid.t_nodes) - 1)]
             return _error_response(
                 request,
                 NumericalODEStatus.NUMERICAL_ERROR,
@@ -429,18 +319,19 @@ class ExplicitEulerSolver:
                 is_euler_cauchy=parsed.is_euler_cauchy,
                 ec_orig_latex=parsed.euler_cauchy_original_latex,
                 domain_restrictions=parsed.domain_restrictions,
-                rows=tuple(rows),
                 elapsed_ms=(time.perf_counter() - t_start) * 1000.0,
             )
 
         warnings_list: list[str] = []
-        if has_shortened_final_step:
+        if grid.has_shortened_final_step:
             warnings_list.append(
                 f"Khoảng [{t0_flt:g}, {t_end_flt:g}] không chia hết cho h = {h_flt:g}; "
-                f"bước cuối được rút ngắn thành h_{total_steps - 1} = {final_step_mag:.6g} để dừng đúng tại T = {t_end_flt:g}."
+                f"bước cuối được rút ngắn thành h_{grid.total_steps - 1} = {grid.final_step_size:.6g} "
+                f"để dừng đúng tại T = {t_end_flt:g}."
             )
 
         elapsed_ms = (time.perf_counter() - t_start) * 1000.0
+        final_row = rows[-1]
         return NumericalODEResponse(
             status=NumericalODEStatus.SUCCESS,
             method=request.method,
@@ -458,14 +349,14 @@ class ExplicitEulerSolver:
             v0=v0_flt,
             t_end=t_end_flt,
             step_size=h_flt,
-            direction=direction,
-            total_steps=total_steps,
-            has_shortened_final_step=has_shortened_final_step,
-            final_step_size=final_step_mag,
-            rows=tuple(rows),
-            final_t=t_nodes[-1],
-            final_y=y_curr,
-            final_v=v_curr if request.order == NumericalODEOrder.SECOND_ORDER else None,
+            direction=grid.direction,
+            total_steps=grid.total_steps,
+            has_shortened_final_step=grid.has_shortened_final_step,
+            final_step_size=grid.final_step_size,
+            rows=rows,
+            final_t=final_row.t,
+            final_y=final_row.y,
+            final_v=final_row.v if request.order == NumericalODEOrder.SECOND_ORDER else None,
             warnings=tuple(warnings_list),
             domain_restrictions=parsed.domain_restrictions,
             execution_time_ms=elapsed_ms,

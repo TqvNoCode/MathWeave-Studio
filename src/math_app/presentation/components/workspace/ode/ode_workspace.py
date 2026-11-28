@@ -55,11 +55,14 @@ from math_app.presentation.components.workspace.ode.ode_state import (
     split_first_order_equation_clauses,
     split_second_order_equation_clauses,
 )
-from math_app.presentation.components.workspace.ode.numerical_euler_panel import (
-    render_numerical_euler_panel,
+from math_app.presentation.components.workspace.ode.first_order_euler_panel import (
+    render_first_order_euler_panel,
 )
 from math_app.presentation.components.workspace.ode.second_order_classifier import (
     classify_second_order_ode,
+)
+from math_app.presentation.components.workspace.ode.second_order_euler_panel import (
+    render_second_order_euler_panel,
 )
 from math_app.presentation.components.workspace.variable_selector import (
     render_adaptive_variable_selector,
@@ -281,11 +284,18 @@ def render_ode_workspace(
                     if on_title_change is not None:
                         on_title_change(active.title)
                     header_container.clear()
+                    badge_lbl = state.order.display_label
+                    if solver_kind == "numerical":
+                        badge_lbl = (
+                            "Cấp 1 · Giải số Euler tiến"
+                            if state.order == ODEOrder.FIRST_ORDER
+                            else "Cấp 2 · Giải số Euler tiến"
+                        )
                     with header_container:
                         render_workspace_header(
                             title=active.title,
                             description=active.description,
-                            badge_text=state.order.display_label,
+                            badge_text=badge_lbl,
                             math_icon=active.math_icon,
                             icon=active.icon or "functions",
                         )
@@ -342,21 +352,22 @@ def render_ode_workspace(
                             ):
                                 with ui.row().classes("items-center gap-1.5 no-wrap"):
                                     ui.icon("timeline", size="1rem")
-                                    ui.label("Phương pháp Euler tiến (Explicit Euler)")
+                                    ui.label("Giải số — Phương pháp Euler tiến (Explicit Euler)")
 
-                # Numerical Approximation Branch (Explicit Euler)
+                # Numerical Approximation Branch (strictly separated by ODE module order)
                 if solver_kind == "numerical":
-                    def _sync_num_order(new_ord: ODEOrder) -> None:
-                        nonlocal state
-                        state = state.with_order(new_ord)
-                        render_content()
-
-                    render_numerical_euler_panel(
-                        initial_order=state.order,
-                        numerical_use_case=active_numerical_uc,
-                        results_container=results_container,
-                        on_order_sync=_sync_num_order,
-                    )
+                    if state.order == ODEOrder.FIRST_ORDER:
+                        render_first_order_euler_panel(
+                            numerical_use_case=active_numerical_uc,
+                            results_container=results_container,
+                            on_switch_order=handle_switch_order,
+                        )
+                    else:
+                        render_second_order_euler_panel(
+                            numerical_use_case=active_numerical_uc,
+                            results_container=results_container,
+                            on_switch_order=handle_switch_order,
+                        )
                     return
 
                 # Hidden order selector preserving programmatic compatibility while eliminating visual duplication

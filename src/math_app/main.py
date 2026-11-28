@@ -49,6 +49,7 @@ from math_app.solvers.calculus.vector_calculus.greens_theorem_solver import Gree
 from math_app.solvers.calculus.vector_calculus.stokes_theorem_solver import StokesTheoremSolver
 from math_app.solvers.linear_algebra.solver import MatrixSolver
 from math_app.solvers.numerical.analytical_comparison import AnalyticalComparisonService
+from math_app.solvers.numerical.error_analysis import ExplicitEulerErrorAnalyzer
 from math_app.solvers.numerical.explicit_euler_solver import ExplicitEulerSolver
 from math_app.verification.numerical.euler_verifier import ExplicitEulerVerifier
 
@@ -188,6 +189,7 @@ def build_numerical_ode_use_case(
         solvers=[ExplicitEulerSolver()],
         verifier=ExplicitEulerVerifier(),
         analytical_provider=comparison_provider,
+        error_analyzer=ExplicitEulerErrorAnalyzer(),
     )
 
 

@@ -1,4 +1,4 @@
-"""Application ports for numerical ODE solvers, verifiers, and analytical comparisons."""
+"""Application ports for numerical ODE solvers, verifiers, error analyzers, and comparisons."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from typing import Protocol, runtime_checkable
 
 from math_app.domain.numerical_ode import (
     AnalyticalComparisonResult,
+    NumericalErrorAnalysis,
     NumericalODEMethod,
     NumericalODERequest,
     NumericalODEResponse,
@@ -33,7 +34,7 @@ class NumericalODEVerifier(Protocol):
         request: NumericalODERequest,
         response: NumericalODEResponse,
     ) -> NumericalVerificationReport:
-        """Independently verify grid, step sizes, recurrence, and output invariants."""
+        """Independently verify grid, step sizes, recurrence, error analysis, and invariants."""
         ...
 
 
@@ -47,4 +48,17 @@ class AnalyticalComparisonProvider(Protocol):
         response: NumericalODEResponse,
     ) -> AnalyticalComparisonResult:
         """Attempt exact analytical IVP comparison without altering analytical solvers."""
+        ...
+
+
+@runtime_checkable
+class NumericalErrorAnalyzer(Protocol):
+    """Protocol providing local one-step defect, global error, and step-halving analysis."""
+
+    def analyze(
+        self,
+        request: NumericalODERequest,
+        response: NumericalODEResponse,
+    ) -> NumericalErrorAnalysis:
+        """Compute rigorous local/global error metrics and optional step-halving estimates."""
         ...

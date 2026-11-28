@@ -1,4 +1,4 @@
-"""Application use case orchestrating numerical ODE solving, comparison, and verification."""
+"""Application use case orchestrating numerical ODE solving, comparison, error analysis, and verification."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import time
 
 from math_app.application.ports.numerical_ode import (
     AnalyticalComparisonProvider,
+    NumericalErrorAnalyzer,
     NumericalODESolver,
     NumericalODEVerifier,
 )
@@ -20,22 +21,24 @@ from math_app.domain.numerical_ode import (
 
 
 class SolveNumericalODEUseCase:
-    """Orchestrates numerical ODE IVP approximation via decoupled solver, comparison, and verifier ports."""
+    """Orchestrates numerical ODE IVP approximation via decoupled solver, comparison, error, and verifier ports."""
 
     def __init__(
         self,
         solvers: Sequence[NumericalODESolver],
         verifier: NumericalODEVerifier | None = None,
         analytical_provider: AnalyticalComparisonProvider | None = None,
+        error_analyzer: NumericalErrorAnalyzer | None = None,
     ) -> None:
         self._solvers: dict[NumericalODEMethod, NumericalODESolver] = {
             s.method: s for s in solvers
         }
         self._verifier = verifier
         self._analytical_provider = analytical_provider
+        self._error_analyzer = error_analyzer
 
     def execute(self, request: NumericalODERequest) -> NumericalODEResponse:
-        """Execute numerical approximation, optional analytical comparison, and independent verification."""
+        """Execute numerical approximation, optional analytical comparison, error analysis, and verification."""
         t_start = time.perf_counter()
 
         solver = self._solvers.get(request.method)
@@ -60,6 +63,14 @@ class SolveNumericalODEUseCase:
                     comparison = None
                 if comparison is not None:
                     response = replace(response, analytical_comparison=comparison)
+
+            if self._error_analyzer is not None:
+                try:
+                    analysis = self._error_analyzer.analyze(request, response)
+                except Exception:
+                    analysis = None
+                if analysis is not None:
+                    response = replace(response, error_analysis=analysis)
 
             if self._verifier is not None:
                 verification = self._verifier.verify(request, response)

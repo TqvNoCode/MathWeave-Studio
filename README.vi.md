@@ -74,6 +74,7 @@ MathWeave Studio giải quyết vấn đề này bằng cách kết hợp:
 - **Phân tích miền kỳ dị & Bài toán Cauchy tại điểm kỳ dị:** Phân rã miền xác định thành các nhánh chính quy liên thông, thừa số tích phân neo chuẩn tắc ($\mu_{t_0}(t) = e^{\int_{t_0}^t p(s)ds}$) tránh tích phân xuyên điểm cực, biện luận tương thích đại số và kiểm chứng nối trơn $C^1$ qua điểm kỳ dị.
 - **Phương pháp hạ bậc (Reduction of Order):** Dẫn xuất nghiệm cơ bản thứ hai $y_2(t) = v(t)y_1(t)$ từ nghiệm đã biết $y_1(t)$ qua phương trình vi phân cấp một $u = v'$ và công thức tích phân $u(t) = \frac{e^{-\int p(t)dt}}{y_1(t)^2}$, kèm phát hiện điểm kỳ dị và miền xác định.
 - **Định thức Wronskian ($W(y_1, y_2)$):** Kiểm tra tính độc lập tuyến tính của hệ nghiệm cơ bản và kiểm chứng đồng nhất thức Abel.
+- **Giải xấp xỉ số PTVP — Phương pháp Euler tiến (Explicit Euler):** Tính nghiệm xấp xỉ rời rạc cho bài toán giá trị ban đầu cấp 1 ($y' = f(t, y), \, y(t_0) = y_0$) và cấp 2 ($y'' = F(t, y, y'), \, y(t_0) = y_0, y'(t_0) = v_0$, bao gồm chuyển đổi an toàn cho Euler–Cauchy trên miền $t \neq 0$) với khoảng $[t_0, T]$ tùy chọn (thuận/lùi), bước nhảy $h$ tự rút ngắn bước cuối không vượt cận, bảng lặp phân trang, đồ thị Plotly, đối chiếu nghiệm giải tích tùy chọn ($E_n = |y(t_n) - y_n|$) và kiểm chứng truy hồi độc lập. *(Phân biệt rõ với phương trình vi phân giải tích Euler–Cauchy).*
 
 ### Đại số tuyến tính (Linear Algebra)
 - **Định thức (Determinants):** Công thức $2 \times 2$ và khai triển Laplace cho ma trận bậc cao.
@@ -179,6 +180,7 @@ ISCC.exe /DMyAppVersion="$version" /DMyAppPublisher="$author" /DMyOutputBaseFile
 
 - 🐧 **[Hướng dẫn cài đặt Arch Linux (INSTALL_ARCH.md)](docs/INSTALL_ARCH.md):** Hướng dẫn chi tiết cho người dùng Arch Linux, trạng thái yay/AUR, cài đặt từ mã nguồn và gỡ cài đặt an toàn.
 - 📖 **[Hướng dẫn sử dụng (USER_GUIDE.md)](docs/USER_GUIDE.md):** Tài liệu hướng dẫn thực hành 5 bước, các ví dụ đại diện, cú pháp nhập liệu và xử lý lỗi.
+- 📐 **[Tài liệu Phương pháp Euler tiến (NUMERICAL_EULER.md)](docs/NUMERICAL_EULER.md):** Tài liệu song ngữ chi tiết công thức Explicit Euler, PTVP cấp 1 & 2, độ ổn định, sai số $O(h^2)/O(h)$ và phân biệt Euler tiến với Euler–Cauchy.
 
 ---
 

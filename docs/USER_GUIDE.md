@@ -169,6 +169,24 @@ MathWeave Studio hỗ trợ phương trình vi phân cấp 1: tuyến tính (h�
     $$\begin{cases} C_1 + C_2 = 0 \\ \frac{-1+\sqrt{33}}{4}C_1 + \frac{-1-\sqrt{33}}{4}C_2 = 1 \end{cases} \implies C_1 = \frac{2\sqrt{33}}{33}, \; C_2 = -\frac{2\sqrt{33}}{33}$$
   - Toàn bộ căn thức $\sqrt{33}$ được bảo toàn nguyên vẹn xuyên suốt các bước giải và hiển thị dưới dạng MathML chuẩn.
 
+### Ví dụ 6: Giải xấp xỉ số PTVP bằng Phương pháp Euler tiến (Explicit Euler)
+
+> **Lưu ý phân biệt khái niệm:** **Phương pháp Euler tiến (Explicit Euler)** là thuật toán **xấp xỉ số rời rạc** cho bài toán giá trị ban đầu (IVP), khác hoàn toàn với **phương trình vi phân Euler–Cauchy** ($at^2 y'' + bty' + cy = g(t)$).
+
+1. Trong không gian **Phương trình vi phân (ODE)** (cấp 1 hoặc cấp 2), chọn chế độ **Phương pháp Euler tiến (Explicit Euler)** tại thanh `CHẾ ĐỘ GIẢI:`.
+2. **PTVP cấp 1 ($y' = f(t, y)$, $y(t_0) = y_0$):**
+   - Nhập phương trình `y' = y`, $t_0 = 0$, $y_0 = 1$, điểm kết thúc $T = 1$, bước nhảy $h = 0.1$.
+   - Công thức truy hồi: $t_{n+1} = t_n + h_n$, $y_{n+1} = y_n + h_n f(t_n, y_n)$ với $h_n = \min(h, |T - t_n|)$ (bước cuối tự rút ngắn nếu $|T - t_0|$ không chia hết cho $h$).
+   - Kết quả: $y_{10} = 1.1^{10} \approx 2.5937424601$, kèm bảng lặp, đồ thị Plotly và so sánh với nghiệm giải tích $y(t) = e^t$.
+3. **PTVP cấp 2 ($y'' = F(t, y, y')$, $y(t_0) = y_0, y'(t_0) = v_0$):**
+   - Nhập `y'' = -y`, $t_0 = 0$, vị trí $y_0 = 0$, đạo hàm $v_0 = 1$, $T = 3.14$, $h = 0.1$.
+   - Hệ thống chuyển về hệ cấp 1 ($z_1 = y, z_2 = y'$) và cập nhật **đồng thời** từ cặp giá trị cũ $(y_n, v_n)$:
+     $$y_{n+1} = y_n + h_n v_n, \qquad v_{n+1} = v_n + h_n F(t_n, y_n, v_n)$$
+   - Hỗ trợ chuyển đổi phương trình Euler–Cauchy $At^2 y'' + Bty' + Cy = g(t)$ sang $y'' = \frac{g(t) - Bty' - Cy}{At^2}$ trên các khoảng chính quy không chạm hoặc đi qua $t = 0$.
+4. **Độ chính xác, ổn định & giới hạn:**
+   - Explicit Euler là phương pháp bậc 1: sai số chặt cục bộ $O(h^2)$ và sai số toàn cục $O(h)$ dưới các giả thiết đủ trơn và ổn định; không ổn định với mọi bước nhảy $h$.
+   - Số bước tối đa mặc định là **10,000 bước**; bảng lặp hiển thị làm tròn 6 chữ số thập phân để dễ đọc trong khi tính toán nội bộ giữ nguyên IEEE 754 `float64`. Xem chi tiết tại [Tài liệu Phương pháp Euler tiến (NUMERICAL_EULER.md)](NUMERICAL_EULER.md).
+
 ---
 
 ## 3. Đọc hiểu kết quả và kiểm chứng độc lập

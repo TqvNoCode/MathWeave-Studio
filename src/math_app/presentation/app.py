@@ -185,6 +185,7 @@ def create_app(use_case: SolveProblemUseCase) -> None:
         eq: str | None = None,
         ic: str | None = None,
         solve: str | bool | None = None,
+        mode: str | None = None,
     ) -> None:
         ui.page_title(f"{__title__} — Phần mềm Học tập & Nghiên cứu Toán học")
 
@@ -206,7 +207,12 @@ def create_app(use_case: SolveProblemUseCase) -> None:
         pending_eq: str | None = eq
         pending_ic: str | None = ic
         pending_auto_solve = False
-        if eq is not None or op is not None:
+        pending_solver_mode = (
+            "numerical"
+            if mode is not None and mode.strip().lower() in ("numerical", "euler", "explicit_euler")
+            else "analytical"
+        )
+        if eq is not None or op is not None or mode is not None:
             active_screen = "SCREEN_B"
             if op is not None:
                 try:
@@ -216,7 +222,7 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                         current_op = resolved
                 except Exception:
                     pass
-            elif eq is not None:
+            elif eq is not None or mode is not None:
                 current_op = get_operation_by_type(ProblemType.ODE_FIRST_ORDER_LINEAR) or current_op
             if solve is not None and str(solve).lower() in ("1", "true", "yes"):
                 pending_auto_solve = True
@@ -271,21 +277,23 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                         render_screen_b()
 
             def switch_to_operation(op: OperationDef) -> None:
-                nonlocal current_op, active_screen, pending_eq, pending_ic, pending_auto_solve
+                nonlocal current_op, active_screen, pending_eq, pending_ic, pending_auto_solve, pending_solver_mode
                 capture_catalog_scroll(screen_body.client)
                 pending_eq = None
                 pending_ic = None
                 pending_auto_solve = False
+                pending_solver_mode = "analytical"
                 current_op = op
                 active_screen = "SCREEN_B"
                 render_current_screen()
                 reset_workspace_scroll(screen_body.client)
 
             def switch_to_catalog() -> None:
-                nonlocal active_screen, pending_eq, pending_ic, pending_auto_solve
+                nonlocal active_screen, pending_eq, pending_ic, pending_auto_solve, pending_solver_mode
                 pending_eq = None
                 pending_ic = None
                 pending_auto_solve = False
+                pending_solver_mode = "analytical"
                 active_screen = "SCREEN_A"
                 render_current_screen()
                 restore_catalog_scroll(screen_body.client)
@@ -299,11 +307,13 @@ def create_app(use_case: SolveProblemUseCase) -> None:
 
             # ================= SCREEN B: PROBLEM SOLVING & RESULTS =================
             def render_screen_b() -> None:
-                nonlocal pending_eq, pending_ic, pending_auto_solve
+                nonlocal pending_eq, pending_ic, pending_auto_solve, pending_solver_mode
                 req_eq, req_ic, req_auto = pending_eq, pending_ic, pending_auto_solve
+                req_solver_mode = pending_solver_mode
                 pending_eq = None
                 pending_ic = None
                 pending_auto_solve = False
+                pending_solver_mode = "analytical"
 
                 is_matrix_op = current_op.is_matrix
                 nav_title_updater: list[Any] = [None]
@@ -371,6 +381,7 @@ def create_app(use_case: SolveProblemUseCase) -> None:
                             initial_ic=req_ic,
                             auto_solve=req_auto,
                             on_title_change=lambda t: nav_title_updater[0](t) if nav_title_updater[0] is not None else None,
+                            initial_solver_kind=req_solver_mode,
                         )
                     else:
                         # Unified Workspace Card for Calculus, Algebra & Linear Algebra

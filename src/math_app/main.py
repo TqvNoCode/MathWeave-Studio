@@ -14,6 +14,7 @@ from nicegui import app, ui
 from math_app import __title__
 
 from math_app.application.registry import DefaultSolverRegistry
+from math_app.application.use_cases.solve_numerical_ode import SolveNumericalODEUseCase
 from math_app.application.use_cases.solve_problem import SolveProblemUseCase
 from math_app.domain.models import ProblemType
 from math_app.presentation.app import create_app
@@ -47,6 +48,9 @@ from math_app.solvers.calculus.vector_calculus.divergence_theorem_solver import 
 from math_app.solvers.calculus.vector_calculus.greens_theorem_solver import GreensTheoremSolver
 from math_app.solvers.calculus.vector_calculus.stokes_theorem_solver import StokesTheoremSolver
 from math_app.solvers.linear_algebra.solver import MatrixSolver
+from math_app.solvers.numerical.analytical_comparison import AnalyticalComparisonService
+from math_app.solvers.numerical.explicit_euler_solver import ExplicitEulerSolver
+from math_app.verification.numerical.euler_verifier import ExplicitEulerVerifier
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8080
@@ -166,7 +170,25 @@ def build_application() -> SolveProblemUseCase:
     registry.register(ProblemType.MATRIX_RREF, matrix_solver)
     registry.register(ProblemType.MATRIX_SOLVE_SYSTEM, matrix_solver)
 
-    return SolveProblemUseCase(registry)
+    use_case = SolveProblemUseCase(registry)
+    use_case._numerical_ode_use_case = build_numerical_ode_use_case(use_case)  # type: ignore[attr-defined]
+    return use_case
+
+
+def build_numerical_ode_use_case(
+    analytical_use_case: SolveProblemUseCase | None = None,
+) -> SolveNumericalODEUseCase:
+    """Wire together the decoupled numerical Explicit Euler solver, verifier, and comparison."""
+    comparison_provider = (
+        AnalyticalComparisonService(analytical_use_case)
+        if analytical_use_case is not None
+        else None
+    )
+    return SolveNumericalODEUseCase(
+        solvers=[ExplicitEulerSolver()],
+        verifier=ExplicitEulerVerifier(),
+        analytical_provider=comparison_provider,
+    )
 
 
 def get_available_port(host: str = DEFAULT_HOST, default_port: int = DEFAULT_PORT) -> int:

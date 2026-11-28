@@ -55,6 +55,9 @@ from math_app.presentation.components.workspace.ode.ode_state import (
     split_first_order_equation_clauses,
     split_second_order_equation_clauses,
 )
+from math_app.presentation.components.workspace.ode.numerical_euler_panel import (
+    render_numerical_euler_panel,
+)
 from math_app.presentation.components.workspace.ode.second_order_classifier import (
     classify_second_order_ode,
 )
@@ -227,6 +230,8 @@ def render_ode_workspace(
     initial_ic: str | None = None,
     auto_solve: bool = False,
     on_title_change: Callable[[str], None] | None = None,
+    initial_solver_kind: str = "analytical",
+    numerical_use_case: Any = None,
 ) -> None:
     """Render unified Academic Blue workspace for all Differential Equations operations."""
     # Initialize state from incoming OperationDef
@@ -238,6 +243,8 @@ def render_ode_workspace(
     is_submitting = False
     is_manual_override = False
     is_override_panel_open = False
+    solver_kind = "numerical" if initial_solver_kind == "numerical" and not state.classification.is_advanced_tool else "analytical"
+    active_numerical_uc = numerical_use_case or getattr(use_case, "_numerical_ode_use_case", None)
 
     def _so_input_meta(st: ODEState) -> tuple[str, str]:
         if st.classification == ODEClassification.WRONSKIAN:
@@ -261,7 +268,7 @@ def render_ode_workspace(
         solve_btn_ref: list[Any] = [None]
 
         def render_content() -> None:
-            nonlocal state, is_manual_override, is_override_panel_open
+            nonlocal state, is_manual_override, is_override_panel_open, solver_kind
             interactive_container.clear()
             ic_input_ref: list[Any] = [None]
 
@@ -285,6 +292,72 @@ def render_ode_workspace(
                     return active
 
                 active_op = render_header()
+
+                # Solving Paradigm Switcher (Analytical Exact vs Explicit Euler Numerical)
+                if not state.classification.is_advanced_tool:
+                    def _switch_solver_kind(target_kind: str) -> None:
+                        nonlocal solver_kind
+                        if solver_kind == target_kind:
+                            return
+                        solver_kind = target_kind
+                        results_container.clear()
+                        render_content()
+
+                    is_num_mode = solver_kind == "numerical"
+                    ana_cls = (
+                        "!bg-blue-600 hover:!bg-blue-700 !text-white font-bold shadow-xs border border-blue-600"
+                        if not is_num_mode
+                        else "!bg-white !text-slate-700 hover:!bg-blue-50 hover:!text-blue-700 border border-slate-300"
+                    )
+                    num_cls = (
+                        "!bg-blue-600 hover:!bg-blue-700 !text-white font-bold shadow-xs border border-blue-600"
+                        if is_num_mode
+                        else "!bg-white !text-slate-700 hover:!bg-blue-50 hover:!text-blue-700 border border-slate-300"
+                    )
+                    with ui.row().classes(
+                        "w-full items-center justify-between p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex-wrap gap-2 min-w-0"
+                    ):
+                        with ui.row().classes("items-center gap-2"):
+                            ui.icon("alt_route", size="1.1rem").classes("text-blue-600")
+                            ui.label("CHẾ ĐỘ GIẢI:").classes(
+                                "text-xs font-bold text-slate-700 uppercase tracking-wider"
+                            )
+                        with ui.row().classes("items-center gap-2 flex-wrap"):
+                            with (
+                                ui.button(on_click=lambda: _switch_solver_kind("analytical"), color=None)
+                                .props('unelevated no-caps aria-label="Chế độ giải tích tìm nghiệm chính xác"')
+                                .classes(
+                                    f"text-xs md:text-sm min-h-[38px] px-3.5 rounded-lg {ana_cls} transition-all {INTERACTION.FOCUS_RING}"
+                                )
+                            ):
+                                with ui.row().classes("items-center gap-1.5 no-wrap"):
+                                    ui.icon("functions", size="1rem")
+                                    ui.label("Giải tích (Nghiệm chính xác)")
+                            with (
+                                ui.button(on_click=lambda: _switch_solver_kind("numerical"), color=None)
+                                .props('unelevated no-caps aria-label="Chế độ giải số theo phương pháp Euler tiến (Explicit Euler)"')
+                                .classes(
+                                    f"text-xs md:text-sm min-h-[38px] px-3.5 rounded-lg {num_cls} transition-all {INTERACTION.FOCUS_RING}"
+                                )
+                            ):
+                                with ui.row().classes("items-center gap-1.5 no-wrap"):
+                                    ui.icon("timeline", size="1rem")
+                                    ui.label("Phương pháp Euler tiến (Explicit Euler)")
+
+                # Numerical Approximation Branch (Explicit Euler)
+                if solver_kind == "numerical":
+                    def _sync_num_order(new_ord: ODEOrder) -> None:
+                        nonlocal state
+                        state = state.with_order(new_ord)
+                        render_content()
+
+                    render_numerical_euler_panel(
+                        initial_order=state.order,
+                        numerical_use_case=active_numerical_uc,
+                        results_container=results_container,
+                        on_order_sync=_sync_num_order,
+                    )
+                    return
 
                 # Hidden order selector preserving programmatic compatibility while eliminating visual duplication
                 with ui.column().classes("hidden"):

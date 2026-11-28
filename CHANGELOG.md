@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-28
+
+### Added
+- **Nonhomogeneous Second-Order Euler–Cauchy ODE Solver (Variation of Parameters)**:
+  - Extended `ODEEulerCauchySolver` to solve $A t^2 y'' + B t y' + C y = g(t)$ ($A \neq 0, g(t) \not\equiv 0$) on connected regular intervals not crossing $t = 0$ ($t > 0$, $t < 0$, and multi-branch $\mathbb{R}\setminus\{0\}$).
+  - Supported distinct real, repeated real, and complex-conjugate indicial roots, resonance cases, Cauchy IVPs at $t_0 \neq 0$, and exact `sp.Integral` preservation for non-elementary integrals (via fast Risch `NonElementaryIntegral` detection and positive-domain $\tau = |t|$ substitution).
+- **Independent Verification for Nonhomogeneous Euler–Cauchy & Anchored Integrals**:
+  - Updated `ODEVerifier.verify_second_order` with zero-width definite integral collapsing ($\int_{t_0}^{t_0} f(s)\,ds = 0$) and nonhomogeneous forcing-term residual checking.
+- **Equation-First Second-Order ODE Workspace & 4-Stage Pedagogical Flow**:
+  - Updated `second_order_classifier.py`, `ode_workspace.py`, `ode_method_selector.py`, `ode_classification_selector.py`, `operation_catalog.py`, `solution_view.py`, and `ode_pedagogical_enhancer.py` to auto-classify nonhomogeneous Euler–Cauchy ODEs, display associated homogeneous equations & forcing terms $g(t)$, show Variation of Parameters method guidance, break down $y_c$ and $y_p$ in the classification card, render a 4-stage pedagogical solution flow, and add curated nonhomogeneous examples.
+- **Automated Test Coverage**:
+  - Added solver and UI integration test suites (`test_euler_cauchy_nonhomogeneous_solver.py`, `test_euler_cauchy_nonhomogeneous_ui.py`).
+
 ## [0.3.0] - 2026-11-27
 
 ### Added

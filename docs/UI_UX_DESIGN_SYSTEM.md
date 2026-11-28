@@ -1,7 +1,7 @@
 # MathWeave Studio — UI/UX Design System
 
 **Design System Version:** 1.1 (UI/UX Unification + Post-Review Polish)  
-**Application Version:** MathWeave Studio `v0.3.0` (`pyproject.toml` & `math_app.__version__`)  
+**Application Version:** MathWeave Studio `v0.3.1` (`pyproject.toml` & `math_app.__version__`)
 **Architecture Layer:** `src/math_app/presentation/`  
 **Design Tokens Source:** [`src/math_app/presentation/design_system/tokens.py`](../src/math_app/presentation/design_system/tokens.py)  
 **Global Stylesheet & KaTeX Renderer:** [`src/math_app/presentation/design_system/styles.py`](../src/math_app/presentation/design_system/styles.py)

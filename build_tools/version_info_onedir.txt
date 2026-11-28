@@ -2,8 +2,8 @@
 # Windows Version Info resource definition for PyInstaller
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(0, 3, 0, 0),
-    prodvers=(0, 3, 0, 0),
+    filevers=(0, 3, 1, 0),
+    prodvers=(0, 3, 1, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -19,12 +19,12 @@ VSVersionInfo(
           [
             StringStruct('CompanyName', 'TqvNoCode'),
             StringStruct('FileDescription', 'MathWeave Studio - Mathematics Learning & Research Application'),
-            StringStruct('FileVersion', '0.3.0.0'),
+            StringStruct('FileVersion', '0.3.1.0'),
             StringStruct('InternalName', 'mathweave-studio'),
             StringStruct('LegalCopyright', 'Copyright (C) 2026 TqvNoCode. All rights reserved.'),
             StringStruct('OriginalFilename', 'mathweave-studio.exe'),
             StringStruct('ProductName', 'MathWeave Studio'),
-            StringStruct('ProductVersion', '0.3.0.0')
+            StringStruct('ProductVersion', '0.3.1.0')
           ]
         )
       ]

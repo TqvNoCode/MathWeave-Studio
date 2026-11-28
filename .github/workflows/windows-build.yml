@@ -321,7 +321,7 @@ jobs:
           }
 
       - name: Upload Portable Windows (Onefile EXE) Artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (node24)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v6.0.0 (node24)
         with:
           name: MathWeave-Studio-Windows-Portable
           path: dist/${{ steps.signing_config.outputs.portable_filename }}
@@ -329,7 +329,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload Installer Windows (Setup EXE) Artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (node24)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v6.0.0 (node24)
         with:
           name: MathWeave-Studio-Windows-Installer
           path: dist/${{ steps.signing_config.outputs.installer_filename }}

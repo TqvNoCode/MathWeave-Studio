@@ -238,6 +238,9 @@ DEFAULT_CONFIGS: dict[ODEClassification, dict[str, Any]] = {
             ("Nghiệm phức liên hợp: t^2*y'' + t*y' + y = 0, t > 0", "t^2*y'' + t*y' + y = 0, t > 0"),
             ("Miền âm: t^2*y'' + 4*t*y' + 2*y = 0, t < 0", "t^2*y'' + 4*t*y' + 2*y = 0, t < 0"),
             ("Bài toán Cauchy (IVP)", "t^2*y'' + 4*t*y' + 2*y = 0, y(1) = 3, y'(1) = 0"),
+            ("Không thuần nhất: t^2*y'' - t*y' + y = t^2, t > 0", "t^2*y'' - t*y' + y = t^2, t > 0"),
+            ("Cộng hưởng: t^2*y'' - t*y' + y = t, t > 0", "t^2*y'' - t*y' + y = t, t > 0"),
+            ("Cauchy không thuần nhất (IVP)", "t^2*y'' - t*y' + y = t^2, t > 0, y(1) = 0, y'(1) = 0"),
         ),
     },
     ODEClassification.REDUCTION_OF_ORDER: {

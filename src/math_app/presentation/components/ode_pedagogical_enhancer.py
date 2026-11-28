@@ -2423,6 +2423,18 @@ def _extract_euler_cauchy_context(response: SolutionResponse, clean_var: str) ->
         "residual_before": "",
         "residual_after": "",
         "ic_verif": "",
+        "is_nonhomogeneous": False,
+        "g_latex": "",
+        "yc": "",
+        "vop_norm_eq": "",
+        "vop_norm_desc": "",
+        "vop_u_primes": "",
+        "vop_u_primes_desc": "",
+        "vop_u_funcs": "",
+        "vop_u_funcs_desc": "",
+        "vop_yp": "",
+        "vop_yp_desc": "",
+        "vop_has_integral": False,
     }
 
     for orig in response.steps:
@@ -2433,13 +2445,18 @@ def _extract_euler_cauchy_context(response: SolutionResponse, clean_var: str) ->
 
         if rn == "Nhận dạng dạng phương trình Euler–Cauchy":
             m_abc = re.search(
-                r"A\s*=\s*[^=]*?=\s*([^,\\]+?),\s*\\quad\s*B\s*=\s*[^=]*?=\s*([^,\\]+?),\s*\\quad\s*C\s*=\s*c\([^)]+\)\s*=\s*([^\n$]+)",
+                r"A\s*=\s*[^=]*?=\s*(.+?),\s*\\quad\s*B\s*=\s*[^=]*?=\s*(.+?),\s*\\quad\s*C\s*=\s*c\([^)]+\)\s*=\s*(.+?)(?:,\s*\\quad\s*g\([^)]+\)\s*=\s*([^\n$]+))?(?:\$\$|\n|$)",
                 desc,
             )
             if m_abc:
                 ctx["A"] = polish_euler_cauchy_latex(m_abc.group(1).strip(), clean_var)
                 ctx["B"] = polish_euler_cauchy_latex(m_abc.group(2).strip(), clean_var)
                 ctx["C"] = polish_euler_cauchy_latex(m_abc.group(3).strip(), clean_var)
+                if m_abc.group(4):
+                    ctx["g_latex"] = polish_euler_cauchy_latex(m_abc.group(4).strip(), clean_var)
+                    ctx["is_nonhomogeneous"] = True
+            if "không thuần nhất" in desc.lower():
+                ctx["is_nonhomogeneous"] = True
             ctx["eq_normalized"] = polish_euler_cauchy_latex(after, clean_var)
 
         elif rn == "Nghiệm thử hàm lũy thừa":
@@ -2474,6 +2491,30 @@ def _extract_euler_cauchy_context(response: SolutionResponse, clean_var: str) ->
             w_ltx = re.sub(r"\s*\\ne\s*0\s*$", "", w_ltx).strip()
             w_ltx = re.sub(r"^W\([^)]*\)\s*=\s*", "", w_ltx).strip()
             ctx["wronskian"] = w_ltx
+
+        elif rn == "Nghiệm thuần nhất liên kết":
+            ctx["is_nonhomogeneous"] = True
+            ctx["yc"] = polish_euler_cauchy_latex(orig.equation_latex or after, clean_var)
+
+        elif rn == "Chuẩn hóa và phương pháp Biến thiên hằng số":
+            ctx["is_nonhomogeneous"] = True
+            ctx["vop_norm_eq"] = polish_euler_cauchy_latex(orig.equation_latex or after, clean_var)
+            ctx["vop_norm_desc"] = polish_euler_cauchy_latex(desc, clean_var)
+
+        elif rn == "Đạo hàm hàm biến thiên":
+            ctx["vop_u_primes"] = polish_euler_cauchy_latex(orig.equation_latex or after, clean_var)
+            ctx["vop_u_primes_desc"] = polish_euler_cauchy_latex(desc, clean_var)
+
+        elif rn == "Tích phân hàm biến thiên":
+            ctx["vop_u_funcs"] = polish_euler_cauchy_latex(orig.equation_latex or after, clean_var)
+            ctx["vop_u_funcs_desc"] = polish_euler_cauchy_latex(desc, clean_var)
+            ctx["vop_has_integral"] = (
+                "\\int" in after or "không có nguyên hàm sơ cấp" in desc.lower()
+            )
+
+        elif rn == "Nghiệm riêng biến thiên hằng số":
+            ctx["vop_yp"] = polish_euler_cauchy_latex(orig.equation_latex or after, clean_var)
+            ctx["vop_yp_desc"] = polish_euler_cauchy_latex(desc, clean_var)
 
         elif rn == "Nghiệm tổng quát":
             ctx["gen_sol"] = polish_euler_cauchy_latex(after, clean_var)
@@ -2537,32 +2578,49 @@ def _build_euler_cauchy_flow(
 
     A_val, B_val, C_val = ctx["A"], ctx["B"], ctx["C"]
     has_coeffs = bool(A_val and B_val and C_val)
+    is_nonhomo = bool(ctx["is_nonhomogeneous"])
+    g_tex = ctx["g_latex"] or f"g({v})"
 
     # ---------------- STAGE 1: Indicial Equation Setup ----------------
     stage1_steps: list[ODEPedagogicalStep] = []
 
     if has_coeffs:
-        eq_norm = (
+        eq_lhs = (
             f"{_format_signed_coeff_term(A_val, f'{v}^2\\,y\'\'', leading=True)}"
             f"{_format_signed_coeff_term(B_val, f'{v}\\,y\'')}"
-            f"{_format_signed_coeff_term(C_val, 'y')} = 0"
+            f"{_format_signed_coeff_term(C_val, 'y')}"
         )
-        s1_desc = (
-            f"Đây là phương trình Euler–Cauchy vì các hệ số của $y''$, $y'$ và $y$ lần lượt có dạng $A{v}^2$, $B{v}$ và $C$.\n"
-            f"Chuẩn hóa theo dạng $A{v}^2 y'' + B{v} y' + C y = 0$ với "
-            f"$A = \\frac{{a({v})}}{{{v}^2}}$, $B = \\frac{{b({v})}}{{{v}}}$, $C = c({v})$:"
-        )
-        s1_eq = f"{eq_norm} \\implies A = {A_val},\\quad B = {B_val},\\quad C = {C_val}"
-        s1_ir = f"A = {A_val},\\quad B = {B_val},\\quad C = {C_val}"
+        if is_nonhomo:
+            eq_norm = f"{eq_lhs} = {g_tex}"
+            s1_desc = (
+                f"Đây là phương trình Euler–Cauchy không thuần nhất vì hệ số của $y''$, $y'$, $y$ có dạng $A{v}^2$, $B{v}$, $C$ "
+                f"với $A = {A_val}$, $B = {B_val}$, $C = {C_val}$ và vế phải $g({v}) = {g_tex}$.\n"
+                f"Trước tiên xét phương trình thuần nhất liên kết ${eq_lhs} = 0$:"
+            )
+            s1_eq = f"{eq_norm} \\implies A = {A_val},\\quad B = {B_val},\\quad C = {C_val},\\quad g({v}) = {g_tex}"
+            s1_ir = f"A = {A_val},\\quad B = {B_val},\\quad C = {C_val},\\quad g({v}) = {g_tex}"
+        else:
+            eq_norm = f"{eq_lhs} = 0"
+            s1_desc = (
+                f"Đây là phương trình Euler–Cauchy vì các hệ số của $y''$, $y'$ và $y$ lần lượt có dạng $A{v}^2$, $B{v}$ và $C$.\n"
+                f"Chuẩn hóa theo dạng $A{v}^2 y'' + B{v} y' + C y = 0$ với "
+                f"$A = \\frac{{a({v})}}{{{v}^2}}$, $B = \\frac{{b({v})}}{{{v}}}$, $C = c({v})$:"
+            )
+            s1_eq = f"{eq_norm} \\implies A = {A_val},\\quad B = {B_val},\\quad C = {C_val}"
+            s1_ir = f"A = {A_val},\\quad B = {B_val},\\quad C = {C_val}"
     else:
         orig_s1 = next((s for s in response.steps if s.rule_name == "Nhận dạng dạng phương trình Euler–Cauchy"), None)
-        s1_desc = f"Đây là phương trình Euler–Cauchy vì các hệ số của $y''$, $y'$ và $y$ lần lượt có dạng $A{v}^2$, $B{v}$ và $C$."
+        if is_nonhomo:
+            s1_desc = f"Đây là phương trình Euler–Cauchy không thuần nhất $A{v}^2 y'' + B{v} y' + C y = g({v})$."
+        else:
+            s1_desc = f"Đây là phương trình Euler–Cauchy vì các hệ số của $y''$, $y'$ và $y$ lần lượt có dạng $A{v}^2$, $B{v}$ và $C$."
         s1_eq = polish_euler_cauchy_latex(
             orig_s1.content.latex_after if orig_s1 and orig_s1.content else f"A{v}^2 y'' + B{v} y' + C y = 0",
             clean_var,
         )
         s1_ir = s1_eq
 
+    s1_raw_tpl = f"a({v})y'' + b({v})y' + c({v})y = g({v})" if is_nonhomo else f"a({v})y'' + b({v})y' + c({v})y = 0"
     stage1_steps.append(
         ODEPedagogicalStep(
             step_number=1,
@@ -2571,14 +2629,22 @@ def _build_euler_cauchy_flow(
             rule_name_vi="Nhận dạng dạng Euler–Cauchy",
             description=s1_desc,
             content=ExpressionStepContent(
-                expression_before=f"a({v})y'' + b({v})y' + c({v})y = 0",
+                expression_before=s1_raw_tpl,
                 expression_after=s1_eq,
-                latex_before=f"a({v})y'' + b({v})y' + c({v})y = 0",
+                latex_before=s1_raw_tpl,
                 latex_after=s1_eq,
             ),
             equation_latex=s1_eq,
-            purpose=f"Xác định cấu trúc biến hệ số theo lũy thừa của ${v}$ và trích xuất các hằng số chuẩn hóa $A, B, C$.",
-            math_basis=f"Phương trình Euler–Cauchy thuần nhất cấp 2 có dạng $A{v}^2 y'' + B{v} y' + C y = 0$ (với $A \\ne 0$).",
+            purpose=(
+                f"Xác định cấu trúc Euler–Cauchy, tách các hằng số $A, B, C$ và hàm vế phải $g({v})$."
+                if is_nonhomo
+                else f"Xác định cấu trúc biến hệ số theo lũy thừa của ${v}$ và trích xuất các hằng số chuẩn hóa $A, B, C$."
+            ),
+            math_basis=(
+                f"Phương trình Euler–Cauchy không thuần nhất cấp 2 có dạng $A{v}^2 y'' + B{v} y' + C y = g({v})$ (với $A \\ne 0$)."
+                if is_nonhomo
+                else f"Phương trình Euler–Cauchy thuần nhất cấp 2 có dạng $A{v}^2 y'' + B{v} y' + C y = 0$ (với $A \\ne 0$)."
+            ),
             execution=s1_desc,
             intermediate_result=s1_ir,
             stage_index=1,
@@ -2791,28 +2857,139 @@ def _build_euler_cauchy_flow(
         )
     )
 
+    if is_nonhomo and ctx["yc"]:
+        yc_eq = ctx["yc"]
+        yc_desc = "Tổ hợp tuyến tính hai nghiệm cơ bản cho nghiệm của phương trình thuần nhất liên kết trên khoảng xác định:"
+        stage2_steps.append(
+            ODEPedagogicalStep(
+                step_number=6,
+                rule_name="Nghiệm thuần nhất liên kết",
+                title=f"Xác định nghiệm thuần nhất liên kết y_c({v})",
+                rule_name_vi="Nghiệm thuần nhất liên kết",
+                description=yc_desc,
+                content=ExpressionStepContent(
+                    expression_before=f"y_c({v}) = C_1 y_1({v}) + C_2 y_2({v})",
+                    expression_after=yc_eq,
+                    latex_before=f"y_c({v}) = C_1 y_1({v}) + C_2 y_2({v})",
+                    latex_after=yc_eq,
+                ),
+                equation_latex=yc_eq,
+                purpose=f"Xác định phần nghiệm thuần nhất $y_c({v})$ trước khi tìm nghiệm riêng $y_p({v})$.",
+                math_basis=f"Nghiệm tổng quát của phương trình thuần nhất liên kết có dạng $y_c({v}) = C_1 y_1({v}) + C_2 y_2({v})$.",
+                execution=yc_desc,
+                intermediate_result=yc_eq,
+                stage_index=2,
+                stage_name="Hệ nghiệm cơ bản",
+            )
+        )
+
     # ---------------- STAGE 3: General Solution or Cauchy IVP ----------------
     stage3_steps: list[ODEPedagogicalStep] = []
     gen_sol_eq = ctx["gen_sol"] or y_latex
 
+    if is_nonhomo:
+        vop_specs = (
+            (
+                "Chuẩn hóa và phương pháp Biến thiên hằng số",
+                "Chuẩn hóa phương trình và thiết lập Biến thiên hằng số",
+                "Chuẩn hóa & Biến thiên hằng số",
+                ctx["vop_norm_eq"],
+                ctx["vop_norm_desc"] or f"Chia hai vế cho hệ số dẫn $A{v}^2$ ($A \\ne 0, {v} \\ne 0$) để thu dạng chuẩn $y'' + P({v})y' + Q({v})y = R({v})$.",
+                "Đưa phương trình về hệ số dẫn 1 để áp dụng đúng công thức Lagrange (Wronskian).",
+                f"Hệ biến thiên hằng số đòi hỏi phương trình ở dạng chuẩn tắc $y'' + P({v})y' + Q({v})y = R({v})$.",
+            ),
+            (
+                "Đạo hàm hàm biến thiên",
+                "Giải hệ Lagrange tìm đạo hàm u₁' và u₂'",
+                "Đạo hàm Lagrange",
+                ctx["vop_u_primes"],
+                ctx["vop_u_primes_desc"] or f"Từ $u_1'y_1 + u_2'y_2 = 0$ và $u_1'y_1' + u_2'y_2' = R({v})$, suy ra $u_1' = -y_2 R / W$ và $u_2' = y_1 R / W$.",
+                "Giải hệ tuyến tính cho đạo hàm hai hàm hệ số biến thiên $u_1', u_2'$.",
+                "Áp dụng quy tắc Cramer trên ma trận Wronskian khả nghịch ($W \\ne 0$).",
+            ),
+            (
+                "Tích phân hàm biến thiên",
+                "Tính tích phân các hàm biến thiên u₁ và u₂",
+                "Tích phân hàm biến thiên",
+                ctx["vop_u_funcs"],
+                ctx["vop_u_funcs_desc"] or "Lấy nguyên hàm theo biến độc lập (hằng số tích phân tùy ý được gộp vào $y_c$).",
+                "Thu nhận biểu thức $u_1, u_2$ (hoặc bảo toàn tích phân ký hiệu chính xác nếu không sơ cấp).",
+                "Không thêm hằng số tích phân mới vì mọi thành phần thuần nhất đã nằm trong $y_c$.",
+            ),
+            (
+                "Nghiệm riêng biến thiên hằng số",
+                f"Xác định nghiệm riêng y_p({v})",
+                "Nghiệm riêng y_p",
+                ctx["vop_yp"],
+                ctx["vop_yp_desc"] or f"Thay $u_1, u_2$ vào công thức $y_p({v}) = u_1({v})y_1({v}) + u_2({v})y_2({v})$.",
+                f"Tổng hợp nghiệm riêng $y_p({v})$ cho vế phải $g({v})$.",
+                f"Nghiệm riêng biến thiên hằng số được xây dựng bởi $y_p({v}) = u_1({v})y_1({v}) + u_2({v})y_2({v})$.",
+            ),
+        )
+        for idx_offset, (v_rn, v_title, v_vi, v_eq, v_desc, v_purp, v_basis) in enumerate(vop_specs):
+            if not v_eq:
+                continue
+            stage3_steps.append(
+                ODEPedagogicalStep(
+                    step_number=len(stage2_steps) + idx_offset + 1,
+                    rule_name=v_rn,
+                    title=v_title,
+                    rule_name_vi=v_vi,
+                    description=v_desc,
+                    content=ExpressionStepContent(
+                        expression_before="",
+                        expression_after=v_eq,
+                        latex_before="",
+                        latex_after=v_eq,
+                    ),
+                    equation_latex=v_eq,
+                    purpose=v_purp,
+                    math_basis=v_basis,
+                    execution=v_desc,
+                    intermediate_result=v_eq,
+                    stage_index=3,
+                    stage_name="Nghiệm riêng & Tổng hợp",
+                )
+            )
+
     if not has_ivp:
         # Strict General Solution Mode: ZERO mention of Cauchy or initial conditions
         if ctx["is_natural_split"]:
-            g_desc = (
-                f"Do điểm kỳ dị ${v} = 0$ chia $\\mathbb{{R}} \\setminus \\{{0\\}}$ thành hai khoảng liên thông rời nhau, "
-                f"tổng hợp tổ hợp tuyến tính với các cặp hằng số tùy ý độc lập $C_1, C_2 \\in \\mathbb{{R}}$ (${v} > 0$) "
-                f"và $C_3, C_4 \\in \\mathbb{{R}}$ (${v} < 0$):"
-            )
+            if is_nonhomo:
+                g_desc = (
+                    f"Do điểm kỳ dị ${v} = 0$ chia $\\mathbb{{R}} \\setminus \\{{0\\}}$ thành hai khoảng liên thông rời nhau, "
+                    f"tổng hợp $y = y_c + y_p$ riêng biệt trên từng nhánh với $C_1, C_2 \\in \\mathbb{{R}}$ (${v} > 0$) "
+                    f"và $C_3, C_4 \\in \\mathbb{{R}}$ (${v} < 0$):"
+                )
+            else:
+                g_desc = (
+                    f"Do điểm kỳ dị ${v} = 0$ chia $\\mathbb{{R}} \\setminus \\{{0\\}}$ thành hai khoảng liên thông rời nhau, "
+                    f"tổng hợp tổ hợp tuyến tính với các cặp hằng số tùy ý độc lập $C_1, C_2 \\in \\mathbb{{R}}$ (${v} > 0$) "
+                    f"và $C_3, C_4 \\in \\mathbb{{R}}$ (${v} < 0$):"
+                )
             g_eq = gen_sol_eq
         else:
             iv_label = ctx["interval_desc"] or (f"{v} < 0" if ctx["is_neg"] else f"{v} > 0")
-            g_desc = (
-                f"Nghiệm tổng quát trên khoảng xác định ${iv_label}$ là mọi tổ hợp tuyến tính của "
-                f"$y_1({v})$ và $y_2({v})$ với hai hằng số thực tùy ý $C_1, C_2 \\in \\mathbb{{R}}$:"
-            )
             gen_rhs = re.sub(rf"^y\s*\({re.escape(v)}\)\s*=\s*", "", gen_sol_eq).strip()
-            g_eq = f"y({v}) = C_1 y_1({v}) + C_2 y_2({v}) = {gen_rhs}"
+            if is_nonhomo:
+                g_desc = (
+                    f"Theo nguyên lý chồng chất trên khoảng xác định ${iv_label}$, nghiệm tổng quát có dạng "
+                    f"$y({v}) = y_c({v}) + y_p({v})$ với hai hằng số thực tùy ý $C_1, C_2 \\in \\mathbb{{R}}$:"
+                )
+                g_eq = f"y({v}) = y_c({v}) + y_p({v}) = {gen_rhs}"
+            else:
+                g_desc = (
+                    f"Nghiệm tổng quát trên khoảng xác định ${iv_label}$ là mọi tổ hợp tuyến tính của "
+                    f"$y_1({v})$ và $y_2({v})$ với hai hằng số thực tùy ý $C_1, C_2 \\in \\mathbb{{R}}$:"
+                )
+                g_eq = f"y({v}) = C_1 y_1({v}) + C_2 y_2({v}) = {gen_rhs}"
 
+        g_before = f"y({v}) = y_c({v}) + y_p({v})" if is_nonhomo else f"y({v}) = C_1 y_1({v}) + C_2 y_2({v})"
+        g_basis = (
+            f"Theo nguyên lý chồng chất cho phương trình tuyến tính không thuần nhất, $y({v}) = y_c({v}) + y_p({v})$."
+            if is_nonhomo
+            else f"Theo nguyên lý chồng chất cho phương trình thuần nhất, $y({v}) = C_1 y_1({v}) + C_2 y_2({v})$."
+        )
         stage3_steps.append(
             ODEPedagogicalStep(
                 step_number=6,
@@ -2821,29 +2998,41 @@ def _build_euler_cauchy_flow(
                 rule_name_vi="Nghiệm tổng quát",
                 description=g_desc,
                 content=ExpressionStepContent(
-                    expression_before=f"y({v}) = C_1 y_1({v}) + C_2 y_2({v})",
+                    expression_before=g_before,
                     expression_after=g_eq,
-                    latex_before=f"y({v}) = C_1 y_1({v}) + C_2 y_2({v})",
+                    latex_before=g_before,
                     latex_after=g_eq,
                 ),
                 equation_latex=g_eq,
                 purpose="Biểu diễn họ toàn bộ nghiệm thực của phương trình vi phân cấp 2 trên khoảng xác định.",
-                math_basis=f"Theo nguyên lý chồng chất cho phương trình thuần nhất, $y({v}) = C_1 y_1({v}) + C_2 y_2({v})$.",
+                math_basis=g_basis,
                 execution=g_desc,
                 intermediate_result=g_eq,
                 stage_index=3,
                 stage_name="Nghiệm tổng quát",
             )
         )
-        stg3_subtitle = "Nghiệm tổng quát"
+        stg3_subtitle = "Tìm nghiệm riêng y_p và tổng hợp y = y_c + y_p" if is_nonhomo else "Nghiệm tổng quát"
         stg3_summary_label = "Nghiệm tổng quát:"
-        stg2_transition = f"Tổ hợp hai nghiệm cơ bản để thiết lập nghiệm tổng quát $y({v})$."
+        stg2_transition = (
+            f"Chuẩn hóa phương trình và áp dụng Biến thiên hằng số để tìm nghiệm riêng $y_p({v})$."
+            if is_nonhomo
+            else f"Tổ hợp hai nghiệm cơ bản để thiết lập nghiệm tổng quát $y({v})$."
+        )
     else:
         # Cauchy IVP Mode
         iv_label = ctx["interval_desc"] or (f"{v} < 0" if ctx["is_neg"] else f"{v} > 0")
         gen_rhs = re.sub(rf"^y\s*\({re.escape(v)}\)\s*=\s*", "", gen_sol_eq).strip()
-        g_eq = f"y({v}) = C_1 y_1({v}) + C_2 y_2({v}) = {gen_rhs}"
-        g_desc = f"Thiết lập nghiệm tổng quát trên khoảng liên thông ${iv_label}$ chứa điểm ban đầu:"
+        if is_nonhomo:
+            g_eq = f"y({v}) = y_c({v}) + y_p({v}) = {gen_rhs}"
+            g_desc = f"Tổng hợp nghiệm tổng quát $y({v}) = y_c({v}) + y_p({v})$ trên khoảng liên thông ${iv_label}$ chứa điểm ban đầu:"
+            g_before = f"y({v}) = y_c({v}) + y_p({v})"
+            g_basis = f"Trên khoảng liên thông chứa điểm ban đầu, $y({v}) = y_c({v}) + y_p({v})$."
+        else:
+            g_eq = f"y({v}) = C_1 y_1({v}) + C_2 y_2({v}) = {gen_rhs}"
+            g_desc = f"Thiết lập nghiệm tổng quát trên khoảng liên thông ${iv_label}$ chứa điểm ban đầu:"
+            g_before = f"y({v}) = C_1 y_1({v}) + C_2 y_2({v})"
+            g_basis = f"Trên khoảng liên thông chứa điểm ban đầu, nghiệm tổng quát có dạng $y({v}) = C_1 y_1({v}) + C_2 y_2({v})$."
         stage3_steps.append(
             ODEPedagogicalStep(
                 step_number=6,
@@ -2852,14 +3041,14 @@ def _build_euler_cauchy_flow(
                 rule_name_vi="Nghiệm tổng quát",
                 description=g_desc,
                 content=ExpressionStepContent(
-                    expression_before=f"y({v}) = C_1 y_1({v}) + C_2 y_2({v})",
+                    expression_before=g_before,
                     expression_after=g_eq,
-                    latex_before=f"y({v}) = C_1 y_1({v}) + C_2 y_2({v})",
+                    latex_before=g_before,
                     latex_after=g_eq,
                 ),
                 equation_latex=g_eq,
                 purpose="Viết biểu thức nghiệm phụ thuộc hai hằng số $C_1, C_2$ trước khi thế điều kiện Cauchy.",
-                math_basis=f"Trên khoảng liên thông chứa điểm ban đầu, nghiệm tổng quát có dạng $y({v}) = C_1 y_1({v}) + C_2 y_2({v})$.",
+                math_basis=g_basis,
                 execution=g_desc,
                 intermediate_result=g_eq,
                 stage_index=3,
@@ -2932,18 +3121,23 @@ def _build_euler_cauchy_flow(
                 stage_name="Bài toán Cauchy (IVP)",
             )
         )
-        stg3_subtitle = "Bài toán Cauchy (IVP)"
+        stg3_subtitle = "Tìm nghiệm riêng y_p và giải Bài toán Cauchy (IVP)" if is_nonhomo else "Bài toán Cauchy (IVP)"
         stg3_summary_label = "Nghiệm riêng (Cauchy IVP):"
-        stg2_transition = "Tổng hợp nghiệm tổng quát và giải hệ điều kiện ban đầu Cauchy (IVP)."
+        stg2_transition = (
+            f"Áp dụng Biến thiên hằng số để tìm $y_p({v})$, tổng hợp và giải hệ điều kiện ban đầu Cauchy (IVP)."
+            if is_nonhomo
+            else "Tổng hợp nghiệm tổng quát và giải hệ điều kiện ban đầu Cauchy (IVP)."
+        )
 
     # ---------------- STAGE 4: Independent Symbolic Verification ----------------
     stage4_steps: list[ODEPedagogicalStep] = []
+    res_rhs_suffix = f" - ({g_tex})" if is_nonhomo else ""
     res_lhs = ctx["residual_before"] or (
         f"R({v}) = {_format_signed_coeff_term(A_val, f'{v}^2 y\'\'', leading=True)}"
         f"{_format_signed_coeff_term(B_val, f'{v} y\'')}"
-        f"{_format_signed_coeff_term(C_val, 'y')}"
+        f"{_format_signed_coeff_term(C_val, 'y')}{res_rhs_suffix}"
         if has_coeffs
-        else f"R({v}) = A{v}^2 y'' + B{v} y' + C y"
+        else f"R({v}) = A{v}^2 y'' + B{v} y' + C y{res_rhs_suffix}"
     )
     w_check = f"W(y_1, y_2) = {ctx['wronskian']}" if ctx["wronskian"] else "W(y_1, y_2)"
 
@@ -3052,24 +3246,40 @@ def _build_euler_cauchy_flow(
         ),
         ODEStageSummary(
             stage_index=2,
-            title="Giai đoạn 2: Biệt thức Delta và Hệ nghiệm cơ bản",
-            subtitle=f"Xác định cặp nghiệm thực độc lập tuyến tính $y_1({v}), y_2({v})$",
+            title=(
+                "Giai đoạn 2: Phương trình thuần nhất liên kết & Hệ cơ bản"
+                if is_nonhomo
+                else "Giai đoạn 2: Biệt thức Delta và Hệ nghiệm cơ bản"
+            ),
+            subtitle=(
+                f"Xác định hệ nghiệm cơ bản và nghiệm thuần nhất liên kết $y_c({v})$"
+                if is_nonhomo
+                else f"Xác định cặp nghiệm thực độc lập tuyến tính $y_1({v}), y_2({v})$"
+            ),
             icon="looks_two",
-            badge_text="Nghiệm cơ bản",
+            badge_text="Nghiệm thuần nhất" if is_nonhomo else "Nghiệm cơ bản",
             badge_color="purple-7",
             is_completed=bool(renumbered[2]),
             is_applicable=True,
-            summary_latex=f"y_1({v}) = {y1_str},\\quad y_2({v}) = {y2_str}" if (y1_str and y2_str) else "",
-            summary_label="Hệ nghiệm cơ bản:",
+            summary_latex=(
+                ctx["yc"]
+                if (is_nonhomo and ctx["yc"])
+                else (f"y_1({v}) = {y1_str},\\quad y_2({v}) = {y2_str}" if (y1_str and y2_str) else "")
+            ),
+            summary_label="Nghiệm thuần nhất liên kết:" if (is_nonhomo and ctx["yc"]) else "Hệ nghiệm cơ bản:",
             steps=tuple(renumbered[2]),
             transition_note=stg2_transition,
         ),
         ODEStageSummary(
             stage_index=3,
-            title="Giai đoạn 3: Xác định nghiệm bài toán",
+            title=(
+                "Giai đoạn 3: Nghiệm riêng y_p và Tổng hợp nghiệm"
+                if is_nonhomo
+                else "Giai đoạn 3: Xác định nghiệm bài toán"
+            ),
             subtitle=stg3_subtitle,
             icon="looks_3",
-            badge_text="Nghiệm",
+            badge_text="Biến thiên hằng số" if is_nonhomo else "Nghiệm",
             badge_color="teal-7",
             is_completed=bool(renumbered[3]),
             is_applicable=True,

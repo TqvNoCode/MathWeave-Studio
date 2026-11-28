@@ -172,18 +172,35 @@ def render_ode_classification_card(
             or "hệ điều kiện cauchy" in details_l
         )
     expected_cls = str(p.get("expected_classification", "")).strip().upper()
-    if expected_cls in ("HOMOGENEOUS", "THUẦN NHẤT", "THUAN_NHAT") or is_euler:
+    if expected_cls in ("HOMOGENEOUS", "THUẦN NHẤT", "THUAN_NHAT"):
         is_nonhomogeneous = False
     elif expected_cls in ("NONHOMOGENEOUS", "KHÔNG THUẦN NHẤT", "KHONG_THUAN_NHAT"):
         is_nonhomogeneous = True
     else:
-        is_nonhomogeneous = has_uc or has_vop or any("không thuần nhất" in s.description.lower() for s in steps)
+        is_nonhomogeneous = (
+            has_uc
+            or has_vop
+            or any(
+                "không thuần nhất" in s.description.lower()
+                or "không thuần nhất" in s.title.lower()
+                or s.rule_name == "Nghiệm thuần nhất liên kết"
+                for s in steps
+            )
+        )
 
     pref = str(p.get("method_preference", "AUTO")).strip().upper()
     is_manual_uc = pref in ("UNDETERMINED_COEFFICIENTS", "UC", "HỆ SỐ BẤT ĐỊNH")
     is_manual_vop = pref in ("VARIATION_OF_PARAMETERS", "VOP", "BIẾN THIÊN HẰNG SỐ")
 
-    if is_euler:
+    if is_euler and is_nonhomogeneous:
+        method_title = "Biến thiên hằng số (Euler–Cauchy)"
+        method_badge_color = "purple-7"
+        method_desc = (
+            f"Phương trình Euler–Cauchy không thuần nhất $A{clean_var}^2 y'' + B{clean_var} y' + C y = g({clean_var})$: "
+            f"Giải phương trình thuần nhất liên kết tìm $y_c({clean_var})$, chuẩn hóa về dạng $y'' + P y' + Q y = R$, "
+            f"rồi áp dụng công thức Biến thiên hằng số (Lagrange) để tìm nghiệm riêng $y_p({clean_var})$."
+        )
+    elif is_euler:
         method_title = "Phương trình chỉ số (Euler–Cauchy)"
         method_badge_color = "blue-7"
         method_desc = (
@@ -225,9 +242,16 @@ def render_ode_classification_card(
     yp_latex: str | None = None
 
     for s in steps:
-        if s.rule_name in ("Hệ nghiệm cơ bản", "Nghiệm thực phân biệt", "Nghiệm kép thực", "Nghiệm phức liên hợp"):
-            if "y(" in s.content.latex_after and "=" in s.content.latex_after:
-                parts = s.content.latex_after.split("=", 1)
+        if s.rule_name in (
+            "Hệ nghiệm cơ bản",
+            "Nghiệm thực phân biệt",
+            "Nghiệm kép thực",
+            "Nghiệm phức liên hợp",
+            "Nghiệm thuần nhất liên kết",
+        ):
+            raw_yc = s.content.latex_after or s.equation_latex or ""
+            if "=" in raw_yc and any(k in raw_yc for k in ("y(", "y_c(", "y_h(")):
+                parts = raw_yc.split("=", 1)
                 yc_latex = parts[1].strip()
         elif (
             "nghiệm riêng" in s.title.lower()
@@ -265,25 +289,30 @@ def render_ode_classification_card(
         # Mathematical components decomposition
         if is_nonhomogeneous and yc_latex and yp_latex:
             from math_app.presentation.components.ode_pedagogical_enhancer import (
+                polish_euler_cauchy_latex,
                 standardize_ode_notation,
             )
 
-            std_yc = standardize_ode_notation(yc_latex)
-            std_yp = standardize_ode_notation(yp_latex)
-            with ui.column().classes("w-full p-3 bg-white border border-slate-200 rounded-lg gap-1.5"):
+            if is_euler:
+                std_yc = polish_euler_cauchy_latex(yc_latex, clean_var)
+                std_yp = polish_euler_cauchy_latex(yp_latex, clean_var)
+            else:
+                std_yc = standardize_ode_notation(yc_latex)
+                std_yp = standardize_ode_notation(yp_latex)
+            with ui.column().classes("w-full p-3 bg-white border border-slate-200 rounded-lg gap-1.5 min-w-0"):
                 ui_math_text(
-                    f"Cấu trúc nghiệm: $y({clean_var}) = y_c({clean_var}) + y_p({clean_var})$",
-                    classes="text-xs font-bold text-slate-700 uppercase tracking-wider",
+                    f"CẤU TRÚC NGHIỆM: $y({clean_var}) = y_c({clean_var}) + y_p({clean_var})$",
+                    classes="text-xs font-bold text-slate-700 tracking-wider",
                 )
-                with ui.row().classes("w-full items-center justify-between gap-3 flex-wrap"):
-                    with ui.column().classes("gap-0.5 flex-1 min-w-[200px]"):
+                with ui.row().classes("w-full items-center justify-between gap-3 flex-wrap min-w-0"):
+                    with ui.column().classes("gap-0.5 flex-1 min-w-0 sm:min-w-[200px] max-w-full overflow-x-auto"):
                         ui_math_text(
                             f"1. Nghiệm thuần nhất $y_c({clean_var})$:", classes="text-xs text-slate-500 font-semibold"
                         )
                         ui_math(
                             f"y_c({clean_var}) = {std_yc}", block=False, classes="text-sm font-medium text-slate-800"
                         )
-                    with ui.column().classes("gap-0.5 flex-1 min-w-[200px]"):
+                    with ui.column().classes("gap-0.5 flex-1 min-w-0 sm:min-w-[200px] max-w-full overflow-x-auto"):
                         ui_math_text(
                             f"2. Nghiệm riêng $y_p({clean_var})$:", classes="text-xs text-slate-500 font-semibold"
                         )
@@ -310,9 +339,9 @@ def render_branch_solutions(branch_solutions: tuple[BranchSolution, ...], target
             polish_euler_cauchy_latex,
         )
 
-        with ui.column().classes("w-full gap-2.5"):
+        with ui.column().classes("w-full gap-2.5 min-w-0"):
             for b in branch_solutions:
-                with ui.card().classes("w-full p-3 bg-white border border-indigo-100 rounded-lg shadow-2xs gap-1.5"):
+                with ui.card().classes("w-full p-3 bg-white border border-indigo-100 rounded-lg shadow-2xs gap-1.5 min-w-0"):
                     with ui.row().classes("items-center justify-between w-full flex-wrap gap-2"):
                         with ui.row().classes("items-center gap-2 flex-wrap"):
                             ui.badge(b.branch_identity, color="indigo").classes("text-xs font-bold px-2 py-0.5 rounded")
@@ -354,9 +383,10 @@ def render_branch_solutions(branch_solutions: tuple[BranchSolution, ...], target
                             render_verification_badge(b.verification)
 
                     polished_sol = polish_euler_cauchy_latex(b.solution_latex, target_var)
-                    ui_math(
-                        polished_sol, block=True, classes="text-base md:text-lg font-medium text-indigo-950 py-0.5"
-                    )
+                    with ui.column().classes("w-full overflow-x-auto min-w-0"):
+                        ui_math(
+                            polished_sol, block=True, classes="text-base md:text-lg font-medium text-indigo-950 py-0.5"
+                        )
 
                     if b.extension_details:
                         with ui.row().classes(

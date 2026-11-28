@@ -372,6 +372,7 @@ def render_ode_workspace(
                     so_summary_container = ui.column().classes("w-full min-w-0")
                     so_controls_container = ui.column().classes("w-full gap-4 min-w-0")
                     so_rendered_cls: list[ODEClassification | None] = [None]
+                    so_method_render_ref: list[Callable[[], None] | None] = [None]
 
                     def render_so_summary_card() -> None:
                         nonlocal state, is_manual_override, is_override_panel_open
@@ -392,7 +393,12 @@ def render_ode_workspace(
                                         ui.label("PHÂN TÍCH TỰ ĐỘNG").classes(
                                             "text-xs font-bold text-slate-800 uppercase tracking-wider"
                                         )
-                                        status_badge(state.classification.display_label, variant="info")
+                                        info_label = (
+                                            summary.badge_label
+                                            if summary.status == "DETECTED" and not is_manual_override
+                                            else state.classification.display_label
+                                        )
+                                        status_badge(info_label, variant="info")
                                         status_badge(
                                             "Ghi đè thủ công" if is_manual_override else "Tự động nhận diện",
                                             variant="warning" if is_manual_override else "neutral",
@@ -437,12 +443,32 @@ def render_ode_workspace(
                                 with ui.row().classes(
                                     "w-full items-center justify-between bg-white border border-slate-200 rounded-lg px-3 py-2.5 gap-3 flex-wrap min-w-0"
                                 ):
-                                    with ui.column().classes("gap-1 min-w-0 flex-1"):
+                                    with ui.column().classes("gap-1.5 min-w-0 flex-1"):
                                         if summary.canonical_form_latex:
                                             ui_math(
                                                 summary.canonical_form_latex,
                                                 block=False,
                                                 classes="text-sm md:text-base font-bold text-slate-900",
+                                            )
+                                        if summary.associated_homogeneous_latex and summary.forcing_term_latex:
+                                            with ui.row().classes("w-full items-center gap-x-4 gap-y-1 flex-wrap text-xs text-slate-700"):
+                                                with ui.row().classes("items-center gap-1.5"):
+                                                    ui.label("Thuần nhất liên kết:").classes("font-medium text-slate-500")
+                                                    ui_math(
+                                                        summary.associated_homogeneous_latex,
+                                                        block=False,
+                                                        classes="text-xs font-semibold text-slate-800",
+                                                    )
+                                                with ui.row().classes("items-center gap-1.5"):
+                                                    ui.label("Vế phải:").classes("font-medium text-slate-500")
+                                                    ui_math(
+                                                        summary.forcing_term_latex,
+                                                        block=False,
+                                                        classes="text-xs font-semibold text-indigo-700",
+                                                    )
+                                        if summary.domain_hint:
+                                            ui.label(summary.domain_hint).classes(
+                                                "text-[11px] text-amber-700 font-medium leading-relaxed"
                                             )
                                         ui.label(summary.method_hint).classes(
                                             "text-xs text-slate-600 leading-relaxed"
@@ -536,13 +562,6 @@ def render_ode_workspace(
                         ic_input_ref[0] = None
                         so_rendered_cls[0] = state.classification
 
-                        summary = classify_second_order_ode(
-                            state.equation,
-                            target_var=state.target_var,
-                            current_classification=state.classification,
-                            known_solution=state.known_solution,
-                        )
-
                         # Specialized Known Solution input for Reduction of Order
                         if state.classification == ODEClassification.REDUCTION_OF_ORDER:
                             with so_y1_container:
@@ -588,18 +607,42 @@ def render_ode_workspace(
                                 ic_input_ref[0].on("keydown.enter", handle_submit)
 
                             # 4. Method Selection (only for Nonhomogeneous — avoids duplicating Homogeneous/Euler summary)
-                            if state.classification == ODEClassification.SECOND_ORDER_NONHOMOGENEOUS:
+                            so_method_container = ui.column().classes("w-full min-w-0")
+
+                            def render_so_method_slot() -> None:
+                                so_method_container.clear()
+                                cur_sum = classify_second_order_ode(
+                                    state.equation,
+                                    target_var=state.target_var,
+                                    current_classification=state.classification,
+                                    known_solution=state.known_solution,
+                                )
+                                is_nonhomo_euler = (
+                                    state.classification == ODEClassification.EULER_CAUCHY
+                                    and cur_sum.is_nonhomogeneous
+                                )
+                                if not (
+                                    state.classification == ODEClassification.SECOND_ORDER_NONHOMOGENEOUS
+                                    or is_nonhomo_euler
+                                ):
+                                    return
+
                                 def handle_method_change(new_pref: ODEMethodPreference) -> None:
                                     nonlocal state
                                     state = state.with_method_preference(new_pref)
 
-                                render_ode_method_selector(
-                                    state.order,
-                                    state.classification,
-                                    state.method_preference,
-                                    handle_method_change,
-                                    recommended_method_hint=summary.recommended_nonhomo_method,
-                                )
+                                with so_method_container:
+                                    render_ode_method_selector(
+                                        state.order,
+                                        state.classification,
+                                        state.method_preference,
+                                        handle_method_change,
+                                        recommended_method_hint=cur_sum.recommended_nonhomo_method,
+                                        is_nonhomogeneous_euler=is_nonhomo_euler,
+                                    )
+
+                            so_method_render_ref[0] = render_so_method_slot
+                            render_so_method_slot()
 
                             # 5. Contextual Example Chips
                             if state.classification in {
@@ -702,6 +745,8 @@ def render_ode_workspace(
                         render_so_summary_card()
                         if cls_changed or so_rendered_cls[0] != state.classification:
                             render_so_controls()
+                        elif state.classification == ODEClassification.EULER_CAUCHY and so_method_render_ref[0] is not None:
+                            so_method_render_ref[0]()
 
                     def handle_var_change(e: Any) -> None:
                         nonlocal state
@@ -714,6 +759,8 @@ def render_ode_workspace(
                         render_so_summary_card()
                         if cls_changed or so_rendered_cls[0] != state.classification:
                             render_so_controls()
+                        elif state.classification == ODEClassification.EULER_CAUCHY and so_method_render_ref[0] is not None:
+                            so_method_render_ref[0]()
 
                     eq_input.on_value_change(handle_eq_change)
                     var_input.on_value_change(handle_var_change)

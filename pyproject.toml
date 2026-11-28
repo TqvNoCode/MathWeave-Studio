@@ -1,6 +1,6 @@
 [project]
 name = "mathweave-studio"
-version = "0.3.0"
+version = "0.3.1"
 description = "MathWeave Studio — Phần mềm Hỗ trợ Học tập & Nghiên cứu Toán học Chuyên sâu, giải phương trình vi phân"
 readme = "README.md"
 authors = [

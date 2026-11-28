@@ -1,4 +1,4 @@
-"""Dedicated Euler–Cauchy ODE Solver for Second-Order Homogeneous Differential Equations."""
+"""Dedicated Euler–Cauchy ODE Solver for Second-Order Homogeneous and Nonhomogeneous Equations."""
 
 from __future__ import annotations
 
@@ -37,11 +37,48 @@ from math_app.solvers.calculus.ode.domain_analyzer import (
     _decompose_set_components,
     format_interval_latex,
 )
+from math_app.solvers.calculus.ode.nonhomogeneous_ivp import (
+    validate_initial_point_against_domain,
+)
+from math_app.solvers.calculus.ode.variation_of_parameters import (
+    VariationOfParametersResult,
+    extract_domain_restrictions_from_expr,
+)
 from math_app.verification.calculus.ode_verifier import (
     ODEVerifier,
     _prove_symbolic_zero,
     classify_scalar_real_finite,
     evaluate_initial_point_domain,
+)
+
+_NON_ELEMENTARY_ATOMS: tuple[type[sp.Basic], ...] = tuple(
+    cls
+    for cls in (
+        getattr(sp, name, None)
+        for name in (
+            "Integral",
+            "meijerg",
+            "hyper",
+            "Piecewise",
+            "RootSum",
+            "Ei",
+            "Si",
+            "Ci",
+            "Shi",
+            "Chi",
+            "li",
+            "erf",
+            "erfi",
+            "erfc",
+            "fresnels",
+            "fresnelc",
+            "uppergamma",
+            "lowergamma",
+            "polylog",
+            "LambertW",
+        )
+    )
+    if cls is not None
 )
 
 
@@ -186,10 +223,154 @@ def _build_domain_metadata(
     )
 
 
-class ODEEulerCauchySolver(Solver):
-    """Solver for second-order homogeneous Euler–Cauchy differential equations:
+def _is_elementary_real_closed_form(expr: sp.Expr, var: sp.Symbol, is_neg: bool) -> bool:
+    """Return True only when expr is a real elementary closed form without unverified special funcs."""
+    if not isinstance(expr, sp.Basic):
+        return False
+    if expr.has(sp.I, sp.zoo, sp.nan, sp.oo, -sp.oo, sp.AccumBounds):
+        return False
+    if _NON_ELEMENTARY_ATOMS and expr.has(*_NON_ELEMENTARY_ATOMS):
+        return False
+    if is_neg:
+        # Reject negative logarithms log(t) or fractional powers t^p on t < 0
+        for lg in expr.atoms(sp.log):
+            if lg.args[0] == var or (
+                isinstance(lg.args[0], sp.Expr)
+                and lg.args[0].has(var)
+                and not lg.args[0].has(-var)
+            ):
+                # Substitute a negative sample if numeric check shows log argument <= 0
+                try:
+                    sample_val = sp.N(lg.args[0].subs(var, -sp.Integer(2)))
+                    if sample_val.is_real and float(sample_val) <= 0:
+                        return False
+                except Exception:
+                    pass
+    return True
 
-    a*t^2*y''(t) + b*t*y'(t) + c*y(t) = 0,  (a != 0, t != 0),
+
+def _integrate_on_real_branch(
+    integrand: sp.Expr,
+    var: sp.Symbol,
+    is_neg: bool,
+) -> tuple[bool, sp.Expr]:
+    """Integrate integrand on either t > 0 or t < 0 using positive substitution tau = |t| > 0."""
+    from sympy.integrals.risch import NonElementaryIntegral
+
+    tau = sp.Symbol("_ec_tau", positive=True)
+    sub_expr = -var if is_neg else var
+    try:
+        transformed = sp.simplify(integrand.subs(var, -tau if is_neg else tau))
+        if is_neg:
+            # dt = -d(tau) under t = -tau
+            transformed = -transformed
+        risch_try = sp.integrate(transformed, tau, risch=True)
+        if isinstance(risch_try, NonElementaryIntegral):
+            # Risch decision procedure proved no elementary antiderivative exists.
+            return False, sp.Integer(0)
+        antideriv_tau = (
+            sp.integrate(transformed, tau)
+            if risch_try.has(sp.Integral)
+            else risch_try
+        )
+        if not _is_elementary_real_closed_form(antideriv_tau, tau, is_neg=False):
+            return False, sp.Integer(0)
+        antideriv_tau = sp.simplify(sp.trigsimp(antideriv_tau))
+        antideriv = antideriv_tau.subs(tau, sub_expr)
+        if not _is_elementary_real_closed_form(antideriv, var, is_neg=is_neg):
+            return False, sp.Integer(0)
+        return True, antideriv
+    except Exception:
+        return False, sp.Integer(0)
+
+
+def _compute_euler_cauchy_vop(
+    A: sp.Expr,
+    B: sp.Expr,
+    C: sp.Expr,
+    g_expr: sp.Expr,
+    y1_fund: sp.Expr,
+    y2_fund: sp.Expr,
+    W_fund: sp.Expr,
+    var: sp.Symbol,
+    is_neg: bool,
+    initial_point: sp.Expr | None = None,
+) -> VariationOfParametersResult:
+    """Compute particular solution y_p(t) for A*t^2*y'' + B*t*y' + C*y = g(t) via Variation of Parameters."""
+    a_t = A * (var**2)
+    b_t = B * var
+    R_expr = sp.simplify(g_expr / a_t)
+
+    u1_prime = sp.simplify(sp.trigsimp(-y2_fund * R_expr / W_fund))
+    u2_prime = sp.simplify(sp.trigsimp(y1_fund * R_expr / W_fund))
+
+    is_integral_form = False
+    u1_sol: sp.Expr
+    u2_sol: sp.Expr
+
+    if initial_point is not None:
+        s_sym = sp.Symbol("s") if var.name != "s" else sp.Symbol("tau")
+        u1_sol = -sp.Integral(sp.simplify(y2_fund * R_expr / W_fund).subs(var, s_sym), (s_sym, initial_point, var))
+        u2_sol = sp.Integral(sp.simplify(y1_fund * R_expr / W_fund).subs(var, s_sym), (s_sym, initial_point, var))
+        is_integral_form = True
+        yp_sol = u1_sol * y1_fund + u2_sol * y2_fund
+    else:
+        ok1, u1_cand = _integrate_on_real_branch(u1_prime, var, is_neg=is_neg)
+        ok2, u2_cand = _integrate_on_real_branch(u2_prime, var, is_neg=is_neg)
+        if ok1 and ok2:
+            tau = sp.Symbol("_ec_tau", positive=True)
+            sub_expr = -var if is_neg else var
+            yp_raw = u1_cand * y1_fund + u2_cand * y2_fund
+            yp_tau = sp.simplify(
+                sp.trigsimp(
+                    sp.radsimp(sp.expand(yp_raw.subs(var, -tau if is_neg else tau)))
+                )
+            )
+            yp_cand = yp_tau.subs(tau, sub_expr)
+            # Validate residual symbolically in positive tau coordinates
+            dyp_cand = sp.diff(yp_cand, var)
+            d2yp_cand = sp.diff(dyp_cand, var)
+            res_tau = sp.simplify(
+                sp.trigsimp(
+                    (a_t * d2yp_cand + b_t * dyp_cand + C * yp_cand - g_expr).subs(
+                        var, -tau if is_neg else tau
+                    )
+                )
+            )
+            if _prove_symbolic_zero(res_tau, variable=tau, domain_interval=(0, sp.oo)) and _is_elementary_real_closed_form(
+                yp_cand, var, is_neg=is_neg
+            ):
+                u1_sol = u1_cand
+                u2_sol = u2_cand
+                yp_sol = yp_cand
+            else:
+                is_integral_form = True
+                u1_sol = -sp.Integral(sp.simplify(y2_fund * R_expr / W_fund), var)
+                u2_sol = sp.Integral(sp.simplify(y1_fund * R_expr / W_fund), var)
+                yp_sol = u1_sol * y1_fund + u2_sol * y2_fund
+        else:
+            is_integral_form = True
+            u1_sol = -sp.Integral(sp.simplify(y2_fund * R_expr / W_fund), var)
+            u2_sol = sp.Integral(sp.simplify(y1_fund * R_expr / W_fund), var)
+            yp_sol = u1_sol * y1_fund + u2_sol * y2_fund
+
+    return VariationOfParametersResult(
+        is_supported=True,
+        particular_solution=yp_sol,
+        u1_expr=u1_sol,
+        u2_expr=u2_sol,
+        u1_prime=u1_prime,
+        u2_prime=u2_prime,
+        wronskian=W_fund,
+        is_integral_form=is_integral_form,
+        initial_point=initial_point,
+    )
+
+
+class ODEEulerCauchySolver(Solver):
+    """Solver for second-order homogeneous and nonhomogeneous Euler–Cauchy ODEs:
+
+    a*t^2*y''(t) + b*t*y'(t) + c*y(t) = g(t),  (a != 0, t != 0),
 
     supporting general solutions and complete second-order Cauchy IVPs across
     both positive and negative connected domain intervals.
@@ -228,29 +409,68 @@ class ODEEulerCauchySolver(Solver):
         b_expr = parsed.b_coeff
         c_expr = parsed.c_coeff
 
-        # Validate homogeneity: EC1 strictly supports homogeneous Euler-Cauchy equations
-        if not parsed.is_homogeneous or sp.simplify(parsed.rem_expr) != 0:
-            elapsed = (time.perf_counter() - t0_start) * 1000.0
-            g_val = sp.simplify(-parsed.rem_expr)
-            msg = (
-                f"Phương trình vi phân Euler–Cauchy trong phiên bản này chỉ hỗ trợ phương trình thuần nhất (vế phải bằng 0). "
-                f"Phương trình nhập vào có vế phải g({var}) = {expr_to_latex(g_val)} khác 0 "
-                "(Nonhomogeneous Euler–Cauchy equations are not supported in this milestone)."
-            )
-            return SolutionResponse(
-                status=SolutionStatus.CANNOT_SOLVE,
-                verification=VerificationResult(
-                    status=VerificationStatus.NOT_APPLICABLE,
-                    method="euler_cauchy_nonhomogeneous",
-                    details=msg,
-                ),
-                raw_input=request.raw_input,
-                canonical_input=parsed.canonical_eq,
-                final_result="",
-                final_latex="",
-                warnings=(msg,),
-                execution_time_ms=elapsed,
-            )
+        # Detect homogeneity and validate forcing term g(t)
+        rem_simp = sp.simplify(parsed.rem_expr)
+        g_expr_cand = sp.simplify(-rem_simp)
+        is_nonhomogeneous = not (parsed.is_homogeneous or _prove_symbolic_zero(g_expr_cand))
+        g_expr: sp.Expr | None = g_expr_cand if is_nonhomogeneous else None
+
+        if g_expr is not None:
+            extra_g_syms = g_expr.free_symbols - {var}
+            if extra_g_syms:
+                elapsed = (time.perf_counter() - t0_start) * 1000.0
+                msg = (
+                    f"Vế phải g({var}) = {g_expr} chứa tham số chưa xác định "
+                    f"{tuple(sorted(s.name for s in extra_g_syms))}."
+                )
+                return SolutionResponse(
+                    status=SolutionStatus.CANNOT_SOLVE,
+                    verification=VerificationResult(
+                        status=VerificationStatus.NOT_APPLICABLE,
+                        method="euler_cauchy_unresolved_forcing_parameter",
+                        details=msg,
+                    ),
+                    raw_input=request.raw_input,
+                    canonical_input=parsed.canonical_eq,
+                    final_result="",
+                    final_latex="",
+                    warnings=(msg,),
+                    execution_time_ms=elapsed,
+                )
+            if g_expr.has(sp.oo, -sp.oo, sp.zoo, sp.nan, sp.AccumBounds):
+                elapsed = (time.perf_counter() - t0_start) * 1000.0
+                msg = f"Vế phải g({var}) = {g_expr} chứa giá trị vô cực hoặc bất định."
+                return SolutionResponse(
+                    status=SolutionStatus.CANNOT_SOLVE,
+                    verification=VerificationResult(
+                        status=VerificationStatus.NOT_APPLICABLE,
+                        method="euler_cauchy_infinite_forcing",
+                        details=msg,
+                    ),
+                    raw_input=request.raw_input,
+                    canonical_input=parsed.canonical_eq,
+                    final_result="",
+                    final_latex="",
+                    warnings=(msg,),
+                    execution_time_ms=elapsed,
+                )
+            if g_expr.has(sp.I):
+                elapsed = (time.perf_counter() - t0_start) * 1000.0
+                msg = f"Vế phải g({var}) = {g_expr} chứa đơn vị ảo phức; hệ thống chỉ giải phương trình thực."
+                return SolutionResponse(
+                    status=SolutionStatus.CANNOT_SOLVE,
+                    verification=VerificationResult(
+                        status=VerificationStatus.NOT_APPLICABLE,
+                        method="euler_cauchy_complex_forcing",
+                        details=msg,
+                    ),
+                    raw_input=request.raw_input,
+                    canonical_input=parsed.canonical_eq,
+                    final_result="",
+                    final_latex="",
+                    warnings=(msg,),
+                    execution_time_ms=elapsed,
+                )
 
         # 1. Structural Euler-Cauchy verification
         # a(t) = A*t^2, b(t) = B*t, c(t) = C
@@ -412,6 +632,11 @@ class ODEEulerCauchySolver(Solver):
             overall_comp,
             domain_restrictions,
         ) = _build_domain_metadata(parsed, var, dep_var)
+
+        if g_expr is not None:
+            for g_restr in extract_domain_restrictions_from_expr(g_expr, var):
+                if g_restr not in domain_restrictions:
+                    domain_restrictions.append(g_restr)
 
         # 2. Validate Cauchy IVP conditions based on problem mode
         has_y_ic = parsed.initial_condition is not None
@@ -600,6 +825,32 @@ class ODEEulerCauchySolver(Solver):
                     warnings=(msg,),
                     execution_time_ms=elapsed,
                 )
+
+            if g_expr is not None:
+                g_dom_ok, g_dom_err = validate_initial_point_against_domain(
+                    t0_cand, g_expr, var, tuple(domain_restrictions)
+                )
+                if not g_dom_ok:
+                    elapsed = (time.perf_counter() - t0_start) * 1000.0
+                    msg = g_dom_err or f"Điểm ban đầu {var}0 = {t0_cand} không hợp lệ với vế phải g({var})."
+                    return SolutionResponse(
+                        status=SolutionStatus.INVALID_INPUT,
+                        verification=VerificationResult(
+                            status=VerificationStatus.NOT_APPLICABLE,
+                            method="initial_point_domain_validation",
+                            details=msg,
+                        ),
+                        raw_input=request.raw_input,
+                        canonical_input=parsed.canonical_eq,
+                        final_result="",
+                        final_latex="",
+                        domain_restrictions=tuple(domain_restrictions),
+                        original_domain_latex=orig_domain_latex,
+                        normalized_domain_latex=norm_domain_latex,
+                        domain_completeness=overall_comp,
+                        warnings=(msg,),
+                        execution_time_ms=elapsed,
+                    )
 
             t0_val = t0_cand
             y0_val = y0_cand
@@ -1007,6 +1258,7 @@ class ODEEulerCauchySolver(Solver):
         c2_sym = sp.Symbol("C2")
 
         steps: list[SolutionStep] = []
+        response_warnings: list[str] = []
 
         if is_cauchy_request and t0_val is not None and y0_val is not None and v0_val is not None:
             # Cauchy IVP Mode
@@ -1021,9 +1273,52 @@ class ODEEulerCauchySolver(Solver):
                 dom_desc = f"{var} \\in {format_interval_latex(active_ivp_interval)}"
             domain_restrictions.append(f"Khoảng liên thông chứa điểm ban đầu {var}0 = {t0_val}: {dom_desc}.")
 
+            vop_active: VariationOfParametersResult | None = None
+            yp_part = sp.Integer(0)
+            yp_at_t0 = sp.Integer(0)
+            dyp_at_t0 = sp.Integer(0)
+            if g_expr is not None:
+                vop_active = _compute_euler_cauchy_vop(
+                    A=A,
+                    B=B,
+                    C=C,
+                    g_expr=g_expr,
+                    y1_fund=y1_active,
+                    y2_fund=y2_active,
+                    W_fund=W_active,
+                    var=var,
+                    is_neg=is_negative_domain,
+                    initial_point=None,
+                )
+                if vop_active.is_integral_form:
+                    vop_active = _compute_euler_cauchy_vop(
+                        A=A,
+                        B=B,
+                        C=C,
+                        g_expr=g_expr,
+                        y1_fund=y1_active,
+                        y2_fund=y2_active,
+                        W_fund=W_active,
+                        var=var,
+                        is_neg=is_negative_domain,
+                        initial_point=t0_val,
+                    )
+                    yp_part = vop_active.particular_solution
+                    yp_at_t0 = sp.Integer(0)
+                    dyp_at_t0 = sp.Integer(0)
+                    response_warnings.append(
+                        f"Nghiệm riêng cho vế phải g({var}) = {expr_to_latex(g_expr)} không có nguyên hàm sơ cấp tường minh; "
+                        f"được biểu diễn chính xác bằng tích phân xác định neo tại {var}0 = {t0_val}."
+                    )
+                else:
+                    yp_part = vop_active.particular_solution
+                    d_yp_part = sp.diff(yp_part, var)
+                    yp_at_t0 = sp.simplify(yp_part.subs(var, t0_val))
+                    dyp_at_t0 = sp.simplify(d_yp_part.subs(var, t0_val))
+
             # Solve linear system for C1, C2:
-            # C1*y1(t0) + C2*y2(t0) = y0
-            # C1*y1'(t0) + C2*y2'(t0) = v0
+            # C1*y1(t0) + C2*y2(t0) = y0 - yp(t0)
+            # C1*y1'(t0) + C2*y2'(t0) = v0 - yp'(t0)
             dy1_active = sp.diff(y1_active, var)
             dy2_active = sp.diff(y2_active, var)
 
@@ -1031,6 +1326,9 @@ class ODEEulerCauchySolver(Solver):
             y2_0 = sp.simplify(y2_active.subs(var, t0_val))
             dy1_0 = sp.simplify(dy1_active.subs(var, t0_val))
             dy2_0 = sp.simplify(dy2_active.subs(var, t0_val))
+
+            rhs_y0 = sp.simplify(y0_val - yp_at_t0)
+            rhs_v0 = sp.simplify(v0_val - dyp_at_t0)
 
             det_M = sp.simplify(y1_0 * dy2_0 - y2_0 * dy1_0)
             if det_M.is_zero is True or _prove_symbolic_zero(det_M):
@@ -1076,9 +1374,14 @@ class ODEEulerCauchySolver(Solver):
                     execution_time_ms=elapsed,
                 )
 
-            val_c1 = sp.simplify((y0_val * dy2_0 - v0_val * y2_0) / det_M)
-            val_c2 = sp.simplify((y1_0 * v0_val - dy1_0 * y0_val) / det_M)
-            particular_sol = val_c1 * y1_active + val_c2 * y2_active
+            val_c1 = sp.simplify((rhs_y0 * dy2_0 - rhs_v0 * y2_0) / det_M)
+            val_c2 = sp.simplify((y1_0 * rhs_v0 - dy1_0 * rhs_y0) / det_M)
+            if vop_active is None:
+                particular_sol = val_c1 * y1_active + val_c2 * y2_active
+            elif vop_active.is_integral_form:
+                particular_sol = (val_c1 * y1_active + val_c2 * y2_active) + yp_part
+            else:
+                particular_sol = sp.simplify(val_c1 * y1_active + val_c2 * y2_active + yp_part)
 
             # Independent Verification including fundamental-system Wronskian gate
             v_res = self.verifier.verify_second_order(
@@ -1087,6 +1390,7 @@ class ODEEulerCauchySolver(Solver):
                 a_coeff=parsed.a_coeff,
                 b_coeff=parsed.b_coeff,
                 c_coeff=parsed.c_coeff,
+                forcing_expr=g_expr,
                 initial_condition=(t0_val, y0_val),
                 initial_derivative=(t0_val, v0_val),
                 domain_interval=dom_int,
@@ -1124,6 +1428,7 @@ class ODEEulerCauchySolver(Solver):
                 A=A,
                 B=B,
                 C=C,
+                g_expr=g_expr,
                 indicial_poly=indicial_poly,
                 delta=delta,
                 root_case=root_case,
@@ -1138,12 +1443,15 @@ class ODEEulerCauchySolver(Solver):
                 dom_desc=dom_desc,
                 c1_sym=c1_sym,
                 c2_sym=c2_sym,
+                vop_res=vop_active,
                 t0=t0_val,
                 y0=y0_val,
                 v0=v0_val,
                 val_c1=val_c1,
                 val_c2=val_c2,
                 particular_sol=particular_sol,
+                yp_at_t0=yp_at_t0,
+                dyp_at_t0=dyp_at_t0,
                 v_res=v_res,
             )
 
@@ -1159,7 +1467,27 @@ class ODEEulerCauchySolver(Solver):
             domain_restrictions.append(f"Khoảng xác định được chọn: {dom_desc}.")
 
             y1_active, y2_active, W_active = get_fundamentals(is_negative_domain)
+            vop_active = None
             gen_sol = c1_sym * y1_active + c2_sym * y2_active
+            if g_expr is not None:
+                vop_active = _compute_euler_cauchy_vop(
+                    A=A,
+                    B=B,
+                    C=C,
+                    g_expr=g_expr,
+                    y1_fund=y1_active,
+                    y2_fund=y2_active,
+                    W_fund=W_active,
+                    var=var,
+                    is_neg=is_negative_domain,
+                    initial_point=None,
+                )
+                gen_sol = gen_sol + vop_active.particular_solution
+                if vop_active.is_integral_form:
+                    response_warnings.append(
+                        f"Nghiệm riêng cho vế phải g({var}) = {expr_to_latex(g_expr)} không có nguyên hàm sơ cấp tường minh; "
+                        "hệ thống bảo toàn chính xác biểu diễn tích phân ký hiệu."
+                    )
 
             v_res = self.verifier.verify_second_order(
                 solution=gen_sol,
@@ -1167,6 +1495,7 @@ class ODEEulerCauchySolver(Solver):
                 a_coeff=parsed.a_coeff,
                 b_coeff=parsed.b_coeff,
                 c_coeff=parsed.c_coeff,
+                forcing_expr=g_expr,
                 c1_sym=c1_sym,
                 c2_sym=c2_sym,
                 domain_interval=dom_int,
@@ -1201,6 +1530,7 @@ class ODEEulerCauchySolver(Solver):
                 A=A,
                 B=B,
                 C=C,
+                g_expr=g_expr,
                 indicial_poly=indicial_poly,
                 delta=delta,
                 root_case=root_case,
@@ -1215,6 +1545,7 @@ class ODEEulerCauchySolver(Solver):
                 dom_desc=dom_desc,
                 c1_sym=c1_sym,
                 c2_sym=c2_sym,
+                vop_res=vop_active,
                 v_res=v_res,
             )
 
@@ -1269,6 +1600,7 @@ class ODEEulerCauchySolver(Solver):
 
             branch_list: list[BranchSolution] = []
             branch_step_entries: list[tuple[sp.Interval, sp.Expr, sp.Expr, sp.Expr, sp.Symbol, sp.Symbol]] = []
+            branch_vops: list[VariationOfParametersResult] = []
             branch_verifs: list[VerificationResult] = []
             res_parts: list[str] = []
             ltx_cases: list[str] = []
@@ -1304,6 +1636,26 @@ class ODEEulerCauchySolver(Solver):
                 c_b = sp.Symbol(f"C{2 * idx + 2}")
                 y1_b, y2_b, W_b = get_fundamentals(is_neg=is_neg_iv)
                 gen_sol_b = c_a * y1_b + c_b * y2_b
+                if g_expr is not None:
+                    vop_b = _compute_euler_cauchy_vop(
+                        A=A,
+                        B=B,
+                        C=C,
+                        g_expr=g_expr,
+                        y1_fund=y1_b,
+                        y2_fund=y2_b,
+                        W_fund=W_b,
+                        var=var,
+                        is_neg=is_neg_iv,
+                        initial_point=None,
+                    )
+                    gen_sol_b = gen_sol_b + vop_b.particular_solution
+                    branch_vops.append(vop_b)
+                    if vop_b.is_integral_form:
+                        response_warnings.append(
+                            f"Nghiệm riêng cho vế phải g({var}) = {expr_to_latex(g_expr)} không có nguyên hàm sơ cấp tường minh; "
+                            "hệ thống bảo toàn chính xác biểu diễn tích phân ký hiệu."
+                        )
 
                 v_res_b = self.verifier.verify_second_order(
                     solution=gen_sol_b,
@@ -1311,6 +1663,7 @@ class ODEEulerCauchySolver(Solver):
                     a_coeff=parsed.a_coeff,
                     b_coeff=parsed.b_coeff,
                     c_coeff=parsed.c_coeff,
+                    forcing_expr=g_expr,
                     c1_sym=c_a,
                     c2_sym=c_b,
                     domain_interval=(iv.start, iv.end),
@@ -1375,12 +1728,14 @@ class ODEEulerCauchySolver(Solver):
                 rep_iv = connected_intervals[0]
                 rep_is_neg = rep_iv.end.is_nonpositive is True
                 rep_y1, rep_y2, rep_W = get_fundamentals(is_neg=rep_is_neg)
+                rep_vop = branch_vops[0] if branch_vops else None
                 steps = self._build_solution_steps(
                     var=var,
                     dep_var=dep_var,
                     A=A,
                     B=B,
                     C=C,
+                    g_expr=g_expr,
                     indicial_poly=indicial_poly,
                     delta=delta,
                     root_case=root_case,
@@ -1395,6 +1750,7 @@ class ODEEulerCauchySolver(Solver):
                     dom_desc=norm_domain_latex or f"{var} \\in {format_interval_latex(rep_iv)}",
                     c1_sym=c1_sym,
                     c2_sym=c2_sym,
+                    vop_res=rep_vop,
                     v_res=v_res,
                 )
             else:
@@ -1407,12 +1763,14 @@ class ODEEulerCauchySolver(Solver):
                 rep_iv = connected_intervals[0]
                 rep_is_neg = rep_iv.end.is_nonpositive is True
                 rep_y1, rep_y2, rep_W = get_fundamentals(is_neg=rep_is_neg)
+                rep_vop = branch_vops[0] if branch_vops else None
                 steps = self._build_solution_steps(
                     var=var,
                     dep_var=dep_var,
                     A=A,
                     B=B,
                     C=C,
+                    g_expr=g_expr,
                     indicial_poly=indicial_poly,
                     delta=delta,
                     root_case=root_case,
@@ -1427,6 +1785,8 @@ class ODEEulerCauchySolver(Solver):
                     dom_desc=norm_domain_latex or f"{var} \\in (-\\infty, 0) \\cup (0, \\infty)",
                     c1_sym=c1_sym,
                     c2_sym=c2_sym,
+                    vop_res=rep_vop,
+                    branch_vops=tuple(branch_vops) if branch_vops else None,
                     v_res=v_res,
                     multi_branch=tuple(branch_step_entries),
                 )
@@ -1450,13 +1810,158 @@ class ODEEulerCauchySolver(Solver):
             final_latex=final_latex_str,
             steps=tuple(steps),
             domain_restrictions=tuple(dict.fromkeys(domain_restrictions)),
-            warnings=(),
+            warnings=tuple(dict.fromkeys(response_warnings)),
             execution_time_ms=elapsed,
             branch_solutions=branch_solutions,
             original_domain_latex=orig_domain_latex,
             normalized_domain_latex=norm_domain_latex,
             domain_completeness=overall_comp,
         )
+
+    def _build_vop_pedagogical_steps(
+        self,
+        *,
+        step_idx: int,
+        var: sp.Symbol,
+        dep_var: sp.Symbol,
+        A: sp.Expr,
+        B: sp.Expr,
+        C: sp.Expr,
+        g_expr: sp.Expr,
+        y1_fund: sp.Expr,
+        y2_fund: sp.Expr,
+        W_fund: sp.Expr,
+        vop_res: VariationOfParametersResult,
+    ) -> tuple[list[SolutionStep], int]:
+        """Build Variation of Parameters steps for normalized Euler–Cauchy equation."""
+        steps: list[SolutionStep] = []
+        p_norm = sp.simplify(B / (A * var))
+        q_norm = sp.simplify(C / (A * var**2))
+        r_norm = sp.simplify(g_expr / (A * var**2))
+
+        p_ltx = expr_to_latex(p_norm)
+        q_ltx = expr_to_latex(q_norm)
+        r_ltx = expr_to_latex(r_norm)
+        g_ltx = expr_to_latex(g_expr)
+
+        # Normalize: y'' + P(t)y' + Q(t)y = R(t)
+        norm_eq_ltx = rf"{dep_var}'' + \left({p_ltx}\right){dep_var}' + \left({q_ltx}\right){dep_var} = {r_ltx}"
+        steps.append(
+            SolutionStep(
+                step_number=step_idx,
+                rule_name="Chuẩn hóa và phương pháp Biến thiên hằng số",
+                title="Chuẩn hóa phương trình và thiết lập Biến thiên hằng số",
+                description=(
+                    f"Chia cả hai vế của phương trình cho hệ số dẫn $A{var}^2 = {expr_to_latex(A * var**2)}$ (${var} \\ne 0$) "
+                    f"để đưa về dạng chuẩn tắc $y'' + P({var})y' + Q({var})y = R({var})$:\n"
+                    f"$$P({var}) = \\frac{{B}}{{A{var}}} = {p_ltx}, \\quad "
+                    f"Q({var}) = \\frac{{C}}{{A{var}^2}} = {q_ltx}, \\quad "
+                    f"R({var}) = \\frac{{g({var})}}{{A{var}^2}} = {r_ltx}$$\n"
+                    f"Áp dụng phương pháp Biến thiên hằng số (Lagrange) với nghiệm riêng có dạng "
+                    f"$y_p({var}) = u_1({var})y_1({var}) + u_2({var})y_2({var})$."
+                ),
+                content=ExpressionStepContent(
+                    expression_before=f"{A}*{var}^2*y'' + {B}*{var}*y' + {C}*y = {g_expr}",
+                    expression_after=f"y'' + ({p_norm})*y' + ({q_norm})*y = {r_norm}",
+                    latex_before=rf"{expr_to_latex(A)}\,{var}^2\,y'' + {expr_to_latex(B)}\,{var}\,y' + {expr_to_latex(C)}\,y = {g_ltx}",
+                    latex_after=norm_eq_ltx,
+                ),
+                equation_latex=norm_eq_ltx,
+            )
+        )
+        step_idx += 1
+
+        # Derivatives u1', u2' from Cramer's rule
+        u1p_ltx = expr_to_latex(vop_res.u1_prime)
+        u2p_ltx = expr_to_latex(vop_res.u2_prime)
+        w_ltx = expr_to_latex(W_fund)
+        y1_ltx = expr_to_latex(y1_fund)
+        y2_ltx = expr_to_latex(y2_fund)
+        steps.append(
+            SolutionStep(
+                step_number=step_idx,
+                rule_name="Đạo hàm hàm biến thiên",
+                title="Giải hệ Lagrange tìm đạo hàm u1' và u2'",
+                description=(
+                    f"Với điều kiện phụ trợ Lagrange $u_1'({var})y_1({var}) + u_2'({var})y_2({var}) = 0$ "
+                    f"và $u_1'({var})y_1'({var}) + u_2'({var})y_2'({var}) = R({var})$, quy tắc Cramer cho:\n"
+                    f"$$u_1'({var}) = -\\frac{{y_2({var})R({var})}}{{W({var})}} = -\\frac{{({y2_ltx})({r_ltx})}}{{{w_ltx}}} = {u1p_ltx}$$\n"
+                    f"$$u_2'({var}) = \\frac{{y_1({var})R({var})}}{{W({var})}} = \\frac{{({y1_ltx})({r_ltx})}}{{{w_ltx}}} = {u2p_ltx}$$"
+                ),
+                content=ExpressionStepContent(
+                    expression_before="u1' = -y2*R/W, u2' = y1*R/W",
+                    expression_after=f"u1' = {vop_res.u1_prime}, u2' = {vop_res.u2_prime}",
+                    latex_before=r"u_1' = -\frac{y_2 R}{W}, \quad u_2' = \frac{y_1 R}{W}",
+                    latex_after=rf"u_1'({var}) = {u1p_ltx}, \quad u_2'({var}) = {u2p_ltx}",
+                ),
+                equation_latex=rf"u_1'({var}) = {u1p_ltx}, \quad u_2'({var}) = {u2p_ltx}",
+            )
+        )
+        step_idx += 1
+
+        # Integration to obtain u1, u2
+        u1_ltx = expr_to_latex(vop_res.u1_expr)
+        u2_ltx = expr_to_latex(vop_res.u2_expr)
+        if vop_res.initial_point is not None:
+            t0_ltx = expr_to_latex(vop_res.initial_point)
+            int_note = (
+                f"Tích phân $u_1'({var})$ và $u_2'({var})$ không biểu diễn được qua hàm sơ cấp hữu hạn; "
+                f"bảo toàn chính xác dưới dạng tích phân xác định neo tại ${var}_0 = {t0_ltx}$ ($u_1({t0_ltx}) = u_2({t0_ltx}) = 0$):"
+            )
+        elif vop_res.is_integral_form:
+            int_note = (
+                "Một hoặc cả hai tích phân không có nguyên hàm sơ cấp tường minh; "
+                "bảo toàn chính xác dạng tích phân ký hiệu:"
+            )
+        else:
+            int_note = (
+                f"Lấy nguyên hàm theo biến ${var}$ trên khoảng liên thông đang xét "
+                "(các hằng số tích phân tùy ý đã được gộp vào nghiệm thuần nhất $y_c$):"
+            )
+
+        steps.append(
+            SolutionStep(
+                step_number=step_idx,
+                rule_name="Tích phân hàm biến thiên",
+                title="Tính tích phân xác định các hàm u1 và u2",
+                description=(
+                    f"{int_note}\n"
+                    f"$$u_1({var}) = {u1_ltx}$$\n"
+                    f"$$u_2({var}) = {u2_ltx}$$"
+                ),
+                content=ExpressionStepContent(
+                    expression_before=f"u1 = Integral({vop_res.u1_prime}, {var}), u2 = Integral({vop_res.u2_prime}, {var})",
+                    expression_after=f"u1 = {vop_res.u1_expr}, u2 = {vop_res.u2_expr}",
+                    latex_before=rf"u_1 = \int \left({u1p_ltx}\right)d{var}, \quad u_2 = \int \left({u2p_ltx}\right)d{var}",
+                    latex_after=rf"u_1({var}) = {u1_ltx}, \quad u_2({var}) = {u2_ltx}",
+                ),
+                equation_latex=rf"u_1({var}) = {u1_ltx}, \quad u_2({var}) = {u2_ltx}",
+            )
+        )
+        step_idx += 1
+
+        # Particular solution yp(t) = u1*y1 + u2*y2
+        yp_ltx = expr_to_latex(vop_res.particular_solution)
+        steps.append(
+            SolutionStep(
+                step_number=step_idx,
+                rule_name="Nghiệm riêng biến thiên hằng số",
+                title="Xác định nghiệm riêng y_p(t)",
+                description=(
+                    f"Thay $u_1({var})$ và $u_2({var})$ vào công thức nghiệm riêng:\n"
+                    f"$$y_p({var}) = u_1({var})y_1({var}) + u_2({var})y_2({var}) = {yp_ltx}$$"
+                ),
+                content=ExpressionStepContent(
+                    expression_before="y_p = u1*y1 + u2*y2",
+                    expression_after=f"y_p({var}) = {vop_res.particular_solution}",
+                    latex_before=rf"y_p({var}) = u_1({var})y_1({var}) + u_2({var})y_2({var})",
+                    latex_after=rf"y_p({var}) = {yp_ltx}",
+                ),
+                equation_latex=rf"y_p({var}) = {yp_ltx}",
+            )
+        )
+        step_idx += 1
+        return steps, step_idx
 
     def _build_solution_steps(
         self,
@@ -1479,12 +1984,17 @@ class ODEEulerCauchySolver(Solver):
         dom_desc: str,
         c1_sym: sp.Symbol,
         c2_sym: sp.Symbol,
+        g_expr: sp.Expr | None = None,
+        vop_res: VariationOfParametersResult | None = None,
+        branch_vops: tuple[VariationOfParametersResult, ...] | None = None,
         t0: sp.Expr | None = None,
         y0: sp.Expr | None = None,
         v0: sp.Expr | None = None,
         val_c1: sp.Expr | None = None,
         val_c2: sp.Expr | None = None,
         particular_sol: sp.Expr | None = None,
+        yp_at_t0: sp.Expr | None = None,
+        dyp_at_t0: sp.Expr | None = None,
         v_res: VerificationResult | None = None,
         multi_branch: tuple[tuple[sp.Interval, sp.Expr, sp.Expr, sp.Expr, sp.Symbol, sp.Symbol], ...] | None = None,
     ) -> list[SolutionStep]:
@@ -1493,31 +2003,54 @@ class ODEEulerCauchySolver(Solver):
         step_idx = 1
         basis_var_str = f"(-{var})" if is_neg else str(var)
         basis_var_ltx = rf"(-{var})" if is_neg else str(var)
+        is_nonhomo = g_expr is not None
 
         # -------------------------------------------------------------
         # Step 1: Identify Euler-Cauchy form
         # -------------------------------------------------------------
+        if is_nonhomo:
+            g_ltx = expr_to_latex(g_expr)
+            s1_desc = (
+                f"Phương trình đã cho có dạng phương trình vi phân tuyến tính Euler–Cauchy không thuần nhất cấp 2:\n"
+                f"$$A {var}^2 {dep_var}'' + B {var} {dep_var}' + C {dep_var} = g({var})$$\n"
+                f"với các hệ số thực hằng số:\n"
+                f"$$A = \\frac{{a({var})}}{{{var}^2}} = {expr_to_latex(A)}, \\quad "
+                f"B = \\frac{{b({var})}}{{{var}}} = {expr_to_latex(B)}, \\quad "
+                f"C = c({var}) = {expr_to_latex(C)}, \\quad "
+                f"g({var}) = {g_ltx}$$\n"
+                f"Phương trình thuần nhất liên kết là ${expr_to_latex(A)}\\,{var}^2 {dep_var}'' + {expr_to_latex(B)}\\,{var} {dep_var}' + {expr_to_latex(C)} {dep_var} = 0$."
+            )
+            s1_content = ExpressionStepContent(
+                expression_before=f"a({var})*y'' + b({var})*y' + c({var})*y = g({var})",
+                expression_after=f"{A}*{var}^2*y'' + {B}*{var}*y' + {C}*y = {g_expr}",
+                latex_before=rf"a({var})\,y'' + b({var})\,y' + c({var})\,y = g({var})",
+                latex_after=rf"{expr_to_latex(A)}\,{var}^2\,y'' + {expr_to_latex(B)}\,{var}\,y' + {expr_to_latex(C)}\,y = {g_ltx}",
+            )
+        else:
+            s1_desc = (
+                f"Phương trình đã cho có dạng phương trình vi phân tuyến tính Euler–Cauchy thuần nhất cấp 2:\n"
+                f"$$A {var}^2 {dep_var}'' + B {var} {dep_var}' + C {dep_var} = 0$$\n"
+                f"với các hệ số thực hằng số:\n"
+                f"$$A = \\frac{{a({var})}}{{{var}^2}} = {expr_to_latex(A)}, \\quad "
+                f"B = \\frac{{b({var})}}{{{var}}} = {expr_to_latex(B)}, \\quad "
+                f"C = c({var}) = {expr_to_latex(C)}$$\n"
+                f"Phương trình có bậc của biến độc lập {var} tương ứng chính xác với cấp của đạo hàm "
+                f"(${var}^2 y''$, ${var} y'$, $y$), khác biệt hoàn toàn với phương trình hệ số hằng."
+            )
+            s1_content = ExpressionStepContent(
+                expression_before=f"a({var})*y'' + b({var})*y' + c({var})*y = 0",
+                expression_after=f"{A}*{var}^2*y'' + {B}*{var}*y' + {C}*y = 0",
+                latex_before=rf"a({var})\,y'' + b({var})\,y' + c({var})\,y = 0",
+                latex_after=rf"{expr_to_latex(A)}\,{var}^2\,y'' + {expr_to_latex(B)}\,{var}\,y' + {expr_to_latex(C)}\,y = 0",
+            )
+
         steps.append(
             SolutionStep(
                 step_number=step_idx,
                 rule_name="Nhận dạng dạng phương trình Euler–Cauchy",
                 title="Nhận dạng dạng phương trình Euler–Cauchy",
-                description=(
-                    f"Phương trình đã cho có dạng phương trình vi phân tuyến tính Euler–Cauchy thuần nhất cấp 2:\n"
-                    f"$$A {var}^2 {dep_var}'' + B {var} {dep_var}' + C {dep_var} = 0$$\n"
-                    f"với các hệ số thực hằng số:\n"
-                    f"$$A = \\frac{{a({var})}}{{{var}^2}} = {expr_to_latex(A)}, \\quad "
-                    f"B = \\frac{{b({var})}}{{{var}}} = {expr_to_latex(B)}, \\quad "
-                    f"C = c({var}) = {expr_to_latex(C)}$$\n"
-                    f"Phương trình có bậc của biến độc lập {var} tương ứng chính xác với cấp của đạo hàm "
-                    f"(${var}^2 y''$, ${var} y'$, $y$), khác biệt hoàn toàn với phương trình hệ số hằng."
-                ),
-                content=ExpressionStepContent(
-                    expression_before=f"a({var})*y'' + b({var})*y' + c({var})*y = 0",
-                    expression_after=f"{A}*{var}^2*y'' + {B}*{var}*y' + {C}*y = 0",
-                    latex_before=rf"a({var})\,y'' + b({var})\,y' + c({var})\,y = 0",
-                    latex_after=rf"{expr_to_latex(A)}\,{var}^2\,y'' + {expr_to_latex(B)}\,{var}\,y' + {expr_to_latex(C)}\,y = 0",
-                ),
+                description=s1_desc,
+                content=s1_content,
             )
         )
         step_idx += 1
@@ -1706,6 +2239,47 @@ class ODEEulerCauchySolver(Solver):
         step_idx += 1
 
         # -------------------------------------------------------------
+        # Optional Step 5b & VoP steps for Nonhomogeneous Euler-Cauchy
+        # -------------------------------------------------------------
+        if is_nonhomo and vop_res is not None:
+            yc_expr = c1_sym * y1_fund + c2_sym * y2_fund
+            yc_ltx = expr_to_latex(yc_expr)
+            steps.append(
+                SolutionStep(
+                    step_number=step_idx,
+                    rule_name="Nghiệm thuần nhất liên kết",
+                    title="Xác định nghiệm thuần nhất liên kết y_c(t)",
+                    description=(
+                        f"Từ hệ nghiệm cơ bản $\\{{y_1, y_2\\}}$, nghiệm của phương trình thuần nhất liên kết là:\n"
+                        f"$$y_c({var}) = C_1 y_1({var}) + C_2 y_2({var}) = {yc_ltx}$$"
+                    ),
+                    content=ExpressionStepContent(
+                        expression_before="y_c = C1*y1 + C2*y2",
+                        expression_after=f"y_c({var}) = {yc_expr}",
+                        latex_before=rf"y_c({var}) = C_1 y_1({var}) + C_2 y_2({var})",
+                        latex_after=rf"y_c({var}) = {yc_ltx}",
+                    ),
+                    equation_latex=rf"y_c({var}) = {yc_ltx}",
+                )
+            )
+            step_idx += 1
+
+            vop_steps, step_idx = self._build_vop_pedagogical_steps(
+                step_idx=step_idx,
+                var=var,
+                dep_var=dep_var,
+                A=A,
+                B=B,
+                C=C,
+                g_expr=g_expr,  # type: ignore[arg-type]
+                y1_fund=y1_fund,
+                y2_fund=y2_fund,
+                W_fund=W_fund,
+                vop_res=vop_res,
+            )
+            steps.extend(vop_steps)
+
+        # -------------------------------------------------------------
         # Step 6: Assemble the general solution
         # -------------------------------------------------------------
         if multi_branch is not None:
@@ -1713,7 +2287,7 @@ class ODEEulerCauchySolver(Solver):
             case_lines: list[str] = []
             exp_after_parts: list[str] = []
             const_syms_list: list[str] = []
-            for iv_b, sol_b, y1_b, y2_b, ca_b, cb_b in multi_branch:
+            for idx_b, (iv_b, sol_b, y1_b, y2_b, ca_b, cb_b) in enumerate(multi_branch):
                 if iv_b == sp.Interval.open(0, sp.oo):
                     cond_ltx = rf"\text{{khi }} {var} > 0"
                     lbl = "pos"
@@ -1723,8 +2297,11 @@ class ODEEulerCauchySolver(Solver):
                 else:
                     cond_ltx = rf"\text{{khi }} {var} \in {format_interval_latex(iv_b)}"
                     lbl = format_interval_latex(iv_b)
+                yp_b_ltx = ""
+                if is_nonhomo and branch_vops and idx_b < len(branch_vops):
+                    yp_b_ltx = f" + {expr_to_latex(branch_vops[idx_b].particular_solution)}"
                 aligned_lines.append(
-                    rf"y({var}) &= {ca_b.name[0]}_{{{ca_b.name[1:]}}} {expr_to_latex(y1_b)} + {cb_b.name[0]}_{{{cb_b.name[1:]}}} {expr_to_latex(y2_b)} = {expr_to_latex(sol_b)} \quad ({cond_ltx})"
+                    rf"y({var}) &= {ca_b.name[0]}_{{{ca_b.name[1:]}}} {expr_to_latex(y1_b)} + {cb_b.name[0]}_{{{cb_b.name[1:]}}} {expr_to_latex(y2_b)}{yp_b_ltx} = {expr_to_latex(sol_b)} \quad ({cond_ltx})"
                 )
                 case_lines.append(rf"{expr_to_latex(sol_b)} & {cond_ltx}")
                 exp_after_parts.append(f"y_{lbl} = {sol_b}")
@@ -1744,6 +2321,25 @@ class ODEEulerCauchySolver(Solver):
             gen_ltx_after = (
                 rf"y({var}) = \begin{{cases}} " + r" \\ ".join(case_lines) + r" \end{cases}"
             )
+            gen_before_str = "y = y_c + y_p" if is_nonhomo else "y = C1*y1 + C2*y2"
+            gen_before_ltx = rf"y({var}) = y_c({var}) + y_p({var})" if is_nonhomo else rf"y({var}) = C_1 y_1({var}) + C_2 y_2({var})"
+        elif is_nonhomo and vop_res is not None:
+            yc_expr = c1_sym * y1_fund + c2_sym * y2_fund
+            yp_expr = vop_res.particular_solution
+            gen_sol_combined = (
+                (sp.simplify(yc_expr) + yp_expr)
+                if vop_res.is_integral_form
+                else sp.simplify(yc_expr + yp_expr)
+            )
+            gen_desc = (
+                f"Tổng hợp nghiệm tổng quát theo nguyên lý chồng chất $y({var}) = y_c({var}) + y_p({var})$:\n"
+                f"$$y({var}) = {expr_to_latex(gen_sol_combined)}$$\n"
+                f"với $C_1, C_2 \\in \\mathbb{{R}}$ là các hằng số tích phân tùy ý; miền xác định: ${dom_desc}$."
+            )
+            gen_exp_after = f"y({var}) = {gen_sol_combined}"
+            gen_ltx_after = rf"y({var}) = {expr_to_latex(gen_sol_combined)}"
+            gen_before_str = "y = y_c + y_p"
+            gen_before_ltx = rf"y({var}) = y_c({var}) + y_p({var})"
         else:
             gen_sol_combined = sp.simplify(c1_sym * y1_fund + c2_sym * y2_fund)
             gen_desc = (
@@ -1753,6 +2349,8 @@ class ODEEulerCauchySolver(Solver):
             )
             gen_exp_after = f"y({var}) = {gen_sol_combined}"
             gen_ltx_after = rf"y({var}) = {expr_to_latex(gen_sol_combined)}"
+            gen_before_str = "y = C1*y1 + C2*y2"
+            gen_before_ltx = r"y(t) = C_1 y_1(t) + C_2 y_2(t)"
 
         steps.append(
             SolutionStep(
@@ -1761,9 +2359,9 @@ class ODEEulerCauchySolver(Solver):
                 title="Thiết lập nghiệm tổng quát trên miền xác định",
                 description=gen_desc,
                 content=ExpressionStepContent(
-                    expression_before="y = C1*y1 + C2*y2",
+                    expression_before=gen_before_str,
                     expression_after=gen_exp_after,
-                    latex_before=r"y(t) = C_1 y_1(t) + C_2 y_2(t)",
+                    latex_before=gen_before_ltx,
                     latex_after=gen_ltx_after,
                 ),
             )
@@ -1780,6 +2378,16 @@ class ODEEulerCauchySolver(Solver):
             y2_0 = sp.simplify(y2_fund.subs(var, t0))
             dy1_0 = sp.simplify(dy1_fund.subs(var, t0))
             dy2_0 = sp.simplify(dy2_fund.subs(var, t0))
+            rhs1 = sp.simplify(y0 - (yp_at_t0 if yp_at_t0 is not None else sp.Integer(0)))
+            rhs2 = sp.simplify(v0 - (dyp_at_t0 if dyp_at_t0 is not None else sp.Integer(0)))
+            rhs_note = (
+                (
+                    f"\n(Trong đó $y_p({expr_to_latex(t0)}) = {expr_to_latex(yp_at_t0 or 0)}$ và "
+                    f"$y_p'({expr_to_latex(t0)}) = {expr_to_latex(dyp_at_t0 or 0)}$.)"
+                )
+                if is_nonhomo
+                else ""
+            )
 
             ivp_substeps = (
                 SolutionStep(
@@ -1787,17 +2395,17 @@ class ODEEulerCauchySolver(Solver):
                     rule_name="Thiết lập hệ Cauchy",
                     title="Thay điều kiện ban đầu vào nghiệm tổng quát",
                     description=(
-                        f"Thay điểm ban đầu ${var}_0 = {expr_to_latex(t0)}$ vào $y({var})$ và $y'({var})$:\n"
+                        f"Thay điểm ban đầu ${var}_0 = {expr_to_latex(t0)}$ vào $y({var})$ và $y'({var})$:{rhs_note}\n"
                         f"$$\\begin{{cases}} "
-                        f"C_1 \\cdot ({expr_to_latex(y1_0)}) + C_2 \\cdot ({expr_to_latex(y2_0)}) = {expr_to_latex(y0)} \\\\ "
-                        f"C_1 \\cdot ({expr_to_latex(dy1_0)}) + C_2 \\cdot ({expr_to_latex(dy2_0)}) = {expr_to_latex(v0)} "
+                        f"C_1 \\cdot ({expr_to_latex(y1_0)}) + C_2 \\cdot ({expr_to_latex(y2_0)}) = {expr_to_latex(rhs1)} \\\\ "
+                        f"C_1 \\cdot ({expr_to_latex(dy1_0)}) + C_2 \\cdot ({expr_to_latex(dy2_0)}) = {expr_to_latex(rhs2)} "
                         f"\\end{{cases}}$$"
                     ),
                     content=ExpressionStepContent(
                         expression_before=f"y({t0}) = {y0}, y'({t0}) = {v0}",
-                        expression_after=f"C1*{y1_0} + C2*{y2_0} = {y0}",
+                        expression_after=f"C1*{y1_0} + C2*{y2_0} = {rhs1}",
                         latex_before=rf"y({expr_to_latex(t0)}) = {expr_to_latex(y0)}, \quad y'({expr_to_latex(t0)}) = {expr_to_latex(v0)}",
-                        latex_after=rf"C_1({expr_to_latex(y1_0)}) + C_2({expr_to_latex(y2_0)}) = {expr_to_latex(y0)}",
+                        latex_after=rf"C_1({expr_to_latex(y1_0)}) + C_2({expr_to_latex(y2_0)}) = {expr_to_latex(rhs1)}",
                     ),
                 ),
                 SolutionStep(
@@ -1856,21 +2464,23 @@ class ODEEulerCauchySolver(Solver):
         # -------------------------------------------------------------
         # Final Step: Independent verification (status derived strictly from v_res)
         # -------------------------------------------------------------
+        res_rhs_raw = f" - ({g_expr})" if is_nonhomo else ""
+        res_rhs_ltx = f" - \\left({expr_to_latex(g_expr)}\\right)" if is_nonhomo else ""
         if is_verified:
             res_substep = SolutionStep(
                 step_number=1,
                 rule_name="Kiểm chứng phương trình vi phân",
-                title="Kiểm chứng vế trái phương trình Euler–Cauchy",
+                title="Kiểm chứng phương trình Euler–Cauchy",
                 description=(
                     f"Thay nghiệm vào phương trình vi phân ban đầu:\n"
-                    f"$$R({var}) = {expr_to_latex(A)}\\,{var}^2\\,y'' + {expr_to_latex(B)}\\,{var}\\,y' + {expr_to_latex(C)}\\,y "
+                    f"$$R({var}) = {expr_to_latex(A)}\\,{var}^2\\,y'' + {expr_to_latex(B)}\\,{var}\\,y' + {expr_to_latex(C)}\\,y{res_rhs_ltx} "
                     f"\\equiv 0$$\n"
                     f"Biểu thức dư được kiểm chứng triệt tiêu hoàn toàn bằng phương pháp ký hiệu exact."
                 ),
                 content=ExpressionStepContent(
-                    expression_before=f"R({var}) = a*{var}^2*y'' + b*{var}*y' + c*y",
+                    expression_before=f"R({var}) = a*{var}^2*y'' + b*{var}*y' + c*y{res_rhs_raw}",
                     expression_after=f"R({var}) = 0",
-                    latex_before=rf"R({var}) = {expr_to_latex(A)}\,{var}^2\,y'' + {expr_to_latex(B)}\,{var}\,y' + {expr_to_latex(C)}\,y",
+                    latex_before=rf"R({var}) = {expr_to_latex(A)}\,{var}^2\,y'' + {expr_to_latex(B)}\,{var}\,y' + {expr_to_latex(C)}\,y{res_rhs_ltx}",
                     latex_after=rf"R({var}) \equiv 0",
                 ),
             )
@@ -1894,15 +2504,15 @@ class ODEEulerCauchySolver(Solver):
             res_substep = SolutionStep(
                 step_number=1,
                 rule_name="Kiểm chứng phương trình vi phân",
-                title="Kiểm chứng vế trái phương trình Euler–Cauchy (Thất bại)",
+                title="Kiểm chứng phương trình Euler–Cauchy (Thất bại)",
                 description=(
                     f"Kiểm chứng độc lập phát hiện sai lệch (FAILED):\n"
                     f"{v_details or f'Biểu thức dư R({var}) không thỏa mãn phương trình.'}"
                 ),
                 content=ExpressionStepContent(
-                    expression_before=f"R({var}) = a*{var}^2*y'' + b*{var}*y' + c*y",
+                    expression_before=f"R({var}) = a*{var}^2*y'' + b*{var}*y' + c*y{res_rhs_raw}",
                     expression_after=f"R({var}) FAILED",
-                    latex_before=rf"R({var}) = {expr_to_latex(A)}\,{var}^2\,y'' + {expr_to_latex(B)}\,{var}\,y' + {expr_to_latex(C)}\,y",
+                    latex_before=rf"R({var}) = {expr_to_latex(A)}\,{var}^2\,y'' + {expr_to_latex(B)}\,{var}\,y' + {expr_to_latex(C)}\,y{res_rhs_ltx}",
                     latex_after=rf"R({var}) \quad (\text{{FAILED}})",
                 ),
             )
@@ -1925,15 +2535,15 @@ class ODEEulerCauchySolver(Solver):
             res_substep = SolutionStep(
                 step_number=1,
                 rule_name="Kiểm chứng phương trình vi phân",
-                title="Kiểm chứng vế trái phương trình Euler–Cauchy (Chưa kết luận)",
+                title="Kiểm chứng phương trình Euler–Cauchy (Chưa kết luận)",
                 description=(
                     f"Chưa thể kiểm chứng hoàn toàn biểu thức dư $R({var})$ bằng phương pháp ký hiệu (UNVERIFIED):\n"
                     f"{v_details or 'Kết quả kiểm chứng chưa thể xác nhận hoàn toàn.'}"
                 ),
                 content=ExpressionStepContent(
-                    expression_before=f"R({var}) = a*{var}^2*y'' + b*{var}*y' + c*y",
+                    expression_before=f"R({var}) = a*{var}^2*y'' + b*{var}*y' + c*y{res_rhs_raw}",
                     expression_after=f"R({var}) UNVERIFIED",
-                    latex_before=rf"R({var}) = {expr_to_latex(A)}\,{var}^2\,y'' + {expr_to_latex(B)}\,{var}\,y' + {expr_to_latex(C)}\,y",
+                    latex_before=rf"R({var}) = {expr_to_latex(A)}\,{var}^2\,y'' + {expr_to_latex(B)}\,{var}\,y' + {expr_to_latex(C)}\,y{res_rhs_ltx}",
                     latex_after=rf"R({var}) \quad (\text{{UNVERIFIED}})",
                 ),
             )
@@ -2027,7 +2637,7 @@ class ODEEulerCauchySolver(Solver):
                 content=ExpressionStepContent(
                     expression_before=f"Residual check R({var})",
                     expression_after=parent_exp_after,
-                    latex_before=rf"R({var}) = a\,{var}^2 y'' + b\,{var} y' + c\,y",
+                    latex_before=rf"R({var}) = a\,{var}^2 y'' + b\,{var} y' + c\,y{res_rhs_ltx}",
                     latex_after=parent_ltx_after,
                 ),
                 substeps=tuple(verif_substeps),
